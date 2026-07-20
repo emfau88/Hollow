@@ -81,6 +81,7 @@ export class HudController {
           <button class="icon-btn" data-speed="2" title="Doppelte Geschwindigkeit">▶▶</button>
           <button class="icon-btn" data-action="fit" title="Karte einpassen">⌖</button>
           <button class="icon-btn" data-action="audio" title="Audio umschalten">♪</button>
+          <button class="icon-btn" data-action="fullscreen" title="Vollbild umschalten">⛶</button>
         </div>
       </div>
       <div class="left-column">
@@ -162,11 +163,26 @@ export class HudController {
       const muted = this.callbacks.toggleAudio();
       (event.currentTarget as HTMLElement).textContent = muted ? '×' : '♪';
     });
+    this.root.querySelector('[data-action="fullscreen"]')?.addEventListener('click', () => {
+      this.toggleFullscreen();
+    });
     this.root.querySelector('[data-action="begin"]')?.addEventListener('click', () => {
       this.modal.classList.add('hidden');
       this.started = true;
+      if (window.matchMedia('(max-width: 900px)').matches) this.enterFullscreen();
       this.callbacks.begin();
     });
+  }
+
+  private enterFullscreen(): void {
+    const target = document.documentElement;
+    if (document.fullscreenElement || !target.requestFullscreen) return;
+    void target.requestFullscreen().catch(() => undefined);
+  }
+
+  private toggleFullscreen(): void {
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
+    else this.enterFullscreen();
   }
 
   update(state: HudState): void {
