@@ -2,6 +2,7 @@
 
 ## 1.0.0 – 20. Juli 2026
 
+- Sites-kompatible Produktionshülle für die statische Vite-Anwendung
 - vollständige handgebaute 64×40-Untergrundkarte
 - Mobile-first-HUD und Querformat-Sperre
 - Kamera mit Pan, Zoom, Fit und Tastatursteuerung
