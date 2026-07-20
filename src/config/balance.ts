@@ -1,0 +1,38 @@
+export const BALANCE = {
+  mapWidth: 64,
+  mapHeight: 40,
+  tileSize: 28,
+  startingMetal: 10,
+  startingRations: 2,
+  startingEssence: 0,
+  heartHp: 300,
+  digSeconds: 1.5,
+  mineSeconds: 2.5,
+  workerSpeed: 3.7,
+  combatSpeed: 2.35,
+  recruitmentSeconds: {
+    guard: 5,
+    archer: 6,
+    hexbinder: 8,
+  },
+  waveTimes: [150, 330],
+  hungerSeconds: 150,
+  pulseCost: 5,
+  pulseCooldown: 30,
+} as const;
+
+export const COLORS = {
+  void: 0x08090d,
+  rock: 0x262936,
+  rockHi: 0x333746,
+  floor: 0x141821,
+  floorHi: 0x1b202b,
+  gold: 0xd3a84a,
+  cream: 0xe9dfc2,
+  blood: 0xa9484d,
+  teal: 0x56a29a,
+  essence: 0x7568bd,
+  fungus: 0x6f9b62,
+  iron: 0x9c6b58,
+  blue: 0x628eb4,
+} as const;
