@@ -14,12 +14,15 @@ import {
   type UnitKind,
 } from '../data/definitions';
 import { HudController, type HudState } from '../ui/HudController';
+import { TerrainRenderer, type TerrainQuery } from '../core/TerrainRenderer';
+import { HOLLOW_TERRAIN as TF, HOLLOW_TERRAIN_TILE } from '../config/HollowTerrainFrames';
+import { workerTaskOrder, type RoutineWorkerTask } from '../core/WorkerPriorities';
 
 const TILE = BALANCE.tileSize;
 const W = BALANCE.mapWidth;
 const H = BALANCE.mapHeight;
 
-type JobKind = 'idle' | 'dig' | 'mine' | 'pickup' | 'deliver' | 'prisoner-pick' | 'prisoner-deliver';
+type JobKind = 'idle' | 'dig' | 'claim' | 'mine' | 'pickup' | 'deliver' | 'prisoner-pick' | 'prisoner-deliver';
 type EnemyKind = 'crawler' | 'dwarf' | 'crossbow' | 'adept' | 'captain' | 'scout' | 'warden';
 
 interface Worker {
@@ -140,10 +143,33 @@ const symbolForItem: Record<ItemKind, string> = {
   armour: '⬟',
 };
 
+type TileGeology = 'solid' | 'excavated';
+type TileVisibility = 'hidden' | 'charted' | 'revealed';
+type TileControl = 'neutral' | 'claiming' | 'owned' | 'enemy';
+type TileConstruction = 'none' | 'planned' | 'building' | 'complete';
+type TileRoomKind = RoomKind | 'heart';
+
+interface WorldTile {
+  geology: TileGeology;
+  visibility: TileVisibility;
+  control: TileControl;
+  construction: TileConstruction;
+  roomId?: number;
+  roomKind?: TileRoomKind;
+}
+
+// Claimed floor is painted over the starting cavern around the heart so it reads
+// as a deliberately settled space rather than a raw tunnel.
+const NORTH_SHIFT = 8;
+const sy = (y: number) => y + NORTH_SHIFT;
+const HEART_TILE = { x: 32, y: sy(22) };
+// Heart floor: the 3×3 around the heart uses the dedicated heart floor frame.
+const HEART_FLOOR = { x: 31, y: sy(21), w: 3, h: 3 };
+
 export class GameScene extends Phaser.Scene {
-  private map: number[][] = [];
-  private known: boolean[][] = [];
+  private tiles: WorldTile[][] = [];
   private terrain!: Phaser.GameObjects.Graphics;
+  private terrainRenderer!: TerrainRenderer;
   private detail!: Phaser.GameObjects.Graphics;
   private preview!: Phaser.GameObjects.Graphics;
   private statusLayer!: Phaser.GameObjects.Graphics;
@@ -160,6 +186,8 @@ export class GameScene extends Phaser.Scene {
   private prisoner?: Prisoner;
 
   private nextId = 1;
+  private roomGlows: Phaser.GameObjects.GameObject[] = [];
+  private roomProps: Phaser.GameObjects.Image[] = [];
   private digMarks = new Set<string>();
   private tool: ToolKind = 'pan';
   private dragStart?: GridPoint;
@@ -183,7 +211,7 @@ export class GameScene extends Phaser.Scene {
   private phase = 1;
   private currentWave = 0;
   private bannerAttack?: GridPoint;
-  private bannerDefend: GridPoint = { x: 32, y: 34 };
+  private bannerDefend: GridPoint = { ...HEART_TILE };
   private bannerAttackSprite?: Phaser.GameObjects.Container;
   private bannerDefendSprite?: Phaser.GameObjects.Container;
   private pulseCooldown = 0;
@@ -213,6 +241,38 @@ export class GameScene extends Phaser.Scene {
     super('GameScene');
   }
 
+  preload(): void {
+    // Terrain is built as a calm in-engine atlas in makeTextures(). Loading an
+    // external pebble sheet here made the entire world shimmer while panning.
+    this.load.image('generated-covenant-heart', 'assets/generated/covenant-heart.png');
+    this.load.image('resource-iron-vein', 'assets/generated/resources-v2/iron-vein.png');
+    this.load.image('resource-iron-depleted', 'assets/generated/resources-v2/iron-vein-depleted.png');
+    this.load.image('resource-fungus-cluster', 'assets/generated/resources-v2/fungus-cluster.png');
+    this.load.image('resource-essence-seal', 'assets/generated/resources-v2/essence-seal.png');
+    this.load.spritesheet('terrain-v3-rock', 'assets/generated/terrain-v3/rock-top.png?v=3-16c', {
+      frameWidth: TILE,
+      frameHeight: TILE,
+    });
+    this.load.spritesheet('terrain-v3-raw-floor', 'assets/generated/terrain-v3/raw-floor.png?v=3-16c', {
+      frameWidth: TILE,
+      frameHeight: TILE,
+    });
+    this.load.spritesheet('terrain-v3-claimed-floor', 'assets/generated/terrain-v3/claimed-floor.png?v=3-16c', {
+      frameWidth: TILE,
+      frameHeight: TILE,
+    });
+    this.load.image('terrain-v3-wall-edge', 'assets/generated/terrain-v3/wall-edge.png');
+    this.load.image('terrain-v3-wall-corner', 'assets/generated/terrain-v3/wall-corner.png');
+    this.load.image('terrain-v3-claimed-border', 'assets/generated/terrain-v3/claimed-border.png');
+    this.load.image('terrain-v3-enemy-border', 'assets/generated/terrain-v3/enemy-border.png');
+    this.load.image('room-prop-bed', 'assets/generated/room-props-v3/bed.png');
+    this.load.image('room-prop-cauldron', 'assets/generated/room-props-v3/cauldron.png');
+    this.load.image('room-prop-furnace', 'assets/generated/room-props-v3/furnace.png');
+    this.load.image('room-prop-workbench', 'assets/generated/room-props-v3/workbench.png');
+    this.load.image('room-prop-prison', 'assets/generated/room-props-v3/prison-gate.png');
+    this.load.image('room-prop-storage', 'assets/generated/room-props-v3/storage.png');
+  }
+
   create(): void {
     this.makeTextures();
     this.createMap();
@@ -220,8 +280,17 @@ export class GameScene extends Phaser.Scene {
     this.detail = this.add.graphics().setDepth(4);
     this.preview = this.add.graphics().setDepth(60);
     this.statusLayer = this.add.graphics().setDepth(55);
-    this.drawWorld();
+    this.terrainRenderer = new TerrainRenderer(this, {
+      rock: 'terrain-v3-rock',
+      rawFloor: 'terrain-v3-raw-floor',
+      claimedFloor: 'terrain-v3-claimed-floor',
+      wallEdge: 'terrain-v3-wall-edge',
+      wallCorner: 'terrain-v3-wall-corner',
+      claimedBorder: 'terrain-v3-claimed-border',
+      enemyBorder: 'terrain-v3-enemy-border',
+    }, TILE, W, H);
     this.createNodes();
+    this.drawWorld();
     this.createStartingPopulation();
     this.createBanner('defend', this.bannerDefend);
     this.setupHud();
@@ -229,8 +298,8 @@ export class GameScene extends Phaser.Scene {
     this.setupInput();
 
     this.cameras.main.setBounds(0, 0, W * TILE, H * TILE);
-    this.cameras.main.setZoom(1.15);
-    this.cameras.main.centerOn(32 * TILE, 33 * TILE);
+    this.cameras.main.setZoom(1);
+    this.cameras.main.centerOn(HEART_TILE.x * TILE, HEART_TILE.y * TILE);
     this.cameras.main.setBackgroundColor(COLORS.void);
 
     this.time.addEvent({
@@ -240,7 +309,7 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.scale.on('resize', () => {
-      if (window.innerWidth < 950) this.cameras.main.setZoom(0.92);
+      if (window.innerWidth < 950) this.cameras.main.setZoom(0.8);
     });
   }
 
@@ -286,7 +355,9 @@ export class GameScene extends Phaser.Scene {
       this.updateHud();
     });
     panel.querySelector('[data-debug="reveal"]')?.addEventListener('click', () => {
-      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) this.known[y][x] = true;
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) this.tiles[y][x].visibility = 'revealed';
+      }
       for (const node of this.nodes) {
         node.discovered = true;
         node.sprite?.setVisible(true);
@@ -310,26 +381,29 @@ export class GameScene extends Phaser.Scene {
         node.discovered = true;
         node.claimed = true;
         node.owner = 'player';
+        this.setChamberControl(node, 'owned');
         node.sprite?.setVisible(true);
       }
       for (const enemy of this.enemies.filter((candidate) => candidate.origin)) enemy.sprite.destroy();
       this.enemies = this.enemies.filter((candidate) => !candidate.origin);
       const debugRooms: Array<{ kind: RoomKind; x: number; y: number; w: number; h: number }> = [
-        { kind: 'kitchen', x: 26, y: 30, w: 2, h: 3 },
-        { kind: 'smelter', x: 28, y: 30, w: 2, h: 3 },
-        { kind: 'workshop', x: 34, y: 30, w: 2, h: 3 },
-        { kind: 'bedroom', x: 36, y: 30, w: 2, h: 4 },
-        { kind: 'prison', x: 34, y: 35, w: 2, h: 3 },
+        { kind: 'kitchen', x: 26, y: sy(18), w: 2, h: 3 },
+        { kind: 'smelter', x: 28, y: sy(18), w: 2, h: 3 },
+        { kind: 'workshop', x: 34, y: sy(18), w: 2, h: 3 },
+        { kind: 'bedroom', x: 36, y: sy(18), w: 2, h: 4 },
+        { kind: 'prison', x: 34, y: sy(23), w: 2, h: 3 },
       ];
       for (const room of debugRooms) {
         if (!this.rooms.some((candidate) => candidate.kind === room.kind)) {
-          this.rooms.push({ id: this.nextId++, ...room, progress: 0, activeRecipe: false });
+          const builtRoom: Room = { id: this.nextId++, ...room, progress: 0, activeRecipe: false };
+          this.rooms.push(builtRoom);
+          this.assignRoomTiles(builtRoom, 'complete');
         }
       }
       if (this.units.length < 4) {
-        this.createUnit('guard', 31, 33, true);
-        this.createUnit('archer', 33, 33, true);
-        this.createUnit('hexbinder', 34, 34, true);
+        this.createUnit('guard', 31, sy(21), true);
+        this.createUnit('archer', 33, sy(21), true);
+        this.createUnit('hexbinder', 34, sy(22), true);
       }
       this.phase = 5;
       this.drawWorld();
@@ -363,7 +437,18 @@ export class GameScene extends Phaser.Scene {
       loop: true,
       callback: () => {
         const value = panel.querySelector('[data-debug-value]');
-        if (value) value.textContent = `Phase ${this.phase} · ${this.workers.length} Arbeiter · ${this.items.length} lose Güter · 0 Pfadfehler`;
+        if (value) {
+          const count = (states: JobKind[]) => this.workers.filter((worker) => states.includes(worker.state)).length;
+          value.textContent = [
+            `Phase ${this.phase}`,
+            `${count(['dig'])} graben`,
+            `${count(['claim'])} beanspruchen`,
+            `${count(['mine'])} abbauen`,
+            `${count(['pickup', 'deliver'])} transportieren`,
+            `${this.items.length} lose Güter`,
+            '0 Pfadfehler',
+          ].join(' · ');
+        }
       },
     });
   }
@@ -546,32 +631,263 @@ export class GameScene extends Phaser.Scene {
         g.lineStyle(1, 0xf2e3bc, 0.55).strokeCircle(7, 7, 4);
       });
     }
+
+  }
+
+  /**
+   * Creates the complete 28 px terrain atlas in code. The prior pebble texture
+   * put high-contrast detail into every tile; this version reserves contrast for
+   * edges, cracks, rooms and resources, leaving broad rock and ground readable
+   * during camera movement.
+   */
+  private makeCalmTerrainAtlas(): void {
+    const key = 'hollow-terrain';
+    if (this.textures.exists(key)) this.textures.remove(key);
+
+    const columns = 11;
+    const rows = 4;
+    const atlasWidth = columns * TILE;
+    const atlasHeight = rows * TILE;
+    const g = this.make.graphics({ x: 0, y: 0 });
+    const at = (frame: number) => ({ x: (frame % columns) * TILE, y: Math.floor(frame / columns) * TILE });
+    const fill = (frame: number, color: number) => {
+      const p = at(frame);
+      g.fillStyle(color).fillRect(p.x, p.y, TILE, TILE);
+      return p;
+    };
+    const slab = (frame: number, base: number, shade: number, highlight: number, crack = false) => {
+      const p = fill(frame, base);
+      // Rock must read as one large mass. Per-tile triangles made the terrain
+      // vibrate into a checkerboard as soon as the camera moved. The atlas
+      // keeps only a whisper of depth; real contrast is applied at edges.
+      g.fillStyle(shade, 0.14).fillRect(p.x, p.y, TILE, 2);
+      g.fillStyle(highlight, 0.07).fillRect(p.x, p.y + TILE - 2, TILE, 2);
+      if (crack) {
+        g.lineStyle(1, 0x0a0c10, 0.52)
+          .lineBetween(p.x + 6, p.y + 4, p.x + 13, p.y + 11)
+          .lineBetween(p.x + 13, p.y + 11, p.x + 11, p.y + 21)
+          .lineBetween(p.x + 13, p.y + 11, p.x + 22, p.y + 15);
+      }
+    };
+
+    // 0–9: quiet solid rock and rare resource hints.
+    slab(TF.ROCK_MASSIVE_0, 0x1b2028, 0x11151b, 0x303844);
+    slab(TF.ROCK_MASSIVE_1, 0x20252d, 0x141820, 0x35404b);
+    slab(TF.ROCK_BRITTLE, 0x252830, 0x171a20, 0x3d424b, true);
+    slab(TF.ROCK_DAMP, 0x192127, 0x10171c, 0x2e3a40);
+    {
+      const p = at(TF.ROCK_DAMP);
+      g.fillStyle(0x39535a, 0.26).fillEllipse(p.x + 18, p.y + 19, 15, 7);
+    }
+    slab(TF.ROCK_MOSS, 0x20251f, 0x141816, 0x3a4032);
+    {
+      const p = at(TF.ROCK_MOSS);
+      g.fillStyle(0x556f3e, 0.62).fillEllipse(p.x + 19, p.y + 18, 9, 5).fillCircle(p.x + 15, p.y + 21, 2);
+    }
+    const hint = (frame: number, color: number) => {
+      slab(frame, 0x1d2229, 0x11161b, 0x333b45);
+      const p = at(frame);
+      // A short, directional seam reads as a resource vein before the chamber
+      // is opened; the richer frame simply carries a wider cluster.
+      g.lineStyle(2, color, 0.78)
+        .lineBetween(p.x + 2, p.y + 20, p.x + 10, p.y + 15)
+        .lineBetween(p.x + 10, p.y + 15, p.x + 17, p.y + 17)
+        .lineBetween(p.x + 17, p.y + 17, p.x + 26, p.y + 8);
+      g.fillStyle(color, 0.88).fillCircle(p.x + 10, p.y + 15, 3).fillCircle(p.x + 17, p.y + 17, 2.5);
+      if (frame === TF.ROCK_IRON_LARGE || frame === TF.ROCK_IRON_RICH) {
+        g.fillStyle(color, 0.8).fillCircle(p.x + 21, p.y + 10, 3.5);
+      }
+      if (frame === TF.ROCK_IRON_RICH) g.fillStyle(0xf0d58d, 0.55).fillCircle(p.x + 15, p.y + 15, 1.5);
+    };
+    hint(TF.ROCK_IRON_SMALL, 0xa96847);
+    hint(TF.ROCK_IRON_LARGE, 0xc07954);
+    hint(TF.ROCK_IRON_RICH, 0xe0a06a);
+    hint(TF.ROCK_FUNGUS_HINT, 0x779d56);
+    hint(TF.ROCK_ESSENCE_HINT, 0x8878c9);
+
+    // 10–15: freshly dug earth; broad, low-contrast strata.
+    for (let frame = TF.RAW_GROUND_0; frame <= TF.RAW_GROUND_5; frame++) {
+      const p = fill(frame, 0x161b22 + (frame % 2 ? 0x020204 : 0));
+      const offset = (frame - TF.RAW_GROUND_0) * 3;
+      g.fillStyle(0x222a32, 0.42).fillRect(p.x, p.y + 5 + (offset % 5), TILE, 5);
+      g.fillStyle(0x0c1015, 0.33).fillRect(p.x + 3, p.y + 20 - (offset % 4), 20, 2);
+      if (frame % 3 === 0) g.fillStyle(0x3a4650, 0.28).fillCircle(p.x + 20, p.y + 9, 2);
+    }
+
+    // 16–21: settled dungeon floor with wider slab rhythm.
+    for (let frame = TF.CLAIMED_FLOOR_0; frame <= TF.CLAIMED_FLOOR_5; frame++) {
+      const p = fill(frame, 0x23232a);
+      const shift = (frame - TF.CLAIMED_FLOOR_0) % 3;
+      g.fillStyle(0x17181e, 0.72).fillRect(p.x + 2, p.y + 3, 24, 9).fillRect(p.x + 2, p.y + 15, 24, 10);
+      g.lineStyle(1, 0x45434b, 0.38).lineBetween(p.x + 3 + shift, p.y + 13, p.x + 25, p.y + 13);
+      g.fillStyle(0x6b5a3c, 0.16).fillCircle(p.x + 7 + shift * 4, p.y + 8, 1.5);
+    }
+
+    const roomColors: Record<RoomKind, number> = {
+      storage: 0x4b4235,
+      bedroom: 0x2d455b,
+      kitchen: 0x425536,
+      smelter: 0x613d31,
+      workshop: 0x584531,
+      prison: 0x3a3844,
+    };
+    const roomFrames: Record<RoomKind, number> = {
+      storage: TF.ROOM_STORAGE,
+      bedroom: TF.ROOM_BEDROOM,
+      kitchen: TF.ROOM_KITCHEN,
+      smelter: TF.ROOM_SMELTER,
+      workshop: TF.ROOM_WORKSHOP,
+      prison: TF.ROOM_PRISON,
+    };
+    for (const [kind, frame] of Object.entries(roomFrames) as [RoomKind, number][]) {
+      const p = fill(frame, roomColors[kind]);
+      g.fillStyle(0x0b0c10, 0.34).fillRect(p.x + 2, p.y + 2, 24, 24);
+      g.lineStyle(1, 0xd2bd85, 0.2).strokeRect(p.x + 3, p.y + 3, 22, 22);
+      g.fillStyle(roomColors[kind], 0.8).fillRect(p.x + 6, p.y + 6, 16, 16);
+    }
+    {
+      const p = fill(TF.ROOM_HEART, 0x3c202a);
+      g.fillStyle(0x5e2632).fillCircle(p.x + 14, p.y + 14, 10);
+      g.fillStyle(0xb95564, 0.45).fillCircle(p.x + 14, p.y + 14, 5);
+    }
+
+    // 29–41: wall lips. These make a carved opening read as a thick cave wall
+    // instead of a line drawn between individual grid cells.
+    const edge = (frame: number, side: 'top' | 'bottom' | 'left' | 'right') => {
+      const p = at(frame);
+      g.fillStyle(0x07090d, 0.72);
+      if (side === 'top') g.fillRect(p.x, p.y, TILE, 6);
+      if (side === 'bottom') g.fillRect(p.x, p.y + TILE - 6, TILE, 6);
+      if (side === 'left') g.fillRect(p.x, p.y, 6, TILE);
+      if (side === 'right') g.fillRect(p.x + TILE - 6, p.y, 6, TILE);
+      g.lineStyle(1, 0x4e5863, 0.38);
+      if (side === 'top') g.lineBetween(p.x, p.y + 6, p.x + TILE, p.y + 6);
+      if (side === 'bottom') g.lineBetween(p.x, p.y + TILE - 6, p.x + TILE, p.y + TILE - 6);
+      if (side === 'left') g.lineBetween(p.x + 6, p.y, p.x + 6, p.y + TILE);
+      if (side === 'right') g.lineBetween(p.x + TILE - 6, p.y, p.x + TILE - 6, p.y + TILE);
+    };
+    edge(TF.WALL_EDGE_TOP, 'top');
+    edge(TF.WALL_EDGE_BOTTOM, 'bottom');
+    edge(TF.WALL_EDGE_LEFT, 'left');
+    edge(TF.WALL_EDGE_RIGHT, 'right');
+    const wallLip = (frame: number, sides: Array<'top' | 'bottom' | 'left' | 'right'>) => {
+      const p = at(frame);
+      for (const side of sides) {
+        g.fillStyle(0x07090d, 0.78);
+        if (side === 'top') g.fillRect(p.x, p.y, TILE, 7);
+        if (side === 'bottom') g.fillRect(p.x, p.y + TILE - 7, TILE, 7);
+        if (side === 'left') g.fillRect(p.x, p.y, 7, TILE);
+        if (side === 'right') g.fillRect(p.x + TILE - 7, p.y, 7, TILE);
+        g.lineStyle(1, 0x59636e, 0.42);
+        if (side === 'top') g.lineBetween(p.x, p.y + 7, p.x + TILE, p.y + 7);
+        if (side === 'bottom') g.lineBetween(p.x, p.y + TILE - 7, p.x + TILE, p.y + TILE - 7);
+        if (side === 'left') g.lineBetween(p.x + 7, p.y, p.x + 7, p.y + TILE);
+        if (side === 'right') g.lineBetween(p.x + TILE - 7, p.y, p.x + TILE - 7, p.y + TILE);
+      }
+      // Broken stone teeth make long edges feel organic without adding noise.
+      g.fillStyle(0x2d3540, 0.32);
+      if (sides.includes('top')) g.fillTriangle(p.x + 5, p.y + 7, p.x + 10, p.y + 7, p.x + 7, p.y + 11);
+      if (sides.includes('bottom')) g.fillTriangle(p.x + 18, p.y + TILE - 7, p.x + 23, p.y + TILE - 7, p.x + 21, p.y + TILE - 11);
+      if (sides.includes('left')) g.fillTriangle(p.x + 7, p.y + 16, p.x + 7, p.y + 22, p.x + 11, p.y + 19);
+      if (sides.includes('right')) g.fillTriangle(p.x + TILE - 7, p.y + 6, p.x + TILE - 7, p.y + 12, p.x + TILE - 11, p.y + 9);
+    };
+    wallLip(TF.WALL_CORNER_TL, ['top', 'left']);
+    wallLip(TF.WALL_CORNER_TR, ['top', 'right']);
+    wallLip(TF.WALL_CORNER_BL, ['bottom', 'left']);
+    wallLip(TF.WALL_CORNER_BR, ['bottom', 'right']);
+    wallLip(TF.WALL_T_N, ['top', 'left', 'right']);
+    wallLip(TF.WALL_T_E, ['top', 'right', 'bottom']);
+    wallLip(TF.WALL_T_S, ['left', 'bottom', 'right']);
+    wallLip(TF.WALL_T_W, ['top', 'left', 'bottom']);
+    wallLip(TF.WALL_CROSS, ['top', 'right', 'bottom', 'left']);
+    for (const frame of [TF.THRESHOLD_HORIZONTAL, TF.THRESHOLD_VERTICAL]) {
+      const p = fill(frame, 0x322717);
+      g.fillStyle(0x72552d).fillRect(p.x + 3, p.y + (frame === TF.THRESHOLD_HORIZONTAL ? 10 : 3), frame === TF.THRESHOLD_HORIZONTAL ? 22 : 5, frame === TF.THRESHOLD_HORIZONTAL ? 6 : 22);
+    }
+
+    g.generateTexture(key, atlasWidth, atlasHeight);
+    g.destroy();
+    const texture = this.textures.get(key);
+    for (let frame = 0; frame <= TF.THRESHOLD_VERTICAL; frame++) {
+      texture.add(frame, 0, (frame % columns) * TILE, Math.floor(frame / columns) * TILE, TILE, TILE);
+    }
   }
 
   private createMap(): void {
-    this.map = Array.from({ length: H }, () => Array.from({ length: W }, () => 0));
-    this.known = Array.from({ length: H }, () => Array.from({ length: W }, () => false));
-    const carve = (x: number, y: number, w: number, h: number, known = false) => {
+    this.tiles = Array.from({ length: H }, () =>
+      Array.from({ length: W }, (): WorldTile => ({
+        geology: 'solid',
+        visibility: 'hidden',
+        control: 'neutral',
+        construction: 'none',
+      })));
+
+    const carve = (
+      x: number,
+      y: number,
+      w: number,
+      h: number,
+      visibility: TileVisibility = 'hidden',
+      control: TileControl = 'neutral',
+    ) => {
       for (let ty = y; ty < y + h; ty++) {
         for (let tx = x; tx < x + w; tx++) {
           if (this.inBounds(tx, ty)) {
-            this.map[ty][tx] = 1;
-            this.known[ty][tx] = known;
+            const tile = this.tiles[ty][tx];
+            tile.geology = 'excavated';
+            tile.visibility = visibility;
+            tile.control = control;
           }
         }
       }
     };
 
-    carve(26, 30, 13, 9, true);
-    carve(31, 3, 3, 28, true);
-    carve(28, 0, 9, 4, true);
-    carve(20, 24, 5, 6);
-    carve(42, 26, 7, 7);
-    carve(13, 14, 8, 7);
-    carve(40, 8, 8, 7);
-    carve(27, 36, 4, 2, true);
+    const chart = (x: number, y: number, w: number, h: number) => {
+      for (let ty = y; ty < y + h; ty++) {
+        for (let tx = x; tx < x + w; tx++) {
+          if (!this.inBounds(tx, ty)) continue;
+          this.tiles[ty][tx].geology = 'excavated';
+          this.tiles[ty][tx].visibility = 'charted';
+        }
+      }
+    };
 
-    this.rooms.push({ id: this.nextId++, kind: 'storage', x: 27, y: 36, w: 4, h: 2, progress: 0, activeRecipe: false });
+    carve(26, sy(18), 13, 9, 'revealed', 'owned');
+    carve(31, sy(3), 3, 16, 'revealed');
+    carve(28, sy(0), 9, 4, 'revealed');
+
+    // A longer northern approach keeps the entrance from visually clipping
+    // against the map boundary and gives invasion waves a readable runway.
+    carve(30, 0, 5, NORTH_SHIFT + 1, 'revealed');
+    carve(28, 6, 9, 5, 'revealed');
+
+    // Strategic targets are pre-existing, disconnected caverns. The player can
+    // read their silhouette and only needs to dig a connecting tunnel.
+    chart(18, sy(28), 5, 6);
+    chart(42, sy(26), 7, 7);
+    chart(13, sy(14), 8, 7);
+    chart(40, sy(8), 8, 7);
+
+    const storage: Room = {
+      id: this.nextId++,
+      kind: 'storage',
+      x: 27,
+      y: sy(24),
+      w: 4,
+      h: 2,
+      progress: 0,
+      activeRecipe: false,
+    };
+    this.rooms.push(storage);
+    this.assignRoomTiles(storage, 'complete');
+
+    for (let y = HEART_FLOOR.y; y < HEART_FLOOR.y + HEART_FLOOR.h; y++) {
+      for (let x = HEART_FLOOR.x; x < HEART_FLOOR.x + HEART_FLOOR.w; x++) {
+        const tile = this.tiles[y][x];
+        tile.roomKind = 'heart';
+        tile.construction = 'complete';
+      }
+    }
   }
 
   private createNodes(): void {
@@ -580,14 +896,14 @@ export class GameScene extends Phaser.Scene {
         id: 'iron',
         label: 'Kleine Eisenader',
         kind: 'ore',
-        x: 22,
-        y: 26,
+        x: 20,
+        y: sy(31),
         amount: 8,
         initial: 8,
         owner: 'natural',
         discovered: false,
-        claimed: true,
-        chamber: { x: 20, y: 24, w: 5, h: 6 },
+        claimed: false,
+        chamber: { x: 18, y: sy(28), w: 5, h: 6 },
         color: COLORS.iron,
         symbol: '◆',
         mineTimer: 0,
@@ -597,13 +913,13 @@ export class GameScene extends Phaser.Scene {
         label: 'Pilzgrotte',
         kind: 'biomass',
         x: 45,
-        y: 29,
+        y: sy(29),
         amount: 16,
         initial: 16,
         owner: 'natural',
         discovered: false,
-        claimed: true,
-        chamber: { x: 42, y: 26, w: 7, h: 7 },
+        claimed: false,
+        chamber: { x: 42, y: sy(26), w: 7, h: 7 },
         color: COLORS.fungus,
         symbol: '♣',
         mineTimer: 0,
@@ -613,13 +929,13 @@ export class GameScene extends Phaser.Scene {
         label: 'Zwergen-Claim',
         kind: 'ore',
         x: 17,
-        y: 17,
+        y: sy(17),
         amount: 36,
         initial: 36,
         owner: 'dwarf',
         discovered: false,
         claimed: false,
-        chamber: { x: 13, y: 14, w: 8, h: 7 },
+        chamber: { x: 13, y: sy(14), w: 8, h: 7 },
         color: COLORS.iron,
         symbol: '⚒',
         mineTimer: 0,
@@ -629,13 +945,13 @@ export class GameScene extends Phaser.Scene {
         label: 'Essenzschrein',
         kind: 'essence',
         x: 44,
-        y: 11,
+        y: sy(11),
         amount: 16,
         initial: 16,
         owner: 'inquisition',
         discovered: false,
         claimed: false,
-        chamber: { x: 40, y: 8, w: 8, h: 7 },
+        chamber: { x: 40, y: sy(8), w: 8, h: 7 },
         color: COLORS.essence,
         symbol: '✦',
         mineTimer: 0,
@@ -643,54 +959,65 @@ export class GameScene extends Phaser.Scene {
     ];
 
     for (const node of this.nodes) {
+      this.setChamberControl(node, node.owner === 'natural' ? 'neutral' : 'enemy');
       node.sprite = this.createNodeVisual(node);
       node.sprite.setVisible(false);
     }
 
-    this.spawnEnemy('crawler', 44, 28, { origin: 'fungus' });
-    this.spawnEnemy('crawler', 47, 30, { origin: 'fungus' });
-    this.spawnEnemy('dwarf', 16, 16, { origin: 'dwarf' });
-    this.spawnEnemy('dwarf', 18, 18, { origin: 'dwarf' });
-    this.spawnEnemy('crossbow', 15, 18, { origin: 'dwarf' });
-    this.spawnEnemy('adept', 42, 10, { origin: 'shrine' });
-    this.spawnEnemy('adept', 46, 12, { origin: 'shrine' });
-    this.spawnEnemy('captain', 44, 10, { origin: 'shrine' });
+    this.spawnEnemy('crawler', 44, sy(28), { origin: 'fungus' });
+    this.spawnEnemy('crawler', 47, sy(30), { origin: 'fungus' });
+    this.spawnEnemy('dwarf', 16, sy(16), { origin: 'dwarf' });
+    this.spawnEnemy('dwarf', 18, sy(18), { origin: 'dwarf' });
+    this.spawnEnemy('crossbow', 15, sy(18), { origin: 'dwarf' });
+    this.spawnEnemy('adept', 42, sy(10), { origin: 'shrine' });
+    this.spawnEnemy('adept', 46, sy(12), { origin: 'shrine' });
+    this.spawnEnemy('captain', 44, sy(10), { origin: 'shrine' });
   }
 
   private createNodeVisual(node: ResourceNode): Phaser.GameObjects.Container {
-    const glow = this.add.circle(0, 0, 18, node.color, 0.16);
-    const core = this.add.circle(0, 0, 9, node.color, 0.92).setStrokeStyle(1, 0xeadcae, 0.65);
-    const symbol = this.add.text(0, -1, node.symbol, {
-      fontFamily: 'Arial',
-      fontSize: '12px',
-      color: '#f2e3bd',
-    }).setOrigin(0.5);
-    const label = this.add.text(0, -23, node.label, {
-      fontFamily: 'Barlow Condensed, Arial',
-      fontSize: '11px',
-      color: '#d8ccb1',
-      backgroundColor: '#101116dd',
-      padding: { x: 5, y: 2 },
-    }).setOrigin(0.5, 1);
-    const container = this.add.container(this.wx(node.x), this.wy(node.y), [glow, core, symbol, label]).setDepth(20);
-    this.tweens.add({ targets: glow, scale: 1.35, alpha: 0.04, yoyo: true, repeat: -1, duration: 1200 });
+    const assetKey = node.kind === 'biomass'
+      ? 'resource-fungus-cluster'
+      : node.kind === 'essence'
+        ? 'resource-essence-seal'
+        : 'resource-iron-vein';
+    const size = node.kind === 'ore' ? 54 : node.kind === 'biomass' ? 58 : 62;
+    const art = this.add.image(0, 0, assetKey).setDisplaySize(size, size);
+    const container = this.add.container(this.wx(node.x), this.wy(node.y), [art]).setDepth(20);
     return container;
   }
 
+  private updateNodeVisual(node: ResourceNode): void {
+    const art = node.sprite?.getAt(0) as Phaser.GameObjects.Image | undefined;
+    if (!art || node.amount > 0) return;
+    if (node.kind === 'ore') art.setTexture('resource-iron-depleted');
+    else art.setAlpha(0.28);
+  }
+
+  private setChamberControl(node: ResourceNode, control: TileControl): void {
+    for (let y = node.chamber.y; y < node.chamber.y + node.chamber.h; y++) {
+      for (let x = node.chamber.x; x < node.chamber.x + node.chamber.w; x++) {
+        const tile = this.tileAt(x, y);
+        if (tile) tile.control = control;
+      }
+    }
+  }
+
   private createStartingPopulation(): void {
-    for (const pos of [{ x: 29, y: 34 }, { x: 31, y: 35 }, { x: 34, y: 35 }]) {
+    for (const pos of [{ x: 29, y: sy(22) }, { x: 31, y: sy(23) }, { x: 34, y: sy(23) }]) {
       this.createWorker(pos.x, pos.y);
     }
-    this.createUnit('guard', 33, 34, false);
+    this.createUnit('guard', 33, sy(22), false);
 
-    const heartGlow = this.add.circle(this.wx(32), this.wy(34), 38, 0xa5414e, 0.12).setDepth(7);
-    this.add.polygon(this.wx(32), this.wy(34), [0, -23, 17, -11, 18, 13, 0, 25, -18, 13, -17, -11], 0x6e2d39)
-      .setStrokeStyle(2, 0xd29c60).setDepth(8);
-    this.add.circle(this.wx(32), this.wy(34), 8, 0xe36d76, 0.9).setDepth(9);
-    this.tweens.add({ targets: heartGlow, scale: 1.16, alpha: 0.04, yoyo: true, repeat: -1, duration: 1250 });
+    const heartAmbient = this.add.circle(this.wx(HEART_TILE.x), this.wy(HEART_TILE.y), 104, 0x7d3343, 0.045).setDepth(1);
+    heartAmbient.setBlendMode(Phaser.BlendModes.ADD);
+    const heartGlow = this.add.circle(this.wx(HEART_TILE.x), this.wy(HEART_TILE.y), 46, 0xa5414e, 0.12).setDepth(7);
+    this.add.image(this.wx(HEART_TILE.x), this.wy(HEART_TILE.y), 'generated-covenant-heart')
+      .setDisplaySize(140, 140)
+      .setDepth(8);
+    this.tweens.add({ targets: [heartAmbient, heartGlow], scale: 1.16, alpha: '-=0.045', yoyo: true, repeat: -1, duration: 1250 });
 
-    for (const torch of [{ x: 27, y: 31 }, { x: 38, y: 31 }, { x: 30, y: 38 }, { x: 36, y: 38 }]) {
-      const glow = this.add.circle(this.wx(torch.x), this.wy(torch.y), 22, 0xd59b48, 0.09).setDepth(3);
+    for (const torch of [{ x: 27, y: sy(19) }, { x: 38, y: sy(19) }, { x: 30, y: sy(26) }, { x: 36, y: sy(26) }]) {
+      const glow = this.add.circle(this.wx(torch.x), this.wy(torch.y), 34, 0xd59b48, 0.075).setDepth(3);
       const flame = this.add.circle(this.wx(torch.x), this.wy(torch.y), 3, 0xe3b35d, 0.9).setDepth(5);
       this.tweens.add({ targets: [glow, flame], scale: 1.25, alpha: '+=0.08', yoyo: true, repeat: -1, duration: 550 + torch.x * 7 });
     }
@@ -805,7 +1132,8 @@ export class GameScene extends Phaser.Scene {
       let close = false;
       for (let y = node.chamber.y - 4; y < node.chamber.y + node.chamber.h + 4 && !close; y++) {
         for (let x = node.chamber.x - 4; x < node.chamber.x + node.chamber.w + 4; x++) {
-          if (this.inBounds(x, y) && this.known[y][x] && this.map[y][x] === 1 && manhattan({ x, y }, node) <= 7) {
+          const tile = this.tileAt(x, y);
+          if (tile?.visibility === 'revealed' && tile.geology === 'excavated' && manhattan({ x, y }, node) <= 7) {
             close = true;
             break;
           }
@@ -814,7 +1142,9 @@ export class GameScene extends Phaser.Scene {
       if (!close) continue;
       node.discovered = true;
       for (let y = node.chamber.y; y < node.chamber.y + node.chamber.h; y++) {
-        for (let x = node.chamber.x; x < node.chamber.x + node.chamber.w; x++) this.known[y][x] = true;
+        for (let x = node.chamber.x; x < node.chamber.x + node.chamber.w; x++) {
+          this.tiles[y][x].visibility = 'revealed';
+        }
       }
       node.sprite?.setVisible(true);
       for (const enemy of this.enemies.filter((candidate) => candidate.origin === node.id)) {
@@ -838,13 +1168,37 @@ export class GameScene extends Phaser.Scene {
       worker.sprite.angle = Math.sin(worker.timer * 18) * 10;
       if (worker.timer >= BALANCE.digSeconds) {
         const { x, y } = worker.target;
-        this.map[y][x] = 1;
-        this.known[y][x] = true;
+        const tile = this.tiles[y][x];
+        tile.geology = 'excavated';
+        tile.visibility = 'revealed';
         this.digMarks.delete(this.key(x, y));
         worker.state = 'idle';
         worker.timer = 0;
         worker.sprite.angle = 0;
         this.audio.tone(92, 0.035, 0.012, 'square');
+        this.drawWorld();
+      }
+      return;
+    }
+
+    if (worker.state === 'claim' && worker.target) {
+      const tile = this.tileAt(worker.target.x, worker.target.y);
+      if (!tile || tile.control !== 'claiming') {
+        worker.state = 'idle';
+        worker.target = undefined;
+        worker.timer = 0;
+        return;
+      }
+      worker.timer += dt;
+      worker.sprite.angle = Math.sin(worker.timer * 13) * 7;
+      if (worker.timer >= BALANCE.claimSeconds) {
+        tile.control = 'owned';
+        worker.state = 'idle';
+        worker.target = undefined;
+        worker.timer = 0;
+        worker.sprite.angle = 0;
+        this.checkClaims();
+        this.audio.tone(146, 0.04, 0.012, 'triangle');
         this.drawWorld();
       }
       return;
@@ -862,6 +1216,7 @@ export class GameScene extends Phaser.Scene {
         node.amount--;
         const amount = Math.min(2, node.amount >= 1 ? 2 : 1);
         if (amount === 2) node.amount--;
+        this.updateNodeVisual(node);
         this.createLooseItem(node.kind, amount, node.x + Phaser.Math.FloatBetween(-0.25, 0.25), node.y + Phaser.Math.FloatBetween(-0.25, 0.25));
         if (node.id === 'fungus') this.stats.biomassMined += amount;
         if (node.id === 'dwarf') this.stats.dwarfOreMined += amount;
@@ -950,41 +1305,79 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
+    const foodUrgent = this.phase === 1 || this.stock.ration < 3 || this.stock.biomass < 4;
+    const workerIndex = Math.max(0, this.workers.indexOf(worker));
+    for (const task of workerTaskOrder(workerIndex, foodUrgent)) {
+      if (this.tryAssignRoutineTask(worker, task, foodUrgent)) return;
+    }
+    worker.state = 'idle';
+  }
+
+  private tryAssignRoutineTask(worker: Worker, task: RoutineWorkerTask, foodUrgent: boolean): boolean {
+    if (task === 'haul') return this.tryAssignPickup(worker);
+    if (task === 'dig') return this.tryAssignDig(worker);
+    if (task === 'claim') return this.tryAssignClaim(worker);
+    return this.tryAssignMine(worker, foodUrgent);
+  }
+
+  private tryAssignPickup(worker: Worker): boolean {
     const availableItem = this.items
       .filter((item) => !item.reservedBy)
       .map((item) => ({ item, path: this.pathBetween(worker, { x: Math.round(item.x), y: Math.round(item.y) }) }))
       .filter(({ path, item }) => path.length || (Math.round(worker.x) === Math.round(item.x) && Math.round(worker.y) === Math.round(item.y)))
       .sort((a, b) => a.path.length - b.path.length)[0];
-    if (availableItem) {
-      availableItem.item.reservedBy = worker.id;
-      worker.state = 'pickup';
-      worker.path = availableItem.path;
-      worker.targetId = availableItem.item.id;
-      return;
-    }
+    if (!availableItem) return false;
+    availableItem.item.reservedBy = worker.id;
+    worker.state = 'pickup';
+    worker.path = availableItem.path;
+    worker.targetId = availableItem.item.id;
+    return true;
+  }
 
+  private tryAssignMine(worker: Worker, foodUrgent: boolean): boolean {
+    if (this.items.length >= 18) return false;
     const mineable = this.nodes
       .filter((node) => this.canMineNode(node))
+      .filter((node) => {
+        const active = this.workers.filter((candidate) => candidate.state === 'mine' && candidate.targetId === node.id).length;
+        return active < (foodUrgent && node.kind === 'biomass' ? 2 : 1);
+      })
       .map((node) => ({ node, path: this.pathBetween(worker, node) }))
       .filter(({ path, node }) => path.length || (Math.round(worker.x) === node.x && Math.round(worker.y) === node.y))
-      .sort((a, b) => a.path.length - b.path.length)[0];
-    if (mineable && this.items.length < 18) {
-      worker.state = 'mine';
-      worker.path = mineable.path;
-      worker.targetId = mineable.node.id;
-      worker.timer = 0;
-      return;
-    }
+      .sort((a, b) => {
+        const foodDelta = foodUrgent ? Number(b.node.kind === 'biomass') - Number(a.node.kind === 'biomass') : 0;
+        return foodDelta || a.path.length - b.path.length;
+      })[0];
+    if (!mineable) return false;
+    worker.state = 'mine';
+    worker.path = mineable.path;
+    worker.targetId = mineable.node.id;
+    worker.timer = 0;
+    return true;
+  }
 
+  private tryAssignDig(worker: Worker): boolean {
     const frontier = this.findDigFrontier(worker);
-    if (frontier) {
-      worker.state = 'dig';
-      worker.path = frontier.path;
-      worker.target = frontier.target;
-      worker.timer = 0;
-      return;
-    }
-    worker.state = 'idle';
+    if (!frontier) return false;
+    worker.state = 'dig';
+    worker.path = frontier.path;
+    worker.target = frontier.target;
+    worker.timer = 0;
+    return true;
+  }
+
+  private tryAssignClaim(worker: Worker): boolean {
+    const frontier = this.findClaimFrontier(worker);
+    if (!frontier) return false;
+    const tile = this.tileAt(frontier.target.x, frontier.target.y);
+    if (!tile) return false;
+    tile.control = 'claiming';
+    worker.state = 'claim';
+    worker.path = frontier.path;
+    worker.target = frontier.target;
+    worker.timer = 0;
+    this.drawWorld();
+    return true;
   }
 
   private findDigFrontier(worker: Worker): { target: GridPoint; path: GridPoint[] } | undefined {
@@ -994,13 +1387,45 @@ export class GameScene extends Phaser.Scene {
       for (const neighbor of this.neighbors(x, y)) {
         if (!this.isPassable(neighbor.x, neighbor.y)) continue;
         const path = this.pathBetween(worker, neighbor);
-        const alreadyWorked = this.workers.filter((candidate) => candidate.state === 'dig' && candidate.target?.x === x && candidate.target.y === y).length;
-        if ((path.length || (Math.round(worker.x) === neighbor.x && Math.round(worker.y) === neighbor.y)) && alreadyWorked < 2) {
+        const alreadyWorked = this.workers.some((candidate) => candidate.state === 'dig' && candidate.target?.x === x && candidate.target.y === y);
+        if ((path.length || (Math.round(worker.x) === neighbor.x && Math.round(worker.y) === neighbor.y)) && !alreadyWorked) {
           candidates.push({ target: { x, y }, path });
         }
       }
     }
     return candidates.sort((a, b) => a.path.length - b.path.length)[0];
+  }
+
+  private findClaimFrontier(worker: Worker): { target: GridPoint; path: GridPoint[] } | undefined {
+    const candidates: { target: GridPoint; path: GridPoint[] }[] = [];
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        if (!this.canClaimTile(x, y)) continue;
+        const path = this.pathBetween(worker, { x, y });
+        if (path.length || (Math.round(worker.x) === x && Math.round(worker.y) === y)) {
+          candidates.push({ target: { x, y }, path });
+        }
+      }
+    }
+    return candidates.sort((a, b) => a.path.length - b.path.length)[0];
+  }
+
+  private canClaimTile(x: number, y: number): boolean {
+    const tile = this.tileAt(x, y);
+    if (!tile || tile.geology !== 'excavated' || tile.visibility !== 'revealed') return false;
+    if (tile.control !== 'neutral' && tile.control !== 'enemy') return false;
+    if (tile.roomId !== undefined || tile.roomKind === 'heart') return false;
+    if (!this.neighbors(x, y).some((neighbor) => this.tileAt(neighbor.x, neighbor.y)?.control === 'owned')) return false;
+
+    if (tile.control === 'enemy') {
+      const chamber = this.nodes.find((node) =>
+        x >= node.chamber.x
+        && y >= node.chamber.y
+        && x < node.chamber.x + node.chamber.w
+        && y < node.chamber.y + node.chamber.h);
+      if (chamber && this.enemies.some((enemy) => enemy.origin === chamber.id)) return false;
+    }
+    return true;
   }
 
   private moveAlongPath(entity: Worker | Actor | Enemy, dt: number, speed: number): void {
@@ -1104,7 +1529,7 @@ export class GameScene extends Phaser.Scene {
           this.moveEnemyToward(enemy, target, dt);
         }
       } else if (enemy.wave) {
-        const distance = Phaser.Math.Distance.Between(enemy.x, enemy.y, 32, 34);
+        const distance = Phaser.Math.Distance.Between(enemy.x, enemy.y, HEART_TILE.x, HEART_TILE.y);
         if (distance <= 1.5) {
           if (enemy.cooldown <= 0) {
             enemy.cooldown = enemy.attackSeconds;
@@ -1112,7 +1537,7 @@ export class GameScene extends Phaser.Scene {
             this.cameras.main.shake(90, 0.002);
           }
         } else {
-          this.moveEnemyToward(enemy, { x: 32, y: 34 }, dt);
+          this.moveEnemyToward(enemy, HEART_TILE, dt);
         }
       }
     }
@@ -1123,7 +1548,8 @@ export class GameScene extends Phaser.Scene {
   private chooseTargetForUnit(actor: Actor): Enemy | undefined {
     const possible = this.enemies.filter((enemy) => enemy.hp > 0 && enemy.sprite.visible);
     if (!possible.length) return undefined;
-    const urgent = possible.filter((enemy) => enemy.wave || Phaser.Math.Distance.Between(enemy.x, enemy.y, 32, 34) < 8);
+    const urgent = possible.filter((enemy) =>
+      enemy.wave || Phaser.Math.Distance.Between(enemy.x, enemy.y, HEART_TILE.x, HEART_TILE.y) < 8);
     const inBanner = this.bannerAttack
       ? possible.filter((enemy) => Phaser.Math.Distance.Between(enemy.x, enemy.y, this.bannerAttack!.x, this.bannerAttack!.y) <= 7)
       : [];
@@ -1177,6 +1603,7 @@ export class GameScene extends Phaser.Scene {
   private checkClaims(): void {
     for (const node of this.nodes.filter((candidate) => candidate.discovered && !candidate.claimed)) {
       if (this.enemies.some((enemy) => enemy.origin === node.id)) continue;
+      if (this.tileAt(node.x, node.y)?.control !== 'owned') continue;
       node.claimed = true;
       node.owner = 'player';
       this.popup(node.x, node.y, 'BEANSPRUCHT', '#e6c666', 1300);
@@ -1306,10 +1733,15 @@ export class GameScene extends Phaser.Scene {
     this.hud.toast(`${def.label} wird gerufen`, `${BALANCE.recruitmentSeconds[kind]} Sekunden am Covenant-Herz.`);
     this.time.delayedCall((BALANCE.recruitmentSeconds[kind] * 1000) / Math.max(this.speed, 1), () => {
       if (this.ended) return;
-      this.createUnit(kind, 32 + Phaser.Math.Between(-1, 1), 34 + Phaser.Math.Between(-1, 1), true);
+      this.createUnit(
+        kind,
+        HEART_TILE.x + Phaser.Math.Between(-1, 1),
+        HEART_TILE.y + Phaser.Math.Between(-1, 1),
+        true,
+      );
       this.stats.recruited++;
       this.audio.tone(360, 0.13, 0.03, 'triangle');
-      this.popup(32, 34, def.label, '#dfc36e', 1100);
+      this.popup(HEART_TILE.x, HEART_TILE.y, def.label, '#dfc36e', 1100);
     });
   }
 
@@ -1318,10 +1750,13 @@ export class GameScene extends Phaser.Scene {
     this.stock.essence -= BALANCE.pulseCost;
     this.pulseCooldown = BALANCE.pulseCooldown;
     this.heartHp = Math.min(BALANCE.heartHp, this.heartHp + 20);
-    for (const enemy of this.enemies.filter((candidate) => Phaser.Math.Distance.Between(candidate.x, candidate.y, 32, 34) <= 6)) {
+    for (const enemy of this.enemies.filter((candidate) =>
+      Phaser.Math.Distance.Between(candidate.x, candidate.y, HEART_TILE.x, HEART_TILE.y) <= 6)) {
       enemy.hp -= 25;
     }
-    const ring = this.add.circle(this.wx(32), this.wy(34), 12).setStrokeStyle(3, COLORS.essence, 0.9).setDepth(50);
+    const ring = this.add.circle(this.wx(HEART_TILE.x), this.wy(HEART_TILE.y), 12)
+      .setStrokeStyle(3, COLORS.essence, 0.9)
+      .setDepth(50);
     this.tweens.add({ targets: ring, radius: TILE * 6, alpha: 0, duration: 700, onComplete: () => ring.destroy() });
     this.audio.tone(84, 0.5, 0.04, 'sine');
   }
@@ -1358,7 +1793,7 @@ export class GameScene extends Phaser.Scene {
         : this.rectPoints(start, end).slice(0, 100);
       let marked = 0;
       for (const point of points) {
-        if (!this.inBounds(point.x, point.y) || this.map[point.y][point.x] !== 0) continue;
+        if (this.tileAt(point.x, point.y)?.geology !== 'solid') continue;
         this.digMarks.add(this.key(point.x, point.y));
         marked++;
       }
@@ -1393,7 +1828,10 @@ export class GameScene extends Phaser.Scene {
     const orientationValid = (w >= def.minW && h >= def.minH) || (w >= def.minH && h >= def.minW);
     if (!orientationValid) return this.hud.toast('Fläche zu klein', `${def.label} benötigt mindestens ${def.minW}×${def.minH}.`, true);
     const cells = this.rectPoints(start, end);
-    if (cells.some((point) => !this.isPassable(point.x, point.y) || !this.known[point.y][point.x])) {
+    if (cells.some((point) => {
+      const tile = this.tileAt(point.x, point.y);
+      return !tile || tile.geology !== 'excavated' || tile.visibility !== 'revealed' || tile.control !== 'owned';
+    })) {
       return this.hud.toast('Ungültige Fläche', 'Räume können nur auf bekanntem, beanspruchtem Boden entstehen.', true);
     }
     if (cells.some((point) => this.rooms.some((room) => this.pointInRoom(point, room)))) {
@@ -1401,7 +1839,9 @@ export class GameScene extends Phaser.Scene {
     }
     if (this.stock.metal < def.baseCost) return this.hud.toast('Zu wenig Metall', `${def.label} kostet ${def.baseCost} Metall.`, true);
     this.stock.metal -= def.baseCost;
-    this.rooms.push({ id: this.nextId++, kind, x, y, w, h, progress: 0, activeRecipe: false });
+    const room: Room = { id: this.nextId++, kind, x, y, w, h, progress: 0, activeRecipe: false };
+    this.rooms.push(room);
+    this.assignRoomTiles(room, 'complete');
     this.drawWorld();
     this.audio.tone(188, 0.09, 0.02, 'square');
     this.hud.toast(`${def.label} errichtet`, kind === 'bedroom' ? `${Math.floor((w * h) / 4)} Betten verfügbar.` : `${w * h} Felder funktionsbereit.`);
@@ -1444,65 +1884,311 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  /**
+   * Assemble the read-only view the TerrainRenderer stamps from. Lookup maps are
+   * rebuilt here (only on world changes, not per frame) so the renderer never
+   * touches simulation internals directly.
+   */
+  private buildTerrainQuery(): TerrainQuery {
+    return {
+      isOpen: (x, y) => this.tileAt(x, y)?.geology === 'excavated',
+      visibilityAt: (x, y) => this.tileAt(x, y)?.visibility ?? 'hidden',
+      controlAt: (x, y) => this.tileAt(x, y)?.control ?? 'neutral',
+    };
+  }
+
   private drawWorld(): void {
-    if (!this.terrain) return;
-    this.terrain.clear();
+    if (!this.terrain || !this.terrainRenderer) return;
+    this.terrainRenderer.render(this.buildTerrainQuery());
     this.detail.clear();
-    this.terrain.fillStyle(COLORS.void).fillRect(0, 0, W * TILE, H * TILE);
+    this.drawChartedChambers();
+
+    // Dig orders read as one continuous route instead of a ladder of checkboxes.
+    this.detail.lineStyle(7, COLORS.gold, 0.24);
+    for (const mark of this.digMarks) {
+      const [x, y] = mark.split(',').map(Number);
+      if (this.digMarks.has(this.key(x + 1, y))) {
+        this.detail.lineBetween(this.wx(x), this.wy(y), this.wx(x + 1), this.wy(y));
+      }
+      if (this.digMarks.has(this.key(x, y + 1))) {
+        this.detail.lineBetween(this.wx(x), this.wy(y), this.wx(x), this.wy(y + 1));
+      }
+    }
+
     for (let y = 0; y < H; y++) {
       for (let x = 0; x < W; x++) {
+        if (!this.digMarks.has(this.key(x, y))) continue;
         const px = x * TILE;
         const py = y * TILE;
-        if (this.map[y][x] === 1 && this.known[y][x]) {
-          const checker = (x + y) % 2 ? COLORS.floor : COLORS.floorHi;
-          this.terrain.fillStyle(checker).fillRect(px, py, TILE, TILE);
-          this.terrain.lineStyle(1, 0x2c313d, 0.22).strokeRect(px, py, TILE, TILE);
-          if ((x * 13 + y * 7) % 11 === 0) this.detail.fillStyle(0x4b4d53, 0.25).fillRect(px + 5, py + 8, 3, 2);
-        } else {
-          const checker = (x * 5 + y * 3) % 4 ? COLORS.rock : COLORS.rockHi;
-          this.terrain.fillStyle(checker).fillRect(px, py, TILE, TILE);
-          this.terrain.lineStyle(1, 0x12141c, 0.38).strokeRect(px, py, TILE, TILE);
-          this.detail.fillStyle(0x4a4d5c, 0.26).fillRect(px + 4 + ((x * 7) % 9), py + 5 + ((y * 5) % 11), 6, 2);
-        }
-        if (this.digMarks.has(this.key(x, y))) {
-          this.detail.fillStyle(COLORS.gold, 0.24).fillRect(px + 3, py + 3, TILE - 6, TILE - 6);
-          this.detail.lineStyle(1, COLORS.gold, 0.7).lineBetween(px + 7, py + 7, px + TILE - 7, py + TILE - 7);
+        const degree = this.neighbors(x, y).filter((neighbor) => this.digMarks.has(this.key(neighbor.x, neighbor.y))).length;
+        this.detail.fillStyle(COLORS.gold, 0.12).fillRoundedRect(px + 3, py + 3, TILE - 6, TILE - 6, 6);
+        if (degree <= 1 || (x * 5 + y * 3) % 7 === 0) {
+          this.detail.lineStyle(2, COLORS.gold, 0.9)
+            .lineBetween(px + 9, py + TILE - 9, px + TILE - 9, py + 9)
+            .lineBetween(px + TILE - 12, py + 9, px + TILE - 9, py + 9)
+            .lineBetween(px + TILE - 9, py + 9, px + TILE - 9, py + 12);
         }
       }
     }
 
-    for (const node of this.nodes.filter((candidate) => !candidate.discovered)) {
-      for (let y = node.chamber.y - 4; y <= node.chamber.y + node.chamber.h + 3; y++) {
-        for (let x = node.chamber.x - 4; x <= node.chamber.x + node.chamber.w + 3; x++) {
-          if (!this.inBounds(x, y) || this.map[y][x] !== 0) continue;
-          const distance = Math.max(Math.abs(x - node.x), Math.abs(y - node.y));
-          if (distance > 6 || (x * 3 + y * 5) % 5) continue;
-          this.detail.lineStyle(1, node.color, 0.48).lineBetween(x * TILE + 8, y * TILE + 6, x * TILE + 15, y * TILE + 14);
-        }
+    this.drawHeartSanctum();
+    this.drawRoomDecor();
+    this.rebuildRoomGlows();
+  }
+
+  /** Mission-map information: location and resource family, but no exact yield. */
+  private drawChartedChambers(): void {
+    for (const node of this.nodes) {
+      if (node.discovered) continue;
+      const x = node.chamber.x * TILE;
+      const y = node.chamber.y * TILE;
+      const w = node.chamber.w * TILE;
+      const h = node.chamber.h * TILE;
+      this.detail.fillStyle(0x08090c, 0.18).fillRoundedRect(x + 5, y + 5, w - 10, h - 10, 12);
+      this.detail.lineStyle(1, node.color, 0.24).strokeRoundedRect(x + 5, y + 5, w - 10, h - 10, 12);
+
+      // Strong corner brackets make this read as strategic map knowledge,
+      // while the asset-backed dark floor underneath reads as an actual room.
+      const bracket = 18;
+      this.detail.lineStyle(2.5, node.color, 0.78)
+        .lineBetween(x + 4, y + 4 + bracket, x + 4, y + 4)
+        .lineBetween(x + 4, y + 4, x + 4 + bracket, y + 4)
+        .lineBetween(x + w - 4 - bracket, y + 4, x + w - 4, y + 4)
+        .lineBetween(x + w - 4, y + 4, x + w - 4, y + 4 + bracket)
+        .lineBetween(x + 4, y + h - 4 - bracket, x + 4, y + h - 4)
+        .lineBetween(x + 4, y + h - 4, x + 4 + bracket, y + h - 4)
+        .lineBetween(x + w - 4 - bracket, y + h - 4, x + w - 4, y + h - 4)
+        .lineBetween(x + w - 4, y + h - 4 - bracket, x + w - 4, y + h - 4);
+
+      const cx = this.wx(node.x);
+      const cy = this.wy(node.y);
+      this.detail.fillStyle(0x090a0e, 0.78).fillCircle(cx, cy, 12);
+      this.detail.lineStyle(2, node.color, 0.94).strokeCircle(cx, cy, 10);
+      if (node.kind === 'ore') {
+        this.detail.fillStyle(node.color, 0.9).fillTriangle(cx, cy - 5, cx + 5, cy, cx, cy + 5);
+      } else if (node.kind === 'biomass') {
+        this.detail.fillStyle(node.color, 0.9).fillCircle(cx - 3, cy, 3).fillCircle(cx + 3, cy - 2, 3);
+        this.detail.fillStyle(node.color, 0.65).fillRect(cx - 1, cy, 2, 5);
+      } else {
+        this.detail.lineStyle(2, node.color, 0.95)
+          .lineBetween(cx, cy - 5, cx + 4, cy)
+          .lineBetween(cx + 4, cy, cx, cy + 5)
+          .lineBetween(cx, cy + 5, cx - 4, cy)
+          .lineBetween(cx - 4, cy, cx, cy - 5);
       }
     }
+  }
+
+  /** Soft coloured glow per room — rebuilt only on world change, few objects. */
+  private rebuildRoomGlows(): void {
+    for (const glow of this.roomGlows) glow.destroy();
+    this.roomGlows = [];
+    const tint: Partial<Record<RoomKind, number>> = {
+      kitchen: 0x6f9b62,
+      smelter: 0xd0813a,
+      workshop: 0xb9c2cc,
+      prison: 0x8a7ea6,
+      bedroom: 0x5f7fb0,
+    };
+    for (const room of this.rooms) {
+      const color = tint[room.kind];
+      if (color === undefined) continue;
+      const cx = (room.x + room.w / 2) * TILE;
+      const cy = (room.y + room.h / 2) * TILE;
+      const radius = Math.min(room.w, room.h) * TILE * 0.65 + 10;
+      const glow = this.add.circle(cx, cy, radius, color, room.kind === 'smelter' ? 0.12 : 0.07).setDepth(3);
+      glow.setBlendMode(Phaser.BlendModes.ADD);
+      this.roomGlows.push(glow);
+      if (room.kind === 'smelter' || room.kind === 'workshop') {
+        this.tweens.add({ targets: glow, alpha: '-=0.05', yoyo: true, repeat: -1, duration: 900 + room.id * 37 });
+      }
+    }
+  }
+
+  private drawRoomDecor(): void {
+    for (const prop of this.roomProps) prop.destroy();
+    this.roomProps = [];
 
     for (const room of this.rooms) {
+      const ox = room.x * TILE;
+      const oy = room.y * TILE;
+      const rw = room.w * TILE;
+      const rh = room.h * TILE;
+
+      // This contour is interaction feedback; the visible room identity comes
+      // from the generated floor and prop assets.
       const def = ROOM_DEFINITIONS[room.kind];
-      this.detail.fillStyle(def.color, 0.48).fillRect(room.x * TILE + 2, room.y * TILE + 2, room.w * TILE - 4, room.h * TILE - 4);
-      this.detail.lineStyle(2, def.color, 0.9).strokeRect(room.x * TILE + 2, room.y * TILE + 2, room.w * TILE - 4, room.h * TILE - 4);
-      this.detail.fillStyle(0x090a0e, 0.68).fillRect(room.x * TILE + 5, room.y * TILE + 5, 18, 18);
-      this.detail.fillStyle(0xd9c897, 0.5).fillCircle(room.x * TILE + 14, room.y * TILE + 14, 5);
-      if (room.kind === 'bedroom') {
-        const beds = Math.floor((room.w * room.h) / 4);
-        for (let i = 0; i < beds; i++) {
-          const bx = room.x * TILE + 8 + (i % Math.max(1, room.w - 1)) * TILE;
-          const by = room.y * TILE + 8 + Math.floor(i / Math.max(1, room.w - 1)) * TILE;
-          this.detail.fillStyle(0x6b7890, 0.8).fillRect(bx, by, TILE - 7, TILE - 11);
+      this.detail.lineStyle(2, def.color, 0.82).strokeRect(ox + 2, oy + 2, rw - 4, rh - 4);
+
+      switch (room.kind) {
+        case 'bedroom': {
+          const beds = Math.max(1, Math.floor((room.w * room.h) / 4));
+          const columns = Math.min(room.w, beds);
+          const rows = Math.ceil(beds / columns);
+          for (let index = 0; index < beds; index++) {
+            const column = index % columns;
+            const row = Math.floor(index / columns);
+            const x = ox + ((column + 0.5) / columns) * rw;
+            const y = oy + ((row + 0.5) / rows) * rh;
+            const prop = this.addRoomProp('room-prop-bed', x, y, rw / columns - 8, rh / rows - 8, 1);
+            if (index < this.bedsUsed()) prop.setTint(0xc4c9ce);
+          }
+          break;
         }
-      }
-      if (room.kind === 'prison') {
-        this.detail.lineStyle(2, 0xa69aa9, 0.6);
-        for (let gx = room.x * TILE + 9; gx < (room.x + room.w) * TILE; gx += 9) {
-          this.detail.lineBetween(gx, room.y * TILE + 5, gx, (room.y + room.h) * TILE - 5);
-        }
+        case 'kitchen':
+          this.addRoomProp('room-prop-cauldron', ox + rw / 2, oy + rh / 2, rw - 10, rh - 10, 1.18);
+          break;
+        case 'smelter':
+          this.addRoomProp('room-prop-furnace', ox + rw / 2, oy + rh / 2, rw - 10, rh - 10, 1.14);
+          break;
+        case 'workshop':
+          this.addRoomProp('room-prop-workbench', ox + rw / 2, oy + rh / 2, rw - 10, rh - 10, 1.12);
+          break;
+        case 'prison':
+          this.addRoomProp('room-prop-prison', ox + rw / 2, oy + rh / 2, rw - 10, rh - 10, 1.14);
+          break;
+        case 'storage':
+          this.addRoomProp('room-prop-storage', ox + rw / 2, oy + rh / 2, rw - 8, rh - 8, 1.08);
+          break;
       }
     }
+  }
+
+  private addRoomProp(
+    key: string,
+    x: number,
+    y: number,
+    maxWidth: number,
+    maxHeight: number,
+    maxScale: number,
+  ): Phaser.GameObjects.Image {
+    const prop = this.add.image(x, y, key).setDepth(5);
+    const scale = Math.min(maxScale, maxWidth / prop.width, maxHeight / prop.height);
+    prop.setScale(Math.max(0.5, scale));
+    this.roomProps.push(prop);
+    return prop;
+  }
+
+  /** A distinct starting setpiece: the Covenant Heart is a place, not an icon. */
+  private drawHeartSanctum(): void {
+    const cx = this.wx(HEART_TILE.x);
+    const cy = this.wy(HEART_TILE.y);
+
+    // Quiet ceremonial dais with a readable radial seal under the living heart.
+    this.detail.fillStyle(0x140f14, 0.82).fillEllipse(cx, cy, 112, 82);
+    this.detail.lineStyle(2, 0x71353f, 0.7).strokeEllipse(cx, cy, 101, 72);
+    this.detail.lineStyle(1, 0xc07867, 0.34).strokeEllipse(cx, cy, 72, 49);
+    this.detail.lineStyle(1, 0x7c3948, 0.46);
+    for (let angle = 0; angle < 360; angle += 45) {
+      const rad = Phaser.Math.DegToRad(angle);
+      const innerX = cx + Math.cos(rad) * 26;
+      const innerY = cy + Math.sin(rad) * 18;
+      const outerX = cx + Math.cos(rad) * 45;
+      const outerY = cy + Math.sin(rad) * 31;
+      this.detail.lineBetween(innerX, innerY, outerX, outerY);
+    }
+
+    // Four restrained obelisks frame the altar and lead the eye to the heart.
+    for (const [ox, oy] of [[-43, -27], [43, -27], [-43, 27], [43, 27]]) {
+      this.detail.fillStyle(0x090a0e, 0.7).fillEllipse(cx + ox, cy + oy + 7, 13, 5);
+      this.detail.fillStyle(0x30262d).fillTriangle(cx + ox, cy + oy - 9, cx + ox + 6, cy + oy + 7, cx + ox - 6, cy + oy + 7);
+      this.detail.lineStyle(1, 0xb98263, 0.55).lineBetween(cx + ox, cy + oy - 8, cx + ox, cy + oy + 4);
+      this.detail.fillStyle(0xd37b65, 0.6).fillCircle(cx + ox, cy + oy - 2, 1.5);
+    }
+  }
+
+  private drawBedroom(room: Room, ox: number, oy: number): void {
+    const beds = Math.floor((room.w * room.h) / 4);
+    const cols = Math.max(1, room.w - 1);
+    for (let i = 0; i < beds; i++) {
+      const bx = ox + 7 + (i % cols) * TILE;
+      const by = oy + 7 + Math.floor(i / cols) * TILE;
+      const bw = TILE - 8;
+      const bh = TILE + 5;
+      const occupied = i < this.bedsUsed();
+      this.detail.fillStyle(0x0a0b0f, 0.4).fillRect(bx + 2, by + bh - 3, bw, 3); // shadow
+      this.detail.fillStyle(0x4a3524).fillRect(bx, by, bw, bh); // dark wood frame
+      this.detail.fillStyle(occupied ? 0x3f5f7a : 0x4f7396).fillRect(bx + 2, by + 5, bw - 4, bh - 7); // blanket
+      this.detail.fillStyle(0xe4dcc6).fillRect(bx + 2, by + 1, bw - 4, 5); // pillow
+      if (occupied) this.detail.fillStyle(0x243746).fillRect(bx + 2, by + 9, bw - 4, 4); // sleeper lump
+    }
+  }
+
+  private drawKitchen(_room: Room, ox: number, oy: number, rw: number, rh: number): void {
+    const cx = ox + rw / 2;
+    // Cauldron.
+    this.detail.fillStyle(0x0a0b0f, 0.4).fillEllipse(cx, oy + rh - 8, 26, 8);
+    this.detail.fillStyle(0x2c322b).fillRect(cx - 11, oy + rh - 22, 22, 15);
+    this.detail.fillStyle(0x5f8a4d).fillEllipse(cx, oy + rh - 22, 22, 8); // mushroom broth
+    this.detail.fillStyle(0x84b06a).fillEllipse(cx - 3, oy + rh - 24, 8, 3);
+    // Shelves with fungus baskets.
+    for (let i = 0; i < 3; i++) {
+      const sx = ox + 6 + i * 10;
+      this.detail.fillStyle(0x4a3a2a).fillRect(sx, oy + 6, 8, 6);
+      this.detail.fillStyle(0x6f9b62).fillCircle(sx + 4, oy + 7, 2);
+    }
+  }
+
+  private drawSmelter(room: Room, ox: number, oy: number, rw: number, rh: number): void {
+    const cx = ox + rw / 2;
+    // Furnace body.
+    this.detail.fillStyle(0x2a211c).fillRect(cx - 14, oy + 6, 28, rh - 12);
+    this.detail.fillStyle(0x120d0a).fillRect(cx - 9, oy + 12, 18, 14); // mouth
+    // Ember glow (static base; animated glow handled by roomGlows).
+    this.detail.fillStyle(0xd8752a, room.activeRecipe ? 0.85 : 0.5).fillRect(cx - 7, oy + 15, 14, 9);
+    this.detail.fillStyle(0xf2c25a, room.activeRecipe ? 0.9 : 0.5).fillRect(cx - 4, oy + 18, 8, 5);
+    // Anvil / casting slab.
+    this.detail.fillStyle(0x3d434d).fillRect(ox + 5, oy + rh - 14, 14, 8);
+    this.detail.fillStyle(0x565d68).fillRect(ox + 7, oy + rh - 16, 6, 3);
+  }
+
+  private drawWorkshop(room: Room, ox: number, oy: number, rw: number, rh: number): void {
+    // Workbench.
+    this.detail.fillStyle(0x0a0b0f, 0.35).fillRect(ox + 6, oy + rh - 12, rw - 12, 4);
+    this.detail.fillStyle(0x5a4630).fillRect(ox + 6, oy + rh - 18, rw - 12, 8);
+    this.detail.fillStyle(0x6d543a).fillRect(ox + 6, oy + rh - 18, rw - 12, 2);
+    // Tool rack with metallic highlights.
+    for (let i = 0; i < 3; i++) {
+      const tx = ox + 10 + i * 9;
+      this.detail.lineStyle(2, 0xaeb6c0, 0.85).lineBetween(tx, oy + 6, tx, oy + 16);
+      this.detail.fillStyle(0xced4dc).fillRect(tx - 2, oy + 5, 4, 3);
+    }
+    if (room.activeRecipe) {
+      this.detail.fillStyle(0xffd873, 0.9).fillCircle(ox + 10, oy + rh - 18, 1.5);
+      this.detail.fillStyle(0xffb347, 0.7).fillCircle(ox + 14, oy + rh - 20, 1);
+    }
+  }
+
+  private drawPrison(room: Room, ox: number, oy: number, rw: number, rh: number): void {
+    // Cell floor darkening handled by ROOM_PRISON tile; add vertical bars + door.
+    this.detail.fillStyle(0x0b0c10, 0.3).fillRect(ox + 3, oy + 3, rw - 6, rh - 6);
+    this.detail.lineStyle(2, 0x9a8f7c, 0.8);
+    for (let gx = ox + 6; gx < ox + rw - 3; gx += 7) {
+      this.detail.lineBetween(gx, oy + 4, gx, oy + rh - 4);
+    }
+    // Horizontal cross rails.
+    this.detail.lineStyle(1.5, 0x8a8070, 0.7)
+      .lineBetween(ox + 4, oy + 6, ox + rw - 4, oy + 6)
+      .lineBetween(ox + 4, oy + rh - 6, ox + rw - 4, oy + rh - 6);
+    // Door gap in the middle bar so the prisoner sprite reads as "inside".
+    const doorX = ox + rw / 2;
+    this.detail.fillStyle(0x0b0c10, 1).fillRect(doorX - 5, oy + rh / 2 - 6, 10, 12);
+  }
+
+  private drawStorage(_room: Room, ox: number, oy: number, rw: number, rh: number): void {
+    // Crates and barrels tucked to the edges so haul/item sprites stay visible.
+    const crate = (x: number, y: number, s: number) => {
+      this.detail.fillStyle(0x5b4529).fillRect(x, y, s, s);
+      this.detail.lineStyle(1, 0x3a2c19, 0.9).strokeRect(x, y, s, s)
+        .lineBetween(x, y + s / 2, x + s, y + s / 2)
+        .lineBetween(x + s / 2, y, x + s / 2, y + s);
+    };
+    crate(ox + 4, oy + 4, 9);
+    crate(ox + 4, oy + rh - 13, 9);
+    crate(ox + rw - 13, oy + 4, 9);
+    // Barrel.
+    this.detail.fillStyle(0x4c3a28).fillEllipse(ox + rw - 8, oy + rh - 8, 10, 12);
+    this.detail.lineStyle(1, 0x6d543a, 0.9).strokeEllipse(ox + rw - 8, oy + rh - 8, 10, 12);
   }
 
   private drawStatus(): void {
@@ -1551,6 +2237,7 @@ export class GameScene extends Phaser.Scene {
       const labels: Record<JobKind, string> = {
         idle: 'Kein erreichbarer Auftrag',
         dig: 'Gräbt',
+        claim: 'Verlegt beanspruchten Boden',
         mine: 'Baut Rohstoff ab',
         pickup: 'Holt Gegenstand',
         deliver: 'Transportiert Gut',
@@ -1630,9 +2317,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   private deliveryPoint(kind: ItemKind): GridPoint {
-    if (kind === 'essence') return { x: 32, y: 34 };
+    if (kind === 'essence') return { ...HEART_TILE };
     const storage = this.rooms.find((room) => room.kind === 'storage');
-    return storage ? this.roomCenter(storage) : { x: 29, y: 36 };
+    return storage ? this.roomCenter(storage) : { x: 29, y: sy(24) };
   }
 
   private endGame(victory: boolean): void {
@@ -1672,10 +2359,10 @@ export class GameScene extends Phaser.Scene {
     const camera = this.cameras.main;
     if (window.innerWidth < 900) {
       camera.setZoom(0.58);
-      camera.centerOn(32 * TILE, 20 * TILE);
+      camera.centerOn(HEART_TILE.x * TILE, HEART_TILE.y * TILE);
     } else {
       camera.setZoom(0.7);
-      camera.centerOn(32 * TILE, 20 * TILE);
+      camera.centerOn(HEART_TILE.x * TILE, HEART_TILE.y * TILE);
     }
   }
 
@@ -1705,8 +2392,8 @@ export class GameScene extends Phaser.Scene {
 
   private reachableFromHeart(x: number, y: number): boolean {
     if (!this.isPassable(x, y)) return false;
-    return findPath(W, H, { x: 32, y: 34 }, { x, y }, (px, py) => this.isPassable(px, py)).length > 0
-      || (x === 32 && y === 34);
+    return findPath(W, H, HEART_TILE, { x, y }, (px, py) => this.isPassable(px, py)).length > 0
+      || (x === HEART_TILE.x && y === HEART_TILE.y);
   }
 
   private pathBetween(from: GridPoint, to: GridPoint): GridPoint[] {
@@ -1739,6 +2426,19 @@ export class GameScene extends Phaser.Scene {
     return point.x >= room.x && point.y >= room.y && point.x < room.x + room.w && point.y < room.y + room.h;
   }
 
+  private assignRoomTiles(room: Room, construction: TileConstruction): void {
+    for (let y = room.y; y < room.y + room.h; y++) {
+      for (let x = room.x; x < room.x + room.w; x++) {
+        const tile = this.tileAt(x, y);
+        if (!tile) continue;
+        tile.roomId = room.id;
+        tile.roomKind = room.kind;
+        tile.construction = construction;
+        tile.control = 'owned';
+      }
+    }
+  }
+
   private rectPoints(a: GridPoint, b: GridPoint): GridPoint[] {
     const x1 = Math.min(a.x, b.x);
     const y1 = Math.min(a.y, b.y);
@@ -1759,7 +2459,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   private isPassable(x: number, y: number): boolean {
-    return this.inBounds(x, y) && this.map[y][x] === 1;
+    return this.tileAt(x, y)?.geology === 'excavated';
+  }
+
+  private tileAt(x: number, y: number): WorldTile | undefined {
+    return this.inBounds(x, y) ? this.tiles[y]?.[x] : undefined;
   }
 
   private inBounds(x: number, y: number): boolean {

@@ -72,6 +72,7 @@ button {
 .time-controls,
 .panel,
 .toolbar,
+.tool-popover,
 .toast,
 .modal-card,
 .selection-hint {
@@ -242,6 +243,13 @@ button {
   box-shadow: 0 0 18px rgba(211, 168, 74, 0.22);
 }
 
+.tool-btn.menu-open {
+  color: #e8d7ac;
+  border-color: rgba(229, 196, 110, 0.7);
+  background: rgba(211, 168, 74, 0.14);
+  box-shadow: 0 0 14px rgba(211, 168, 74, 0.1);
+}
+
 .left-column {
   position: absolute;
   top: 68px;
@@ -332,38 +340,75 @@ button {
   bottom: max(10px, env(safe-area-inset-bottom));
   left: max(10px, env(safe-area-inset-left));
   display: flex;
-  align-items: flex-end;
+  flex-direction: column;
+  align-items: center;
   justify-content: center;
+  gap: 6px;
   pointer-events: none;
 }
 
 .toolbar {
   min-width: 0;
-  max-width: calc(100vw - 20px);
+  max-width: min(470px, calc(100vw - 20px));
   display: flex;
   align-items: center;
   gap: 4px;
   padding: 5px;
-  overflow-x: auto;
   border-radius: 7px;
   pointer-events: auto;
-  scrollbar-width: none;
 }
 
-.toolbar::-webkit-scrollbar {
+.tool-popovers {
+  width: min(420px, calc(100vw - 20px));
+  pointer-events: auto;
+}
+
+.tool-popover {
+  padding: 8px;
+  border-radius: 7px;
+}
+
+.tool-popover[hidden] {
   display: none;
 }
 
-.toolbar-group {
+.popover-heading {
   display: flex;
-  gap: 3px;
-  padding-right: 5px;
-  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 3px 7px;
 }
 
-.toolbar-group:last-child {
-  padding-right: 0;
-  border-right: 0;
+.popover-heading strong {
+  color: #e7d9b7;
+  font-family: "Barlow Condensed", sans-serif;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.popover-heading span {
+  overflow: hidden;
+  color: #8f8778;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.popover-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+}
+
+.popover-grid .room-btn,
+.popover-grid .recruit-btn,
+.popover-grid .tool-btn {
+  width: 100%;
+  min-width: 0;
+  background: rgba(255, 255, 255, 0.025);
+  border-color: rgba(255, 255, 255, 0.055);
 }
 
 .tool-btn,
@@ -813,6 +858,25 @@ button {
   .room-btn small,
   .recruit-btn small {
     display: none;
+  }
+
+  .tool-popover .tool-btn,
+  .tool-popover .room-btn,
+  .tool-popover .recruit-btn {
+    min-height: 52px;
+    height: 52px;
+  }
+
+  .tool-popover .tool-btn small,
+  .tool-popover .room-btn small,
+  .tool-popover .recruit-btn small {
+    display: block;
+    margin-top: 2px;
+    font-size: 7px;
+  }
+
+  .popover-heading span {
+    font-size: 8px;
   }
 
   .selection-hint {

@@ -204,7 +204,7 @@ Der Spieler muss:
 
 ## 5.1 Größe
 
-- 64 × 40 Felder;
+- 64 × 48 Felder;
 - 16 × 16 Pixel Quelltiles;
 - standardmäßig 32 × 32 Renderpixel;
 - eine orthogonale Top-down-Ebene.
@@ -340,9 +340,18 @@ Beispiel:
 | normales Felsfeld | 1,5 s |
 | rohstoffhaltiges Feld | 2,2 s |
 | ein Rohstoffstück abbauen | 2,5 s |
+| ein Bodenfeld beanspruchen | 0,9 s |
 | Raumfeld errichten | 0,7 s |
 
 Abweichungen nach Test maximal ±20 Prozent.
+
+## 7.4 Beanspruchen
+
+- Ein offenes Feld wird erst beanspruchbar, wenn es orthogonal an eigenen Boden grenzt.
+- Arbeiter verlegen den Covenant-Boden einzeln von der Basis nach außen.
+- Feindlicher Boden wird erst nach Beseitigung der zugehörigen Wächter freigegeben.
+- Eine Rohstoffquelle gilt als beansprucht, sobald der verlegte Boden ihr Quellenfeld erreicht.
+- Claiming ist sichtbar, reserviert und konkurriert fair mit Graben, Abbau und Transport.
 
 ---
 
@@ -573,6 +582,7 @@ Werte:
 ## 12.2 Aufgaben
 
 - graben;
+- neutralen oder gesicherten feindlichen Boden feldweise beanspruchen;
 - abbauen;
 - tragen;
 - beliefern;
@@ -588,6 +598,7 @@ Werte:
 - MovingToJob
 - Digging
 - AssistingDig
+- Claiming
 - Mining
 - Hauling
 - Delivering
@@ -638,9 +649,10 @@ Regeln:
 
 Bei mindestens drei Arbeitern:
 
-- einer für erreichbare Grab-/Bauaufträge;
-- einer für Logistik, falls nötig;
-- weitere nach Priorität.
+- eine flexible Logistik-/Claiming-Lane;
+- eine flexible Grab-/Claiming-Lane;
+- eine flexible Rohstoff-Lane, bei knapper Nahrung mit Biomassevorrang;
+- jede Lane übernimmt bei fehlender Kernaufgabe andere erreichbare Arbeit.
 
 ## 12.6 Anti-Deadlock
 
@@ -1369,25 +1381,31 @@ Der Agent darf Imagegen verwenden, aber nicht als Art-Abteilung missverstehen.
 
 ## 25.1 Limit
 
-Maximal **drei Aufrufe** für den gesamten Proof of Concept.
+Maximal **sechs Aufrufe** für den Terrain-V3-Qualitätspass.
 
-Keine automatischen Variantenserien oder Rerolls.
+Keine automatischen Variantenserien. Ein gezielter Korrekturaufruf ist erlaubt,
+wenn ein Ergebnis technisch nicht integrierbar ist.
 
 ## 25.2 Erlaubte Aufrufe
 
-1. **Identitätsblatt:** Herz, Covenant-Symbol, Inquisitionssymbol, Farb-/Formsprache.
-2. **Einheitenreferenz:** Guard, Archer, Hexbinder, rekrutierter Inquisitor.
-3. **Porträt/UI-Blatt:** Gefangenenporträt, Missionsillustration, Fraktionsabzeichen – nur falls nötig.
+1. **Terrainmaterial:** Fels, Rohboden oder gebauter Covenant-Boden.
+2. **Modulare Kanten:** Wandlippen, Ecken und Besitzränder als Masterquelle.
+3. **Raumobjektblatt:** wenige klar getrennte Funktionsobjekte.
+4. **Gezielte Korrektur:** nur bei falscher Perspektive oder technisch unbrauchbarem Ergebnis.
 
 ## 25.3 Verboten
 
-- vollständige Tilesets;
-- Autotiles;
+- ungeprüft direkt generierte Komplett-Tilesets;
+- Laufzeitgrafik ohne gespeicherte PNG-Assets;
 - Richtungs-Spritesheets;
 - vollständige Animationen;
 - dutzende Einzelicons;
 - finale Art;
-- wiederholte Generierung wegen kleiner Fehler.
+- wiederholte Generierung wegen kleiner kosmetischer Fehler.
+
+Erlaubt ist die lokale, reproduzierbare Aufbereitung weniger Imagegen-
+Masterquellen zu 32-Pixel-Atlanten. Sichtbare Formen müssen als PNG-Assets im
+Projekt liegen; Code wählt nur Frames, Rotationen und Zustände.
 
 ## 25.4 Dokumentation
 

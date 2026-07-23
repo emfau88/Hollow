@@ -1,0 +1,367 @@
+{
+  "meta": {
+    "image": "hollow_terrain_28.png",
+    "frameWidth": 28,
+    "frameHeight": 28,
+    "columns": 8,
+    "rows": 6,
+    "frameCount": 44,
+    "source": "OpenAI ImageGen base terrain + normalized code-built edge overlays",
+    "spacing": 0,
+    "margin": 0
+  },
+  "frames": {
+    "rock_massive_0": {
+      "index": 0,
+      "x": 0,
+      "y": 0,
+      "w": 28,
+      "h": 28,
+      "kind": "base"
+    },
+    "rock_massive_1": {
+      "index": 1,
+      "x": 28,
+      "y": 0,
+      "w": 28,
+      "h": 28,
+      "kind": "base"
+    },
+    "rock_brittle": {
+      "index": 2,
+      "x": 56,
+      "y": 0,
+      "w": 28,
+      "h": 28,
+      "kind": "base"
+    },
+    "rock_damp": {
+      "index": 3,
+      "x": 84,
+      "y": 0,
+      "w": 28,
+      "h": 28,
+      "kind": "base"
+    },
+    "rock_moss": {
+      "index": 4,
+      "x": 112,
+      "y": 0,
+      "w": 28,
+      "h": 28,
+      "kind": "base"
+    },
+    "rock_iron_small": {
+      "index": 5,
+      "x": 140,
+      "y": 0,
+      "w": 28,
+      "h": 28,
+      "kind": "base"
+    },
+    "rock_iron_large": {
+      "index": 6,
+      "x": 168,
+      "y": 0,
+      "w": 28,
+      "h": 28,
+      "kind": "base"
+    },
+    "rock_iron_rich": {
+      "index": 7,
+      "x": 196,
+      "y": 0,
+      "w": 28,
+      "h": 28,
+      "kind": "base"
+    },
+    "rock_fungus_hint": {
+      "index": 8,
+      "x": 0,
+      "y": 28,
+      "w": 28,
+      "h": 28,
+      "kind": "base"
+    },
+    "rock_essence_hint": {
+      "index": 9,
+      "x": 28,
+      "y": 28,
+      "w": 28,
+      "h": 28,
+      "kind": "base"
+    },
+    "raw_ground_0": {
+      "index": 10,
+      "x": 56,
+      "y": 28,
+      "w": 28,
+      "h": 28,
+      "kind": "base"
+    },
+    "raw_ground_1": {
+      "index": 11,
+      "x": 84,
+      "y": 28,
+      "w": 28,
+      "h": 28,
+      "kind": "base"
+    },
+    "raw_ground_2": {
+      "index": 12,
+      "x": 112,
+      "y": 28,
+      "w": 28,
+      "h": 28,
+      "kind": "base"
+    },
+    "raw_ground_3": {
+      "index": 13,
+      "x": 140,
+      "y": 28,
+      "w": 28,
+      "h": 28,
+      "kind": "base"
+    },
+    "raw_ground_4": {
+      "index": 14,
+      "x": 168,
+      "y": 28,
+      "w": 28,
+      "h": 28,
+      "kind": "base"
+    },
+    "raw_ground_5": {
+      "index": 15,
+      "x": 196,
+      "y": 28,
+      "w": 28,
+      "h": 28,
+      "kind": "base"
+    },
+    "claimed_floor_0": {
+      "index": 16,
+      "x": 0,
+      "y": 56,
+      "w": 28,
+      "h": 28,
+      "kind": "base"
+    },
+    "claimed_floor_1": {
+      "index": 17,
+      "x": 28,
+      "y": 56,
+      "w": 28,
+      "h": 28,
+      "kind": "base"
+    },
+    "claimed_floor_2": {
+      "index": 18,
+      "x": 56,
+      "y": 56,
+      "w": 28,
+      "h": 28,
+      "kind": "base"
+    },
+    "claimed_floor_3": {
+      "index": 19,
+      "x": 84,
+      "y": 56,
+      "w": 28,
+      "h": 28,
+      "kind": "base"
+    },
+    "claimed_floor_4": {
+      "index": 20,
+      "x": 112,
+      "y": 56,
+      "w": 28,
+      "h": 28,
+      "kind": "base"
+    },
+    "claimed_floor_5": {
+      "index": 21,
+      "x": 140,
+      "y": 56,
+      "w": 28,
+      "h": 28,
+      "kind": "base"
+    },
+    "room_storage": {
+      "index": 22,
+      "x": 168,
+      "y": 56,
+      "w": 28,
+      "h": 28,
+      "kind": "base"
+    },
+    "room_bedroom": {
+      "index": 23,
+      "x": 196,
+      "y": 56,
+      "w": 28,
+      "h": 28,
+      "kind": "base"
+    },
+    "room_kitchen": {
+      "index": 24,
+      "x": 0,
+      "y": 84,
+      "w": 28,
+      "h": 28,
+      "kind": "base"
+    },
+    "room_smelter": {
+      "index": 25,
+      "x": 28,
+      "y": 84,
+      "w": 28,
+      "h": 28,
+      "kind": "base"
+    },
+    "room_workshop": {
+      "index": 26,
+      "x": 56,
+      "y": 84,
+      "w": 28,
+      "h": 28,
+      "kind": "base"
+    },
+    "room_prison": {
+      "index": 27,
+      "x": 84,
+      "y": 84,
+      "w": 28,
+      "h": 28,
+      "kind": "base"
+    },
+    "room_heart": {
+      "index": 28,
+      "x": 112,
+      "y": 84,
+      "w": 28,
+      "h": 28,
+      "kind": "base"
+    },
+    "wall_edge_top": {
+      "index": 29,
+      "x": 140,
+      "y": 84,
+      "w": 28,
+      "h": 28,
+      "kind": "overlay"
+    },
+    "wall_edge_bottom": {
+      "index": 30,
+      "x": 168,
+      "y": 84,
+      "w": 28,
+      "h": 28,
+      "kind": "overlay"
+    },
+    "wall_edge_left": {
+      "index": 31,
+      "x": 196,
+      "y": 84,
+      "w": 28,
+      "h": 28,
+      "kind": "overlay"
+    },
+    "wall_edge_right": {
+      "index": 32,
+      "x": 0,
+      "y": 112,
+      "w": 28,
+      "h": 28,
+      "kind": "overlay"
+    },
+    "wall_corner_tl": {
+      "index": 33,
+      "x": 28,
+      "y": 112,
+      "w": 28,
+      "h": 28,
+      "kind": "overlay"
+    },
+    "wall_corner_tr": {
+      "index": 34,
+      "x": 56,
+      "y": 112,
+      "w": 28,
+      "h": 28,
+      "kind": "overlay"
+    },
+    "wall_corner_bl": {
+      "index": 35,
+      "x": 84,
+      "y": 112,
+      "w": 28,
+      "h": 28,
+      "kind": "overlay"
+    },
+    "wall_corner_br": {
+      "index": 36,
+      "x": 112,
+      "y": 112,
+      "w": 28,
+      "h": 28,
+      "kind": "overlay"
+    },
+    "wall_t_n": {
+      "index": 37,
+      "x": 140,
+      "y": 112,
+      "w": 28,
+      "h": 28,
+      "kind": "overlay"
+    },
+    "wall_t_e": {
+      "index": 38,
+      "x": 168,
+      "y": 112,
+      "w": 28,
+      "h": 28,
+      "kind": "overlay"
+    },
+    "wall_t_s": {
+      "index": 39,
+      "x": 196,
+      "y": 112,
+      "w": 28,
+      "h": 28,
+      "kind": "overlay"
+    },
+    "wall_t_w": {
+      "index": 40,
+      "x": 0,
+      "y": 140,
+      "w": 28,
+      "h": 28,
+      "kind": "overlay"
+    },
+    "wall_cross": {
+      "index": 41,
+      "x": 28,
+      "y": 140,
+      "w": 28,
+      "h": 28,
+      "kind": "overlay"
+    },
+    "threshold_horizontal": {
+      "index": 42,
+      "x": 56,
+      "y": 140,
+      "w": 28,
+      "h": 28,
+      "kind": "overlay"
+    },
+    "threshold_vertical": {
+      "index": 43,
+      "x": 84,
+      "y": 140,
+      "w": 28,
+      "h": 28,
+      "kind": "overlay"
+    }
+  }
+}

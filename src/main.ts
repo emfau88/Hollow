@@ -27,4 +27,9 @@ const config: Phaser.Types.Core.GameConfig = {
   scene: [GameScene],
 };
 
-new Phaser.Game(config);
+const game = new Phaser.Game(config);
+
+// Diagnostic hook: expose the game only when the debug flag is set.
+if (new URLSearchParams(window.location.search).has('debug')) {
+  (window as unknown as { game: Phaser.Game }).game = game;
+}

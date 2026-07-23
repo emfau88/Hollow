@@ -79,6 +79,7 @@ export class HudController {
           <button class="icon-btn" data-speed="0" title="Pause">Ⅱ</button>
           <button class="icon-btn active" data-speed="1" title="Normale Geschwindigkeit">▶</button>
           <button class="icon-btn" data-speed="2" title="Doppelte Geschwindigkeit">▶▶</button>
+          <button class="icon-btn pulse-btn" data-action="pulse" title="Covenant-Puls · 5 Essenz">◉</button>
           <button class="icon-btn" data-action="fit" title="Karte einpassen">⌖</button>
           <button class="icon-btn" data-action="audio" title="Audio umschalten">♪</button>
           <button class="icon-btn" data-action="fullscreen" title="Vollbild umschalten">⛶</button>
@@ -99,31 +100,42 @@ export class HudController {
       <div class="toast-stack"></div>
       <div class="selection-hint"></div>
       <div class="bottom-area">
+        <div class="tool-popovers">
+          <section class="tool-popover" data-popover="build" hidden>
+            <div class="popover-heading"><strong>Raum bauen</strong><span>Auf beanspruchtem Boden aufziehen</span></div>
+            <div class="popover-grid">
+              <button class="room-btn" data-tool="room-storage"><b>▦</b>Lager<small>0 Metall</small></button>
+              <button class="room-btn" data-tool="room-bedroom"><b>⌂</b>Schlafen<small>ab 2 Metall</small></button>
+              <button class="room-btn" data-tool="room-kitchen"><b>♨</b>Küche<small>4 Metall</small></button>
+              <button class="room-btn" data-tool="room-smelter"><b>♨</b>Schmelze<small>5 Metall</small></button>
+              <button class="room-btn" data-tool="room-workshop"><b>⚒</b>Werkstatt<small>5 Metall</small></button>
+              <button class="room-btn" data-tool="room-prison"><b>▥</b>Gefängnis<small>6 Metall</small></button>
+            </div>
+          </section>
+          <section class="tool-popover" data-popover="command" hidden>
+            <div class="popover-heading"><strong>Befehle</strong><span>Kampfgebiet und Verteidigung steuern</span></div>
+            <div class="popover-grid compact">
+              <button class="tool-btn" data-tool="banner-attack"><b>⚑</b>Angriff<small>Banner setzen</small></button>
+              <button class="tool-btn" data-tool="banner-defend"><b>⚐</b>Halten<small>Banner setzen</small></button>
+              <button class="tool-btn" data-tool="trap"><b>⌄</b>Falle<small>2 Rüstung</small></button>
+            </div>
+          </section>
+          <section class="tool-popover" data-popover="recruit" hidden>
+            <div class="popover-heading"><strong>Rekrutieren</strong><span>Benötigt Bett, Ration und Ausrüstung</span></div>
+            <div class="popover-grid compact">
+              <button class="recruit-btn" data-recruit="guard" title="Benötigt Küche, Werkstatt, 1 Ration und 1 Rüstung"><b>⬟</b>Guard<small>1R · 1⚙</small></button>
+              <button class="recruit-btn" data-recruit="archer" title="Benötigt Küche, Werkstatt, 1 Ration und 1 Rüstung"><b>➶</b>Archer<small>1R · 1⚙</small></button>
+              <button class="recruit-btn" data-recruit="hexbinder" title="Benötigt Küche, Essenzschrein, 1 Ration und 3 Essenz"><b>✦</b>Hexbinder<small>1R · 3E</small></button>
+            </div>
+          </section>
+        </div>
         <nav class="toolbar" aria-label="Werkzeugleiste">
-          <div class="toolbar-group">
-            <button class="tool-btn active" data-tool="pan"><b>✥</b>Ansicht<small>Verschieben</small></button>
-            <button class="tool-btn" data-tool="dig"><b>⌁</b>Gang<small>Route ziehen</small></button>
-            <button class="tool-btn" data-tool="chamber"><b>▧</b>Kammer<small>Fläche ziehen</small></button>
-          </div>
-          <div class="toolbar-group">
-            <button class="room-btn" data-tool="room-storage"><b>▦</b>Lager<small>0 Metall</small></button>
-            <button class="room-btn" data-tool="room-bedroom"><b>⌂</b>Schlafen<small>ab 2 Metall</small></button>
-            <button class="room-btn" data-tool="room-kitchen"><b>♨</b>Küche<small>4 Metall</small></button>
-            <button class="room-btn" data-tool="room-smelter"><b>♨</b>Schmelze<small>5 Metall</small></button>
-            <button class="room-btn" data-tool="room-workshop"><b>⚒</b>Werkstatt<small>5 Metall</small></button>
-            <button class="room-btn" data-tool="room-prison"><b>▥</b>Gefängnis<small>6 Metall</small></button>
-          </div>
-          <div class="toolbar-group">
-            <button class="tool-btn" data-tool="banner-attack"><b>⚑</b>Angriff<small>Banner setzen</small></button>
-            <button class="tool-btn" data-tool="banner-defend"><b>⚐</b>Halten<small>Banner setzen</small></button>
-            <button class="tool-btn" data-tool="trap"><b>⌄</b>Falle<small>2 Rüstung</small></button>
-            <button class="tool-btn" data-action="pulse"><b>◉</b>Pulse<small>5 Essenz</small></button>
-          </div>
-          <div class="toolbar-group">
-            <button class="recruit-btn" data-recruit="guard"><b>⬟</b>Guard<small>1R · 1⚙</small></button>
-            <button class="recruit-btn" data-recruit="archer"><b>➶</b>Archer<small>1R · 1⚙</small></button>
-            <button class="recruit-btn" data-recruit="hexbinder"><b>✦</b>Hexbinder<small>1R · 3E</small></button>
-          </div>
+          <button class="tool-btn active" data-tool="pan"><b>✥</b>Ansicht<small>Verschieben</small></button>
+          <button class="tool-btn" data-tool="dig"><b>⌁</b>Gang<small>Route ziehen</small></button>
+          <button class="tool-btn" data-tool="chamber"><b>▧</b>Kammer<small>Fläche ziehen</small></button>
+          <button class="tool-btn menu-btn" data-menu="build" aria-expanded="false"><b>▦</b>Bauen<small>6 Räume</small></button>
+          <button class="tool-btn menu-btn" data-menu="command" aria-expanded="false"><b>⚑</b>Befehle<small>Kampf & Falle</small></button>
+          <button class="tool-btn menu-btn" data-menu="recruit" aria-expanded="false"><b>⬟</b>Einheiten<small>Rekrutieren</small></button>
         </nav>
       </div>
       <div class="modal-shell">
@@ -149,10 +161,19 @@ export class HudController {
 
   private bind(): void {
     this.root.querySelectorAll<HTMLElement>('[data-tool]').forEach((button) => {
-      button.addEventListener('click', () => this.callbacks.setTool(button.dataset.tool as ToolKind));
+      button.addEventListener('click', () => {
+        this.closeToolMenus();
+        this.callbacks.setTool(button.dataset.tool as ToolKind);
+      });
     });
     this.root.querySelectorAll<HTMLElement>('[data-recruit]').forEach((button) => {
-      button.addEventListener('click', () => this.callbacks.recruit(button.dataset.recruit as UnitKind));
+      button.addEventListener('click', () => {
+        this.closeToolMenus();
+        this.callbacks.recruit(button.dataset.recruit as UnitKind);
+      });
+    });
+    this.root.querySelectorAll<HTMLElement>('[data-menu]').forEach((button) => {
+      button.addEventListener('click', () => this.toggleToolMenu(button.dataset.menu ?? ''));
     });
     this.root.querySelectorAll<HTMLElement>('[data-speed]').forEach((button) => {
       button.addEventListener('click', () => this.callbacks.setSpeed(Number(button.dataset.speed) as 0 | 1 | 2));
@@ -171,6 +192,27 @@ export class HudController {
       this.started = true;
       if (window.matchMedia('(max-width: 900px)').matches) this.enterFullscreen();
       this.callbacks.begin();
+    });
+  }
+
+  private toggleToolMenu(name: string): void {
+    const target = this.root.querySelector<HTMLElement>(`[data-popover="${name}"]`);
+    const opening = Boolean(target?.hidden);
+    this.closeToolMenus();
+    if (!target || !opening) return;
+    target.hidden = false;
+    const button = this.root.querySelector<HTMLElement>(`[data-menu="${name}"]`);
+    button?.classList.add('menu-open');
+    button?.setAttribute('aria-expanded', 'true');
+  }
+
+  private closeToolMenus(): void {
+    this.root.querySelectorAll<HTMLElement>('[data-popover]').forEach((popover) => {
+      popover.hidden = true;
+    });
+    this.root.querySelectorAll<HTMLElement>('[data-menu]').forEach((button) => {
+      button.classList.remove('menu-open');
+      button.setAttribute('aria-expanded', 'false');
     });
   }
 
@@ -211,6 +253,11 @@ export class HudController {
     this.root.querySelectorAll('[data-tool]').forEach((node) => {
       node.classList.toggle('active', (node as HTMLElement).dataset.tool === state.tool);
     });
+    this.root.querySelector('[data-menu="build"]')?.classList.toggle('active', state.tool.startsWith('room-'));
+    this.root.querySelector('[data-menu="command"]')?.classList.toggle(
+      'active',
+      state.tool === 'banner-attack' || state.tool === 'banner-defend' || state.tool === 'trap',
+    );
     this.root.querySelectorAll('[data-speed]').forEach((node) => {
       node.classList.toggle('active', Number((node as HTMLElement).dataset.speed) === state.speed);
     });
