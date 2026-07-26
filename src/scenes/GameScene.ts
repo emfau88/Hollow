@@ -14,15 +14,25 @@ import {
   type UnitKind,
 } from '../data/definitions';
 import { HudController, type HudState } from '../ui/HudController';
-import { TerrainRenderer, type TerrainQuery } from '../core/TerrainRenderer';
+import {
+  TerrainRenderer,
+  type TerrainFloor,
+  type TerrainMaterial,
+  type TerrainQuery,
+} from '../core/TerrainRenderer';
 import { HOLLOW_TERRAIN as TF, HOLLOW_TERRAIN_TILE } from '../config/HollowTerrainFrames';
-import { workerTaskOrder, type RoutineWorkerTask } from '../core/WorkerPriorities';
+import {
+  DEFAULT_WORK_PRIORITIES,
+  workerTaskOrder,
+  type RoutineWorkerTask,
+  type WorkPriorities,
+} from '../core/WorkerPriorities';
 
 const TILE = BALANCE.tileSize;
 const W = BALANCE.mapWidth;
 const H = BALANCE.mapHeight;
 
-type JobKind = 'idle' | 'dig' | 'claim' | 'mine' | 'pickup' | 'deliver' | 'prisoner-pick' | 'prisoner-deliver';
+type JobKind = 'idle' | 'dig' | 'build' | 'claim' | 'mine' | 'pickup' | 'deliver' | 'prisoner-pick' | 'prisoner-deliver';
 type EnemyKind = 'crawler' | 'dwarf' | 'crossbow' | 'adept' | 'captain' | 'scout' | 'warden';
 
 interface Worker {
@@ -223,6 +233,7 @@ export class GameScene extends Phaser.Scene {
   private pointerDistance?: number;
   private pinchMid?: { x: number; y: number };
   private cameraKeys?: Record<string, Phaser.Input.Keyboard.Key>;
+  private workPriorities: WorkPriorities = { ...DEFAULT_WORK_PRIORITIES };
 
   private stats = {
     biomassMined: 0,
@@ -261,6 +272,21 @@ export class GameScene extends Phaser.Scene {
       frameWidth: TILE,
       frameHeight: TILE,
     });
+    this.load.spritesheet('terrain-v4-claimed-corridor', 'assets/generated/terrain-v3/claimed-corridor.png?v=4', {
+      frameWidth: TILE,
+      frameHeight: TILE,
+    });
+    for (const [key, file] of [
+      ['terrain-v4-rock-basalt', 'rock-basalt.png'],
+      ['terrain-v4-rock-damp', 'rock-damp.png'],
+      ['terrain-v4-rock-roots', 'rock-roots.png'],
+      ['terrain-v4-rock-earth', 'rock-earth.png'],
+    ] as const) {
+      this.load.spritesheet(key, `assets/generated/terrain-v3/${file}?v=4`, {
+        frameWidth: TILE,
+        frameHeight: TILE,
+      });
+    }
     this.load.image('terrain-v3-wall-edge', 'assets/generated/terrain-v3/wall-edge.png');
     this.load.image('terrain-v3-wall-corner', 'assets/generated/terrain-v3/wall-corner.png');
     this.load.image('terrain-v3-claimed-border', 'assets/generated/terrain-v3/claimed-border.png');
@@ -282,7 +308,12 @@ export class GameScene extends Phaser.Scene {
     this.statusLayer = this.add.graphics().setDepth(55);
     this.terrainRenderer = new TerrainRenderer(this, {
       rock: 'terrain-v3-rock',
+      rockBasalt: 'terrain-v4-rock-basalt',
+      rockDamp: 'terrain-v4-rock-damp',
+      rockRoots: 'terrain-v4-rock-roots',
+      rockEarth: 'terrain-v4-rock-earth',
       rawFloor: 'terrain-v3-raw-floor',
+      claimedCorridor: 'terrain-v4-claimed-corridor',
       claimedFloor: 'terrain-v3-claimed-floor',
       wallEdge: 'terrain-v3-wall-edge',
       wallCorner: 'terrain-v3-wall-corner',
@@ -318,6 +349,7 @@ export class GameScene extends Phaser.Scene {
       setTool: (tool) => this.setTool(tool),
       recruit: (kind) => this.recruit(kind),
       setSpeed: (speed) => this.setSpeed(speed),
+      cycleWorkPriority: (task) => this.cycleWorkPriority(task),
       fitCamera: () => this.fitKnownMap(),
       pulse: () => this.covenantPulse(),
       toggleAudio: () => this.audio.toggle(),
@@ -412,7 +444,7 @@ export class GameScene extends Phaser.Scene {
     panel.querySelector('[data-debug="wave"]')?.addEventListener('click', () => this.spawnWave(Math.min(2, this.currentWave + 1)));
     panel.querySelector('[data-debug="captain"]')?.addEventListener('click', () => {
       if (this.prisoner) this.prisoner.sprite.destroy();
-      const prison = this.rooms.find((room) => room.kind === 'prison');
+      const prison = this.rooms.find((room) => room.kind === 'prison' && this.isRoomComplete(room));
       if (!prison) {
         this.hud.toast('Debug', 'Zuerst „Wirtschaft bereit“ wählen.', true);
         return;
@@ -442,6 +474,7 @@ export class GameScene extends Phaser.Scene {
           value.textContent = [
             `Phase ${this.phase}`,
             `${count(['dig'])} graben`,
+            `${count(['build'])} bauen`,
             `${count(['claim'])} beanspruchen`,
             `${count(['mine'])} abbauen`,
             `${count(['pickup', 'deliver'])} transportieren`,
@@ -842,10 +875,28 @@ export class GameScene extends Phaser.Scene {
       }
     };
 
-    const chart = (x: number, y: number, w: number, h: number) => {
+    const chart = (
+      x: number,
+      y: number,
+      w: number,
+      h: number,
+      shape: 'organic' | 'fortified' | 'ritual',
+    ) => {
       for (let ty = y; ty < y + h; ty++) {
         for (let tx = x; tx < x + w; tx++) {
           if (!this.inBounds(tx, ty)) continue;
+          const lx = tx - x;
+          const ly = ty - y;
+          const corner = (lx === 0 || lx === w - 1) && (ly === 0 || ly === h - 1);
+          const nearCorner = (lx <= 1 || lx >= w - 2) && (ly <= 1 || ly >= h - 2);
+          const edge = lx === 0 || lx === w - 1 || ly === 0 || ly === h - 1;
+          const stableNoise = Math.abs((tx * 37 + ty * 61 + w * 11) % 13);
+          const keep = shape === 'ritual'
+            ? !corner && !(nearCorner && (lx + ly) % 2 === 0)
+            : shape === 'fortified'
+              ? !corner
+              : !corner && !(edge && stableNoise === 0);
+          if (!keep) continue;
           this.tiles[ty][tx].geology = 'excavated';
           this.tiles[ty][tx].visibility = 'charted';
         }
@@ -863,10 +914,10 @@ export class GameScene extends Phaser.Scene {
 
     // Strategic targets are pre-existing, disconnected caverns. The player can
     // read their silhouette and only needs to dig a connecting tunnel.
-    chart(18, sy(28), 5, 6);
-    chart(42, sy(26), 7, 7);
-    chart(13, sy(14), 8, 7);
-    chart(40, sy(8), 8, 7);
+    chart(18, sy(28), 5, 6, 'organic');
+    chart(42, sy(26), 7, 7, 'organic');
+    chart(13, sy(14), 8, 7, 'fortified');
+    chart(40, sy(8), 8, 7, 'ritual');
 
     const storage: Room = {
       id: this.nextId++,
@@ -1181,6 +1232,38 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
+    if (worker.state === 'build' && worker.target) {
+      const tile = this.tileAt(worker.target.x, worker.target.y);
+      if (!tile || tile.construction !== 'building') {
+        worker.state = 'idle';
+        worker.target = undefined;
+        worker.timer = 0;
+        return;
+      }
+      worker.timer += dt;
+      worker.sprite.angle = Math.sin(worker.timer * 16) * 8;
+      if (worker.timer >= BALANCE.buildSeconds) {
+        tile.construction = 'complete';
+        const room = this.rooms.find((candidate) => candidate.id === tile.roomId);
+        worker.state = 'idle';
+        worker.target = undefined;
+        worker.timer = 0;
+        worker.sprite.angle = 0;
+        this.audio.tone(188, 0.045, 0.012, 'square');
+        this.drawWorld();
+        if (room && this.isRoomComplete(room)) {
+          const def = ROOM_DEFINITIONS[room.kind];
+          this.hud.toast(
+            `${def.label} fertiggestellt`,
+            room.kind === 'bedroom'
+              ? `${Math.floor((room.w * room.h) / 4)} Betten verfügbar.`
+              : `${room.w * room.h} Felder funktionsbereit.`,
+          );
+        }
+      }
+      return;
+    }
+
     if (worker.state === 'claim' && worker.target) {
       const tile = this.tileAt(worker.target.x, worker.target.y);
       if (!tile || tile.control !== 'claiming') {
@@ -1261,7 +1344,7 @@ export class GameScene extends Phaser.Scene {
       this.prisoner.sprite.setVisible(false);
       worker.carryText.setText('†');
       worker.state = 'prisoner-deliver';
-      const prison = this.rooms.find((room) => room.kind === 'prison');
+      const prison = this.rooms.find((room) => room.kind === 'prison' && this.isRoomComplete(room));
       if (prison) {
         const point = this.roomCenter(prison);
         worker.path = this.pathBetween(worker, point);
@@ -1271,7 +1354,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (worker.state === 'prisoner-deliver' && this.prisoner) {
-      const prison = this.rooms.find((room) => room.kind === 'prison');
+      const prison = this.rooms.find((room) => room.kind === 'prison' && this.isRoomComplete(room));
       if (!prison) {
         worker.state = 'idle';
         return;
@@ -1292,7 +1375,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private assignWorker(worker: Worker): void {
-    if (this.prisoner?.status === 'downed' && this.rooms.some((room) => room.kind === 'prison')) {
+    if (this.prisoner?.status === 'downed' && this.hasFunctionalRoom('prison')) {
       const alreadyReserved = this.workers.some((candidate) => candidate.state === 'prisoner-pick' || candidate.state === 'prisoner-deliver');
       if (!alreadyReserved) {
         const path = this.pathBetween(worker, { x: Math.round(this.prisoner.x), y: Math.round(this.prisoner.y) });
@@ -1307,7 +1390,7 @@ export class GameScene extends Phaser.Scene {
 
     const foodUrgent = this.phase === 1 || this.stock.ration < 3 || this.stock.biomass < 4;
     const workerIndex = Math.max(0, this.workers.indexOf(worker));
-    for (const task of workerTaskOrder(workerIndex, foodUrgent)) {
+    for (const task of workerTaskOrder(workerIndex, foodUrgent, this.workPriorities)) {
       if (this.tryAssignRoutineTask(worker, task, foodUrgent)) return;
     }
     worker.state = 'idle';
@@ -1316,6 +1399,7 @@ export class GameScene extends Phaser.Scene {
   private tryAssignRoutineTask(worker: Worker, task: RoutineWorkerTask, foodUrgent: boolean): boolean {
     if (task === 'haul') return this.tryAssignPickup(worker);
     if (task === 'dig') return this.tryAssignDig(worker);
+    if (task === 'build') return this.tryAssignBuild(worker);
     if (task === 'claim') return this.tryAssignClaim(worker);
     return this.tryAssignMine(worker, foodUrgent);
   }
@@ -1366,6 +1450,20 @@ export class GameScene extends Phaser.Scene {
     return true;
   }
 
+  private tryAssignBuild(worker: Worker): boolean {
+    const target = this.findBuildTarget(worker);
+    if (!target) return false;
+    const tile = this.tileAt(target.target.x, target.target.y);
+    if (!tile) return false;
+    tile.construction = 'building';
+    worker.state = 'build';
+    worker.path = target.path;
+    worker.target = target.target;
+    worker.timer = 0;
+    this.drawWorld();
+    return true;
+  }
+
   private tryAssignClaim(worker: Worker): boolean {
     const frontier = this.findClaimFrontier(worker);
     if (!frontier) return false;
@@ -1404,6 +1502,23 @@ export class GameScene extends Phaser.Scene {
         const path = this.pathBetween(worker, { x, y });
         if (path.length || (Math.round(worker.x) === x && Math.round(worker.y) === y)) {
           candidates.push({ target: { x, y }, path });
+        }
+      }
+    }
+    return candidates.sort((a, b) => a.path.length - b.path.length)[0];
+  }
+
+  private findBuildTarget(worker: Worker): { target: GridPoint; path: GridPoint[] } | undefined {
+    const candidates: { target: GridPoint; path: GridPoint[] }[] = [];
+    for (const room of this.rooms) {
+      for (let y = room.y; y < room.y + room.h; y++) {
+        for (let x = room.x; x < room.x + room.w; x++) {
+          const tile = this.tileAt(x, y);
+          if (tile?.construction !== 'planned') continue;
+          const path = this.pathBetween(worker, { x, y });
+          if (path.length || (Math.round(worker.x) === x && Math.round(worker.y) === y)) {
+            candidates.push({ target: { x, y }, path });
+          }
         }
       }
     }
@@ -1449,6 +1564,7 @@ export class GameScene extends Phaser.Scene {
 
   private updateProduction(dt: number): void {
     for (const room of this.rooms) {
+      if (!this.isRoomComplete(room)) continue;
       if (!(room.kind in RECIPES)) continue;
       const recipe = RECIPES[room.kind as keyof typeof RECIPES];
       if (!room.activeRecipe) {
@@ -1630,7 +1746,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updateMission(): void {
-    const hasRoom = (kind: RoomKind) => this.rooms.some((room) => room.kind === kind);
+    const hasRoom = (kind: RoomKind) => this.hasFunctionalRoom(kind);
     const beds = this.bedCapacity();
     if (this.phase === 1 && hasRoom('kitchen') && this.stats.biomassMined >= 4 && this.stats.rationsProduced >= 2) {
       this.advancePhase(2);
@@ -1719,8 +1835,8 @@ export class GameScene extends Phaser.Scene {
     const def = UNIT_DEFINITIONS[kind];
     const needsWorkshop = kind === 'guard' || kind === 'archer';
     if (this.bedsUsed() >= this.bedCapacity()) return this.hud.toast('Kein freies Bett', 'Erweitere die Schlafkammer.', true);
-    if (!this.rooms.some((room) => room.kind === 'kitchen')) return this.hud.toast('Keine Küche', 'Normale Rekruten benötigen eine Pilzküche.', true);
-    if (needsWorkshop && !this.rooms.some((room) => room.kind === 'workshop')) return this.hud.toast('Keine Werkstatt', 'Guard und Archer benötigen Rüstungsgüter.', true);
+    if (!this.hasFunctionalRoom('kitchen')) return this.hud.toast('Keine Küche', 'Normale Rekruten benötigen eine fertiggestellte Pilzküche.', true);
+    if (needsWorkshop && !this.hasFunctionalRoom('workshop')) return this.hud.toast('Keine Werkstatt', 'Guard und Archer benötigen eine fertiggestellte Werkstatt.', true);
     if (kind === 'hexbinder' && !this.nodes.find((node) => node.id === 'shrine')?.claimed) {
       return this.hud.toast('Schrein nicht erobert', 'Der Hexbinder benötigt Zugang zur arkanen Quelle.', true);
     }
@@ -1786,6 +1902,21 @@ export class GameScene extends Phaser.Scene {
     this.updateHud();
   }
 
+  private cycleWorkPriority(task: RoutineWorkerTask): void {
+    const current = this.workPriorities[task];
+    this.workPriorities[task] = current === 1 ? 2 : current === 2 ? 0 : 1;
+    const labels = ['Niedrig', 'Normal', 'Hoch'] as const;
+    const taskLabels: Record<RoutineWorkerTask, string> = {
+      haul: 'Transport',
+      dig: 'Graben',
+      build: 'Bauen',
+      claim: 'Beanspruchen',
+      mine: 'Abbau',
+    };
+    this.hud.toast('Arbeitspriorität', `${taskLabels[task]}: ${labels[this.workPriorities[task]]}`);
+    this.updateHud();
+  }
+
   private commitTool(start: GridPoint, end: GridPoint): void {
     if (this.tool === 'dig' || this.tool === 'chamber') {
       const points = this.tool === 'dig'
@@ -1841,10 +1972,13 @@ export class GameScene extends Phaser.Scene {
     this.stock.metal -= def.baseCost;
     const room: Room = { id: this.nextId++, kind, x, y, w, h, progress: 0, activeRecipe: false };
     this.rooms.push(room);
-    this.assignRoomTiles(room, 'complete');
+    this.assignRoomTiles(room, 'planned');
     this.drawWorld();
     this.audio.tone(188, 0.09, 0.02, 'square');
-    this.hud.toast(`${def.label} errichtet`, kind === 'bedroom' ? `${Math.floor((w * h) / 4)} Betten verfügbar.` : `${w * h} Felder funktionsbereit.`);
+    this.hud.toast(
+      `${def.label} geplant`,
+      `${w * h} Felder · Arbeiter errichten den Raum jetzt Feld für Feld.`,
+    );
   }
 
   private placeTrap(point: GridPoint): void {
@@ -1894,7 +2028,35 @@ export class GameScene extends Phaser.Scene {
       isOpen: (x, y) => this.tileAt(x, y)?.geology === 'excavated',
       visibilityAt: (x, y) => this.tileAt(x, y)?.visibility ?? 'hidden',
       controlAt: (x, y) => this.tileAt(x, y)?.control ?? 'neutral',
+      materialAt: (x, y) => this.terrainMaterialAt(x, y),
+      floorAt: (x, y) => this.terrainFloorAt(x, y),
     };
+  }
+
+  private terrainFloorAt(x: number, y: number): TerrainFloor {
+    const tile = this.tileAt(x, y);
+    if (!tile) return 'raw';
+    if (tile.roomKind === 'heart') return 'room';
+    if (tile.roomId !== undefined && tile.construction === 'complete') return 'room';
+    return tile.control === 'owned' ? 'claimed' : 'raw';
+  }
+
+  private terrainMaterialAt(x: number, y: number): TerrainMaterial {
+    const anchors: Array<{ material: TerrainMaterial; x: number; y: number; seed: number }> = [
+      { material: 'slate', x: 32, y: sy(22), seed: 3 },
+      { material: 'basalt', x: 17, y: sy(19), seed: 11 },
+      { material: 'damp', x: 43, y: sy(25), seed: 19 },
+      { material: 'roots', x: 50, y: sy(34), seed: 29 },
+      { material: 'earth', x: 44, y: sy(8), seed: 37 },
+    ];
+    return anchors
+      .map((anchor) => {
+        const dx = x - anchor.x;
+        const dy = y - anchor.y;
+        const jitter = (((x * 41 + y * 67 + anchor.seed * 23) % 19) - 9) * 1.8;
+        return { material: anchor.material, score: dx * dx + dy * dy + jitter };
+      })
+      .sort((a, b) => a.score - b.score)[0].material;
   }
 
   private drawWorld(): void {
@@ -1940,25 +2102,23 @@ export class GameScene extends Phaser.Scene {
   private drawChartedChambers(): void {
     for (const node of this.nodes) {
       if (node.discovered) continue;
-      const x = node.chamber.x * TILE;
-      const y = node.chamber.y * TILE;
-      const w = node.chamber.w * TILE;
-      const h = node.chamber.h * TILE;
-      this.detail.fillStyle(0x08090c, 0.18).fillRoundedRect(x + 5, y + 5, w - 10, h - 10, 12);
-      this.detail.lineStyle(1, node.color, 0.24).strokeRoundedRect(x + 5, y + 5, w - 10, h - 10, 12);
-
-      // Strong corner brackets make this read as strategic map knowledge,
-      // while the asset-backed dark floor underneath reads as an actual room.
-      const bracket = 18;
-      this.detail.lineStyle(2.5, node.color, 0.78)
-        .lineBetween(x + 4, y + 4 + bracket, x + 4, y + 4)
-        .lineBetween(x + 4, y + 4, x + 4 + bracket, y + 4)
-        .lineBetween(x + w - 4 - bracket, y + 4, x + w - 4, y + 4)
-        .lineBetween(x + w - 4, y + 4, x + w - 4, y + 4 + bracket)
-        .lineBetween(x + 4, y + h - 4 - bracket, x + 4, y + h - 4)
-        .lineBetween(x + 4, y + h - 4, x + 4 + bracket, y + h - 4)
-        .lineBetween(x + w - 4 - bracket, y + h - 4, x + w - 4, y + h - 4)
-        .lineBetween(x + w - 4, y + h - 4 - bracket, x + w - 4, y + h - 4);
+      const chartedOpen = (x: number, y: number) => {
+        const tile = this.tileAt(x, y);
+        return tile?.geology === 'excavated' && tile.visibility === 'charted';
+      };
+      this.detail.lineStyle(2, node.color, 0.66);
+      for (let ty = node.chamber.y; ty < node.chamber.y + node.chamber.h; ty++) {
+        for (let tx = node.chamber.x; tx < node.chamber.x + node.chamber.w; tx++) {
+          if (!chartedOpen(tx, ty)) continue;
+          const left = tx * TILE;
+          const top = ty * TILE;
+          this.detail.fillStyle(node.color, 0.025).fillRect(left + 3, top + 3, TILE - 6, TILE - 6);
+          if (!chartedOpen(tx, ty - 1)) this.detail.lineBetween(left + 4, top + 3, left + TILE - 4, top + 3);
+          if (!chartedOpen(tx + 1, ty)) this.detail.lineBetween(left + TILE - 3, top + 4, left + TILE - 3, top + TILE - 4);
+          if (!chartedOpen(tx, ty + 1)) this.detail.lineBetween(left + 4, top + TILE - 3, left + TILE - 4, top + TILE - 3);
+          if (!chartedOpen(tx - 1, ty)) this.detail.lineBetween(left + 3, top + 4, left + 3, top + TILE - 4);
+        }
+      }
 
       const cx = this.wx(node.x);
       const cy = this.wy(node.y);
@@ -1991,6 +2151,7 @@ export class GameScene extends Phaser.Scene {
       bedroom: 0x5f7fb0,
     };
     for (const room of this.rooms) {
+      if (!this.isRoomComplete(room)) continue;
       const color = tint[room.kind];
       if (color === undefined) continue;
       const cx = (room.x + room.w / 2) * TILE;
@@ -2018,7 +2179,24 @@ export class GameScene extends Phaser.Scene {
       // This contour is interaction feedback; the visible room identity comes
       // from the generated floor and prop assets.
       const def = ROOM_DEFINITIONS[room.kind];
-      this.detail.lineStyle(2, def.color, 0.82).strokeRect(ox + 2, oy + 2, rw - 4, rh - 4);
+      const complete = this.isRoomComplete(room);
+      this.detail.lineStyle(2, def.color, complete ? 0.82 : 0.42).strokeRect(ox + 2, oy + 2, rw - 4, rh - 4);
+      if (!complete) {
+        for (let y = room.y; y < room.y + room.h; y++) {
+          for (let x = room.x; x < room.x + room.w; x++) {
+            const tile = this.tileAt(x, y);
+            if (!tile || tile.construction === 'complete') continue;
+            const px = x * TILE;
+            const py = y * TILE;
+            this.detail.fillStyle(def.color, tile.construction === 'building' ? 0.18 : 0.07)
+              .fillRect(px + 4, py + 4, TILE - 8, TILE - 8);
+            this.detail.lineStyle(1, def.color, 0.32)
+              .lineBetween(px + 8, py + 8, px + TILE - 8, py + TILE - 8)
+              .lineBetween(px + TILE - 8, py + 8, px + 8, py + TILE - 8);
+          }
+        }
+        continue;
+      }
 
       switch (room.kind) {
         case 'bedroom': {
@@ -2193,6 +2371,44 @@ export class GameScene extends Phaser.Scene {
 
   private drawStatus(): void {
     this.statusLayer.clear();
+    const dangerPulse = 0.35 + (Math.sin(this.elapsed * 4) + 1) * 0.12;
+    for (const node of this.nodes.filter((candidate) =>
+      candidate.discovered && this.enemies.some((enemy) => enemy.origin === candidate.id))) {
+      this.statusLayer.lineStyle(2, COLORS.blood, dangerPulse)
+        .strokeRoundedRect(
+          node.chamber.x * TILE + 4,
+          node.chamber.y * TILE + 4,
+          node.chamber.w * TILE - 8,
+          node.chamber.h * TILE - 8,
+          10,
+        );
+      this.statusLayer.fillStyle(COLORS.blood, 0.82)
+        .fillTriangle(
+          this.wx(node.x),
+          node.chamber.y * TILE - 2,
+          this.wx(node.x) + 6,
+          node.chamber.y * TILE + 8,
+          this.wx(node.x) - 6,
+          node.chamber.y * TILE + 8,
+        );
+    }
+    if (this.bannerAttack) {
+      const route = this.pathBetween(HEART_TILE, this.bannerAttack);
+      this.statusLayer.lineStyle(3, COLORS.blood, 0.18);
+      let previous: GridPoint = HEART_TILE;
+      for (const point of route) {
+        this.statusLayer.lineBetween(this.wx(previous.x), this.wy(previous.y), this.wx(point.x), this.wy(point.y));
+        previous = point;
+      }
+    }
+    for (const worker of this.workers) {
+      const endangered = this.enemies.some((enemy) =>
+        enemy.active && Phaser.Math.Distance.Between(worker.x, worker.y, enemy.x, enemy.y) < 4);
+      if (endangered) {
+        this.statusLayer.lineStyle(2, COLORS.blood, dangerPulse)
+          .strokeCircle(this.wx(worker.x), this.wy(worker.y), 12);
+      }
+    }
     for (const actor of this.units) this.healthBar(actor.x, actor.y, actor.hp / actor.maxHp, 0x6da78b);
     for (const enemy of this.enemies.filter((candidate) => candidate.sprite.visible)) {
       if (enemy.hp < enemy.maxHp) this.healthBar(enemy.x, enemy.y, enemy.hp / enemy.maxHp, COLORS.blood);
@@ -2203,6 +2419,19 @@ export class GameScene extends Phaser.Scene {
       const progress = room.progress / recipe.seconds;
       this.statusLayer.fillStyle(0x090a0d, 0.85).fillRect(this.wx(center.x) - 18, this.wy(room.y) - 18, 36, 4);
       this.statusLayer.fillStyle(COLORS.gold).fillRect(this.wx(center.x) - 17, this.wy(room.y) - 17, 34 * progress, 2);
+    }
+    for (const room of this.rooms.filter((candidate) => !this.isRoomComplete(candidate))) {
+      const total = room.w * room.h;
+      let complete = 0;
+      for (let y = room.y; y < room.y + room.h; y++) {
+        for (let x = room.x; x < room.x + room.w; x++) {
+          if (this.tileAt(x, y)?.construction === 'complete') complete++;
+        }
+      }
+      const center = this.roomCenter(room);
+      this.statusLayer.fillStyle(0x090a0d, 0.88).fillRect(this.wx(center.x) - 22, this.wy(room.y) - 18, 44, 5);
+      this.statusLayer.fillStyle(ROOM_DEFINITIONS[room.kind].color)
+        .fillRect(this.wx(center.x) - 21, this.wy(room.y) - 17, 42 * (complete / total), 3);
     }
   }
 
@@ -2215,9 +2444,14 @@ export class GameScene extends Phaser.Scene {
     const node = this.nodes.find((candidate) => candidate.discovered && Phaser.Math.Distance.Between(point.x, point.y, candidate.x, candidate.y) < 2);
     if (node) {
       const enemies = this.enemies.filter((enemy) => enemy.origin === node.id).length;
+      const control = node.claimed
+        ? 'beansprucht'
+        : enemies > 0
+          ? `feindlich (${enemies} Wächter)`
+          : 'gesichert · Covenant-Boden fehlt';
       this.selectedContext = {
         title: node.label,
-        body: `${node.amount}/${node.initial} ${ITEM_LABELS[node.kind]} · ${node.claimed ? 'beansprucht' : `feindlich (${enemies} Wächter)`}`,
+        body: `${node.amount}/${node.initial} ${ITEM_LABELS[node.kind]} · ${control}`,
       };
       return;
     }
@@ -2225,7 +2459,13 @@ export class GameScene extends Phaser.Scene {
     if (room) {
       const def = ROOM_DEFINITIONS[room.kind];
       let status = 'Bereit';
-      if (room.kind in RECIPES) {
+      if (!this.isRoomComplete(room)) {
+        const complete = this.rectPoints(
+          { x: room.x, y: room.y },
+          { x: room.x + room.w - 1, y: room.y + room.h - 1 },
+        ).filter((cell) => this.tileAt(cell.x, cell.y)?.construction === 'complete').length;
+        status = `Baufortschritt ${complete}/${room.w * room.h}`;
+      } else if (room.kind in RECIPES) {
         const recipe = RECIPES[room.kind as keyof typeof RECIPES];
         status = room.activeRecipe ? `Produktion ${Math.floor((room.progress / recipe.seconds) * 100)} %` : `Wartet auf ${ITEM_LABELS[recipe.input]}`;
       }
@@ -2237,6 +2477,7 @@ export class GameScene extends Phaser.Scene {
       const labels: Record<JobKind, string> = {
         idle: 'Kein erreichbarer Auftrag',
         dig: 'Gräbt',
+        build: 'Errichtet einen Raum',
         claim: 'Verlegt beanspruchten Boden',
         mine: 'Baut Rohstoff ab',
         pickup: 'Holt Gegenstand',
@@ -2279,6 +2520,14 @@ export class GameScene extends Phaser.Scene {
         archer: this.canRecruit('archer'),
         hexbinder: this.canRecruit('hexbinder'),
       },
+      workerJobs: {
+        haul: this.workers.filter((worker) => worker.state === 'pickup' || worker.state === 'deliver').length,
+        dig: this.workers.filter((worker) => worker.state === 'dig').length,
+        build: this.workers.filter((worker) => worker.state === 'build').length,
+        claim: this.workers.filter((worker) => worker.state === 'claim').length,
+        mine: this.workers.filter((worker) => worker.state === 'mine').length,
+      },
+      workPriorities: { ...this.workPriorities },
       context: this.selectedContext,
     };
     this.hud.update(state);
@@ -2287,8 +2536,8 @@ export class GameScene extends Phaser.Scene {
   private canRecruit(kind: 'guard' | 'archer' | 'hexbinder'): boolean {
     const def = UNIT_DEFINITIONS[kind];
     if (this.bedsUsed() >= this.bedCapacity() || this.stock.ration < def.ration) return false;
-    if (!this.rooms.some((room) => room.kind === 'kitchen')) return false;
-    if ((kind === 'guard' || kind === 'archer') && (!this.rooms.some((room) => room.kind === 'workshop') || this.stock.armour < def.armour)) return false;
+    if (!this.hasFunctionalRoom('kitchen')) return false;
+    if ((kind === 'guard' || kind === 'archer') && (!this.hasFunctionalRoom('workshop') || this.stock.armour < def.armour)) return false;
     if (kind === 'hexbinder' && (!this.nodes.find((node) => node.id === 'shrine')?.claimed || this.stock.essence < def.essence)) return false;
     return true;
   }
@@ -2415,7 +2664,23 @@ export class GameScene extends Phaser.Scene {
   }
 
   private bedCapacity(): number {
-    return this.rooms.filter((room) => room.kind === 'bedroom').reduce((sum, room) => sum + Math.floor((room.w * room.h) / 4), 0);
+    return this.rooms
+      .filter((room) => room.kind === 'bedroom' && this.isRoomComplete(room))
+      .reduce((sum, room) => sum + Math.floor((room.w * room.h) / 4), 0);
+  }
+
+  private hasFunctionalRoom(kind: RoomKind): boolean {
+    return this.rooms.some((room) => room.kind === kind && this.isRoomComplete(room));
+  }
+
+  private isRoomComplete(room: Room): boolean {
+    for (let y = room.y; y < room.y + room.h; y++) {
+      for (let x = room.x; x < room.x + room.w; x++) {
+        const tile = this.tileAt(x, y);
+        if (tile?.roomId !== room.id || tile.construction !== 'complete') return false;
+      }
+    }
+    return true;
   }
 
   private bedsUsed(): number {

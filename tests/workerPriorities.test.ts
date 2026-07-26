@@ -15,6 +15,13 @@ describe('worker task lanes', () => {
   });
 
   it('prioritizes mining for the resource lane when food is urgent', () => {
-    expect(workerTaskOrder(2, true)).toEqual(['mine', 'haul', 'claim', 'dig']);
+    expect(workerTaskOrder(2, true)).toEqual(['mine', 'haul', 'build', 'claim', 'dig']);
+  });
+
+  it('moves a player-prioritized task to the front without removing other work', () => {
+    const priorities = { haul: 1, dig: 1, build: 2, claim: 0, mine: 1 } as const;
+    const order = workerTaskOrder(2, false, priorities);
+    expect(order[0]).toBe('build');
+    expect(order).toContain('claim');
   });
 });

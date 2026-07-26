@@ -349,7 +349,7 @@ button {
 
 .toolbar {
   min-width: 0;
-  max-width: min(470px, calc(100vw - 20px));
+  max-width: min(560px, calc(100vw - 20px));
   display: flex;
   align-items: center;
   gap: 4px;
@@ -359,7 +359,7 @@ button {
 }
 
 .tool-popovers {
-  width: min(420px, calc(100vw - 20px));
+  width: min(500px, calc(100vw - 20px));
   pointer-events: auto;
 }
 
@@ -400,6 +400,25 @@ button {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 4px;
+}
+
+.work-grid {
+  grid-template-columns: repeat(5, 1fr);
+}
+
+.priority-btn.priority-high {
+  color: #f0d98f;
+  border-color: rgba(224, 189, 101, 0.75);
+  background: rgba(211, 168, 74, 0.16);
+}
+
+.priority-btn.priority-high small {
+  color: #e7c66f;
+}
+
+.priority-btn.priority-low {
+  opacity: 0.58;
+  border-color: rgba(255, 255, 255, 0.04);
 }
 
 .popover-grid .room-btn,
@@ -873,6 +892,10 @@ button {
     display: block;
     margin-top: 2px;
     font-size: 7px;
+  }
+
+  .work-grid {
+    grid-template-columns: repeat(5, minmax(48px, 1fr));
   }
 
   .popover-heading span {

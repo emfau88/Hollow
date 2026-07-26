@@ -10,6 +10,7 @@ TERRAIN = ROOT / "public" / "assets" / "generated" / "terrain-v3"
 PROPS = ROOT / "public" / "assets" / "generated" / "room-props-v3"
 TERRAIN_SOURCE = TERRAIN / "sources"
 PROP_SOURCE = PROPS / "sources"
+FOUNDATION_SOURCE = ROOT / "public" / "assets" / "generated" / "foundation-v2"
 
 TILE = 32
 SHEET_TILES = 16
@@ -22,6 +23,38 @@ def save_surface(source: str, output: str, brightness: float, contrast: float, s
     image = ImageEnhance.Color(image).enhance(saturation)
     image = image.resize((TILE * SHEET_TILES, TILE * SHEET_TILES), Image.Resampling.LANCZOS)
     image.save(TERRAIN / output, optimize=True)
+    return image
+
+
+def save_regional_surface(
+    source: str,
+    output: str,
+    brightness: float,
+    contrast: float,
+    saturation: float,
+) -> Image.Image:
+    image = Image.open(FOUNDATION_SOURCE / source).convert("RGB")
+    image = ImageEnhance.Brightness(image).enhance(brightness)
+    image = ImageEnhance.Contrast(image).enhance(contrast)
+    image = ImageEnhance.Color(image).enhance(saturation)
+    image = ImageOps.fit(
+        image,
+        (TILE * SHEET_TILES, TILE * SHEET_TILES),
+        method=Image.Resampling.LANCZOS,
+    )
+    image.save(TERRAIN / output, optimize=True)
+    return image
+
+
+def save_claimed_corridor(raw: Image.Image, claimed: Image.Image) -> Image.Image:
+    # The existing Imagegen masters remain the only visible source. Blending
+    # them produces a quieter ownership surface for corridors while preserving
+    # the ornate sheet for rooms and the heart.
+    image = Image.blend(raw.convert("RGB"), claimed.convert("RGB"), 0.24)
+    image = ImageEnhance.Brightness(image).enhance(1.04)
+    image = ImageEnhance.Contrast(image).enhance(0.92)
+    image = ImageEnhance.Color(image).enhance(0.74)
+    image.save(TERRAIN / "claimed-corridor.png", optimize=True)
     return image
 
 
@@ -170,6 +203,11 @@ def main() -> None:
     rock = save_surface("rock-top-master.png", "rock-top.png", 1.02, 0.98, 0.66)
     raw = save_surface("raw-floor-master.png", "raw-floor.png", 0.97, 0.98, 0.58)
     claimed = save_surface("claimed-floor-master.png", "claimed-floor.png", 0.99, 0.90, 0.72)
+    save_claimed_corridor(raw, claimed)
+    save_regional_surface("basalt-source.png", "rock-basalt.png", 0.83, 0.96, 0.48)
+    save_regional_surface("damp-slate-source.png", "rock-damp.png", 0.78, 0.94, 0.62)
+    save_regional_surface("roots-source.png", "rock-roots.png", 0.82, 0.95, 0.66)
+    save_regional_surface("earth-source.png", "rock-earth.png", 0.80, 0.94, 0.55)
     edges = build_edges()
     props = build_props()
     make_preview([rock, raw, claimed], edges, props)

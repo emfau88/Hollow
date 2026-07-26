@@ -2,16 +2,25 @@ import Phaser from 'phaser';
 
 export type TerrainControl = 'neutral' | 'claiming' | 'owned' | 'enemy';
 export type TerrainVisibility = 'hidden' | 'charted' | 'revealed';
+export type TerrainMaterial = 'slate' | 'basalt' | 'damp' | 'roots' | 'earth';
+export type TerrainFloor = 'raw' | 'claimed' | 'room';
 
 export interface TerrainQuery {
   isOpen(x: number, y: number): boolean;
   visibilityAt(x: number, y: number): TerrainVisibility;
   controlAt(x: number, y: number): TerrainControl;
+  materialAt(x: number, y: number): TerrainMaterial;
+  floorAt(x: number, y: number): TerrainFloor;
 }
 
 export interface TerrainAssetKeys {
   rock: string;
+  rockBasalt: string;
+  rockDamp: string;
+  rockRoots: string;
+  rockEarth: string;
   rawFloor: string;
+  claimedCorridor: string;
   claimedFloor: string;
   wallEdge: string;
   wallCorner: string;
@@ -50,6 +59,14 @@ export class TerrainRenderer {
     const frame = (y % SURFACE_SHEET_TILES) * SURFACE_SHEET_TILES + (x % SURFACE_SHEET_TILES);
     this.stamp.setTexture(key, frame).setScale(1).setAlpha(alpha);
     this.rt.draw(this.stamp, x * this.tile, y * this.tile);
+  }
+
+  private rockKey(material: TerrainMaterial): string {
+    if (material === 'basalt') return this.assets.rockBasalt;
+    if (material === 'damp') return this.assets.rockDamp;
+    if (material === 'roots') return this.assets.rockRoots;
+    if (material === 'earth') return this.assets.rockEarth;
+    return this.assets.rock;
   }
 
   private isWall(q: TerrainQuery, x: number, y: number): boolean {
@@ -127,23 +144,25 @@ export class TerrainRenderer {
       for (let x = 0; x < this.width; x++) {
         const visibility = q.visibilityAt(x, y);
         const open = q.isOpen(x, y);
+        const rock = this.rockKey(q.materialAt(x, y));
         if (!open || visibility === 'hidden') {
-          this.drawSurface(this.assets.rock, x, y);
+          this.drawSurface(rock, x, y);
           continue;
         }
 
         if (visibility === 'charted') {
-          this.drawSurface(this.assets.rock, x, y);
+          this.drawSurface(rock, x, y);
           this.drawSurface(this.assets.rawFloor, x, y, 0.66);
           continue;
         }
 
-        const control = q.controlAt(x, y);
-        this.drawSurface(
-          control === 'owned' ? this.assets.claimedFloor : this.assets.rawFloor,
-          x,
-          y,
-        );
+        const floor = q.floorAt(x, y);
+        const floorKey = floor === 'room'
+          ? this.assets.claimedFloor
+          : floor === 'claimed'
+            ? this.assets.claimedCorridor
+            : this.assets.rawFloor;
+        this.drawSurface(floorKey, x, y);
       }
     }
 

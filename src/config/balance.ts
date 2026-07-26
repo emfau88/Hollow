@@ -8,6 +8,7 @@ export const BALANCE = {
   heartHp: 300,
   digSeconds: 1.5,
   claimSeconds: 0.9,
+  buildSeconds: 0.7,
   mineSeconds: 2.5,
   workerSpeed: 3.7,
   combatSpeed: 2.35,

@@ -1,5 +1,16 @@
 # Changelog
 
+## World Composition V4 – 26. Juli 2026
+
+- vorhandene Imagegen-Masterassets als fünf zusammenhängende Geologieregionen integriert
+- ruhigen Covenant-Korridorboden vom ornamentierten Raum- und Herzboden getrennt
+- bekannte Zielkammern mit organischen, befestigten oder rituellen Silhouetten statt Rechteckrahmen aufgebaut
+- Raumplanung auf echte feldweise Arbeiterkonstruktion mit sichtbarem Fortschritt umgestellt
+- Küche, Werkstatt, Gefängnis und Betten werden erst nach vollständigem Bau funktionsfähig
+- sichtbare Arbeitsprioritäten für Transport, Graben, Bauen, Claiming und Abbau ergänzt
+- feindliche Kammern, Angriffsrouten und gefährdete Arbeiter deutlicher markiert
+- Arbeiterdiagnose und Prioritätstests um Bauaufträge erweitert
+
 ## Lesbarkeit, Claiming und Arbeiter – 23. Juli 2026
 
 - bekannte Rohstoff- und Feindziele als echte, abgetrennte Hohlräume statt Fels-Rechtecke umgesetzt

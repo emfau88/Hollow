@@ -1,9 +1,11 @@
 import type { ToolKind, UnitKind } from '../data/definitions';
+import type { RoutineWorkerTask, WorkPriorities } from '../core/WorkerPriorities';
 
 export interface HudCallbacks {
   setTool(tool: ToolKind): void;
   recruit(kind: UnitKind): void;
   setSpeed(speed: 0 | 1 | 2): void;
+  cycleWorkPriority(task: RoutineWorkerTask): void;
   fitCamera(): void;
   pulse(): void;
   toggleAudio(): boolean;
@@ -34,6 +36,8 @@ export interface HudState {
   fear: number;
   pulseReady: boolean;
   canRecruit: Record<'guard' | 'archer' | 'hexbinder', boolean>;
+  workerJobs: Record<RoutineWorkerTask, number>;
+  workPriorities: WorkPriorities;
   context?: { title: string; body: string };
 }
 
@@ -120,6 +124,16 @@ export class HudController {
               <button class="tool-btn" data-tool="trap"><b>⌄</b>Falle<small>2 Rüstung</small></button>
             </div>
           </section>
+          <section class="tool-popover work-popover" data-popover="work" hidden>
+            <div class="popover-heading"><strong>Arbeitsprioritäten</strong><span>Antippen: Normal → Hoch → Niedrig</span></div>
+            <div class="popover-grid work-grid">
+              <button class="tool-btn priority-btn" data-work="haul"><b>▣</b>Transport<small data-work-status="haul">Normal · 0</small></button>
+              <button class="tool-btn priority-btn" data-work="dig"><b>⌁</b>Graben<small data-work-status="dig">Normal · 0</small></button>
+              <button class="tool-btn priority-btn" data-work="build"><b>▦</b>Bauen<small data-work-status="build">Normal · 0</small></button>
+              <button class="tool-btn priority-btn" data-work="claim"><b>◇</b>Claimen<small data-work-status="claim">Normal · 0</small></button>
+              <button class="tool-btn priority-btn" data-work="mine"><b>◆</b>Abbau<small data-work-status="mine">Normal · 0</small></button>
+            </div>
+          </section>
           <section class="tool-popover" data-popover="recruit" hidden>
             <div class="popover-heading"><strong>Rekrutieren</strong><span>Benötigt Bett, Ration und Ausrüstung</span></div>
             <div class="popover-grid compact">
@@ -134,6 +148,7 @@ export class HudController {
           <button class="tool-btn" data-tool="dig"><b>⌁</b>Gang<small>Route ziehen</small></button>
           <button class="tool-btn" data-tool="chamber"><b>▧</b>Kammer<small>Fläche ziehen</small></button>
           <button class="tool-btn menu-btn" data-menu="build" aria-expanded="false"><b>▦</b>Bauen<small>6 Räume</small></button>
+          <button class="tool-btn menu-btn" data-menu="work" aria-expanded="false"><b>≡</b>Arbeit<small>Prioritäten</small></button>
           <button class="tool-btn menu-btn" data-menu="command" aria-expanded="false"><b>⚑</b>Befehle<small>Kampf & Falle</small></button>
           <button class="tool-btn menu-btn" data-menu="recruit" aria-expanded="false"><b>⬟</b>Einheiten<small>Rekrutieren</small></button>
         </nav>
@@ -170,6 +185,11 @@ export class HudController {
       button.addEventListener('click', () => {
         this.closeToolMenus();
         this.callbacks.recruit(button.dataset.recruit as UnitKind);
+      });
+    });
+    this.root.querySelectorAll<HTMLElement>('[data-work]').forEach((button) => {
+      button.addEventListener('click', () => {
+        this.callbacks.cycleWorkPriority(button.dataset.work as RoutineWorkerTask);
       });
     });
     this.root.querySelectorAll<HTMLElement>('[data-menu]').forEach((button) => {
@@ -264,6 +284,16 @@ export class HudController {
     for (const kind of ['guard', 'archer', 'hexbinder'] as const) {
       const button = this.root.querySelector<HTMLButtonElement>(`[data-recruit="${kind}"]`);
       if (button) button.disabled = !state.canRecruit[kind];
+    }
+    const priorityLabel = ['Niedrig', 'Normal', 'Hoch'] as const;
+    for (const task of ['haul', 'dig', 'build', 'claim', 'mine'] as const) {
+      const button = this.root.querySelector<HTMLElement>(`[data-work="${task}"]`);
+      const status = this.root.querySelector<HTMLElement>(`[data-work-status="${task}"]`);
+      const level = state.workPriorities[task];
+      button?.classList.toggle('priority-high', level === 2);
+      button?.classList.toggle('priority-low', level === 0);
+      button?.setAttribute('aria-label', `${task}: ${priorityLabel[level]}, ${state.workerJobs[task]} Arbeiter`);
+      if (status) status.textContent = `${priorityLabel[level]} · ${state.workerJobs[task]}`;
     }
     const pulse = this.root.querySelector<HTMLButtonElement>('[data-action="pulse"]');
     if (pulse) pulse.disabled = !state.pulseReady;

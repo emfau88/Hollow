@@ -458,6 +458,11 @@ Rüstungsgüter repräsentieren Waffen, Rüstungsteile und Fallenladung.
 
 Räume werden als Zonen auf beanspruchtem Boden gezogen. Sie erhalten automatisch sichtbare Funktionsobjekte.
 
+Raumfelder beginnen als sichtbare Planung. Arbeiter errichten sie in 0,7 s pro
+Feld; der ornamentierte Raumfußboden wächst dabei feldweise. Raumfunktion,
+Produktionsrezepte, Betten und Gefängniszellen werden erst freigeschaltet,
+wenn alle Felder fertiggestellt sind.
+
 Jeder Raum zeigt:
 
 - Name;
@@ -653,6 +658,10 @@ Bei mindestens drei Arbeitern:
 - eine flexible Grab-/Claiming-Lane;
 - eine flexible Rohstoff-Lane, bei knapper Nahrung mit Biomassevorrang;
 - jede Lane übernimmt bei fehlender Kernaufgabe andere erreichbare Arbeit.
+- Der Spieler kann Transport, Graben, Bauen, Beanspruchen und Abbau jeweils
+  auf Niedrig, Normal oder Hoch stellen.
+- Prioritäten verändern die Reihenfolge, entfernen aber keine erreichbare
+  Aufgabe vollständig aus dem Fallback.
 
 ## 12.6 Anti-Deadlock
 
