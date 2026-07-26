@@ -54,6 +54,18 @@ export class HudController {
   private modal: HTMLElement;
   private selectionHint: HTMLElement;
   private started = false;
+  private valueNodes = new Map<string, HTMLElement>();
+  private phaseNodes: HTMLElement[] = [];
+  private toolNodes: HTMLElement[] = [];
+  private speedNodes: HTMLElement[] = [];
+  private recruitButtons = new Map<UnitKind, HTMLButtonElement>();
+  private workButtons = new Map<RoutineWorkerTask, HTMLElement>();
+  private workStatusNodes = new Map<RoutineWorkerTask, HTMLElement>();
+  private heartBar?: HTMLElement;
+  private buildMenu?: HTMLElement;
+  private commandMenu?: HTMLElement;
+  private pulseButton?: HTMLButtonElement;
+  private contextPanel?: HTMLElement;
 
   constructor(callbacks: HudCallbacks) {
     this.callbacks = callbacks;
@@ -171,6 +183,27 @@ export class HudController {
     this.toasts = root.querySelector('.toast-stack') as HTMLElement;
     this.modal = root.querySelector('.modal-shell') as HTMLElement;
     this.selectionHint = root.querySelector('.selection-hint') as HTMLElement;
+    root.querySelectorAll<HTMLElement>('[data-value]').forEach((node) => {
+      const key = node.dataset.value;
+      if (key) this.valueNodes.set(key, node);
+    });
+    this.phaseNodes = [...root.querySelectorAll<HTMLElement>('[data-phase]')];
+    this.toolNodes = [...root.querySelectorAll<HTMLElement>('[data-tool]')];
+    this.speedNodes = [...root.querySelectorAll<HTMLElement>('[data-speed]')];
+    root.querySelectorAll<HTMLButtonElement>('[data-recruit]').forEach((button) => {
+      this.recruitButtons.set(button.dataset.recruit as UnitKind, button);
+    });
+    root.querySelectorAll<HTMLElement>('[data-work]').forEach((button) => {
+      this.workButtons.set(button.dataset.work as RoutineWorkerTask, button);
+    });
+    root.querySelectorAll<HTMLElement>('[data-work-status]').forEach((node) => {
+      this.workStatusNodes.set(node.dataset.workStatus as RoutineWorkerTask, node);
+    });
+    this.heartBar = root.querySelector<HTMLElement>('.heart-bar i') ?? undefined;
+    this.buildMenu = root.querySelector<HTMLElement>('[data-menu="build"]') ?? undefined;
+    this.commandMenu = root.querySelector<HTMLElement>('[data-menu="command"]') ?? undefined;
+    this.pulseButton = root.querySelector<HTMLButtonElement>('[data-action="pulse"]') ?? undefined;
+    this.contextPanel = root.querySelector<HTMLElement>('.context-panel') ?? undefined;
     this.bind();
   }
 
@@ -262,46 +295,44 @@ export class HudController {
       'objective-body': state.objectiveBody,
     };
     for (const [name, value] of Object.entries(values)) {
-      const node = this.root.querySelector(`[data-value="${name}"]`);
-      if (node) node.textContent = String(value);
+      const node = this.valueNodes.get(name);
+      const text = String(value);
+      if (node && node.textContent !== text) node.textContent = text;
     }
-    const heartBar = this.root.querySelector<HTMLElement>('.heart-bar i');
-    if (heartBar) heartBar.style.width = `${Math.max(0, (state.hp / state.maxHp) * 100)}%`;
-    this.root.querySelectorAll('[data-phase]').forEach((node) => {
-      node.classList.toggle('done', Number((node as HTMLElement).dataset.phase) <= state.phase);
+    if (this.heartBar) this.heartBar.style.width = `${Math.max(0, (state.hp / state.maxHp) * 100)}%`;
+    this.phaseNodes.forEach((node) => {
+      node.classList.toggle('done', Number(node.dataset.phase) <= state.phase);
     });
-    this.root.querySelectorAll('[data-tool]').forEach((node) => {
-      node.classList.toggle('active', (node as HTMLElement).dataset.tool === state.tool);
+    this.toolNodes.forEach((node) => {
+      node.classList.toggle('active', node.dataset.tool === state.tool);
     });
-    this.root.querySelector('[data-menu="build"]')?.classList.toggle('active', state.tool.startsWith('room-'));
-    this.root.querySelector('[data-menu="command"]')?.classList.toggle(
+    this.buildMenu?.classList.toggle('active', state.tool.startsWith('room-'));
+    this.commandMenu?.classList.toggle(
       'active',
       state.tool === 'banner-attack' || state.tool === 'banner-defend' || state.tool === 'trap',
     );
-    this.root.querySelectorAll('[data-speed]').forEach((node) => {
-      node.classList.toggle('active', Number((node as HTMLElement).dataset.speed) === state.speed);
+    this.speedNodes.forEach((node) => {
+      node.classList.toggle('active', Number(node.dataset.speed) === state.speed);
     });
     for (const kind of ['guard', 'archer', 'hexbinder'] as const) {
-      const button = this.root.querySelector<HTMLButtonElement>(`[data-recruit="${kind}"]`);
+      const button = this.recruitButtons.get(kind);
       if (button) button.disabled = !state.canRecruit[kind];
     }
     const priorityLabel = ['Niedrig', 'Normal', 'Hoch'] as const;
     for (const task of ['haul', 'dig', 'build', 'claim', 'mine'] as const) {
-      const button = this.root.querySelector<HTMLElement>(`[data-work="${task}"]`);
-      const status = this.root.querySelector<HTMLElement>(`[data-work-status="${task}"]`);
+      const button = this.workButtons.get(task);
+      const status = this.workStatusNodes.get(task);
       const level = state.workPriorities[task];
       button?.classList.toggle('priority-high', level === 2);
       button?.classList.toggle('priority-low', level === 0);
       button?.setAttribute('aria-label', `${task}: ${priorityLabel[level]}, ${state.workerJobs[task]} Arbeiter`);
       if (status) status.textContent = `${priorityLabel[level]} · ${state.workerJobs[task]}`;
     }
-    const pulse = this.root.querySelector<HTMLButtonElement>('[data-action="pulse"]');
-    if (pulse) pulse.disabled = !state.pulseReady;
-    const context = this.root.querySelector('.context-panel');
-    context?.classList.toggle('visible', Boolean(state.context));
+    if (this.pulseButton) this.pulseButton.disabled = !state.pulseReady;
+    this.contextPanel?.classList.toggle('visible', Boolean(state.context));
     if (state.context) {
-      const title = this.root.querySelector('[data-value="context-title"]');
-      const body = this.root.querySelector('[data-value="context-body"]');
+      const title = this.valueNodes.get('context-title');
+      const body = this.valueNodes.get('context-body');
       if (title) title.textContent = state.context.title;
       if (body) body.textContent = state.context.body;
     }

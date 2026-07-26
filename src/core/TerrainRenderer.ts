@@ -13,6 +13,11 @@ export interface TerrainQuery {
   floorAt(x: number, y: number): TerrainFloor;
 }
 
+interface TerrainPoint {
+  x: number;
+  y: number;
+}
+
 export interface TerrainAssetKeys {
   rock: string;
   rockBasalt: string;
@@ -136,33 +141,44 @@ export class TerrainRenderer {
     if (!this.hasSameControl(q, x - 1, y, control)) this.drawOverlay(key, x, y, 3, alpha);
   }
 
+  private drawBase(q: TerrainQuery, x: number, y: number): void {
+    const visibility = q.visibilityAt(x, y);
+    const open = q.isOpen(x, y);
+    const rock = this.rockKey(q.materialAt(x, y));
+    if (!open || visibility === 'hidden') {
+      this.drawSurface(rock, x, y);
+      return;
+    }
+
+    if (visibility === 'charted') {
+      this.drawSurface(rock, x, y);
+      this.drawSurface(this.assets.rawFloor, x, y, 0.66);
+      return;
+    }
+
+    const floor = q.floorAt(x, y);
+    const floorKey = floor === 'room'
+      ? this.assets.claimedFloor
+      : floor === 'claimed'
+        ? this.assets.claimedCorridor
+        : this.assets.rawFloor;
+    this.drawSurface(floorKey, x, y);
+  }
+
+  private drawEdges(q: TerrainQuery, x: number, y: number): void {
+    const visibility = q.visibilityAt(x, y);
+    if (!q.isOpen(x, y) || visibility === 'hidden') return;
+    this.drawWallEdges(q, x, y, visibility === 'charted' ? 0.58 : 1);
+    if (visibility === 'revealed') this.drawControlEdges(q, x, y);
+  }
+
   render(q: TerrainQuery): void {
     this.rt.clear();
 
     // Pass 1: a single continuous rock mass, replaced only by revealed floors.
     for (let y = 0; y < this.height; y++) {
       for (let x = 0; x < this.width; x++) {
-        const visibility = q.visibilityAt(x, y);
-        const open = q.isOpen(x, y);
-        const rock = this.rockKey(q.materialAt(x, y));
-        if (!open || visibility === 'hidden') {
-          this.drawSurface(rock, x, y);
-          continue;
-        }
-
-        if (visibility === 'charted') {
-          this.drawSurface(rock, x, y);
-          this.drawSurface(this.assets.rawFloor, x, y, 0.66);
-          continue;
-        }
-
-        const floor = q.floorAt(x, y);
-        const floorKey = floor === 'room'
-          ? this.assets.claimedFloor
-          : floor === 'claimed'
-            ? this.assets.claimedCorridor
-            : this.assets.rawFloor;
-        this.drawSurface(floorKey, x, y);
+        this.drawBase(q, x, y);
       }
     }
 
@@ -182,5 +198,25 @@ export class TerrainRenderer {
         if (q.isOpen(x, y) && q.visibilityAt(x, y) === 'revealed') this.drawControlEdges(q, x, y);
       }
     }
+  }
+
+  /**
+   * Repaints a changed tile and its direct neighbours. Surfaces are opaque, so
+   * the base pass also removes obsolete edge overlays before fresh edges are
+   * stamped. A single claim/build/dig update therefore touches at most 9 tiles.
+   */
+  renderTiles(q: TerrainQuery, changed: TerrainPoint[]): void {
+    const dirty = new Set<number>();
+    for (const point of changed) {
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const x = point.x + dx;
+          const y = point.y + dy;
+          if (x >= 0 && y >= 0 && x < this.width && y < this.height) dirty.add(y * this.width + x);
+        }
+      }
+    }
+    for (const index of dirty) this.drawBase(q, index % this.width, Math.floor(index / this.width));
+    for (const index of dirty) this.drawEdges(q, index % this.width, Math.floor(index / this.width));
   }
 }

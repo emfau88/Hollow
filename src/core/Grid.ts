@@ -3,7 +3,89 @@ export interface GridPoint {
   y: number;
 }
 
-const key = (x: number, y: number) => `${x},${y}`;
+export interface PathTree {
+  distanceTo(point: GridPoint): number;
+  pathTo(point: GridPoint): GridPoint[];
+}
+
+const reconstructPath = (
+  parents: Int32Array,
+  width: number,
+  goalIndex: number,
+): GridPoint[] => {
+  if (goalIndex < 0 || parents[goalIndex] === -2) return [];
+  const path: GridPoint[] = [];
+  let index = goalIndex;
+  while (parents[index] !== -1) {
+    path.push({ x: index % width, y: Math.floor(index / width) });
+    index = parents[index];
+  }
+  path.reverse();
+  return path;
+};
+
+/**
+ * Builds one breadth-first search tree that can answer many distance and path
+ * queries without repeating the map traversal.
+ */
+export function buildPathTree(
+  width: number,
+  height: number,
+  start: GridPoint,
+  passable: (x: number, y: number) => boolean,
+): PathTree {
+  const size = width * height;
+  const parents = new Int32Array(size);
+  const distances = new Int32Array(size);
+  const queue = new Int32Array(size);
+  parents.fill(-2);
+  distances.fill(-1);
+
+  if (start.x < 0 || start.y < 0 || start.x >= width || start.y >= height) {
+    return {
+      distanceTo: () => Number.POSITIVE_INFINITY,
+      pathTo: () => [],
+    };
+  }
+
+  const startIndex = start.y * width + start.x;
+  parents[startIndex] = -1;
+  distances[startIndex] = 0;
+  queue[0] = startIndex;
+  let head = 0;
+  let tail = 1;
+
+  while (head < tail) {
+    const currentIndex = queue[head++];
+    const x = currentIndex % width;
+    const y = Math.floor(currentIndex / width);
+    for (let direction = 0; direction < 4; direction++) {
+      const nextX = x + (direction === 0 ? 1 : direction === 1 ? -1 : 0);
+      const nextY = y + (direction === 2 ? 1 : direction === 3 ? -1 : 0);
+      if (nextX < 0 || nextY < 0 || nextX >= width || nextY >= height) continue;
+      const nextIndex = nextY * width + nextX;
+      if (parents[nextIndex] !== -2 || !passable(nextX, nextY)) continue;
+      parents[nextIndex] = currentIndex;
+      distances[nextIndex] = distances[currentIndex] + 1;
+      queue[tail++] = nextIndex;
+    }
+  }
+
+  const indexOf = (point: GridPoint) => {
+    if (point.x < 0 || point.y < 0 || point.x >= width || point.y >= height) return -1;
+    return point.y * width + point.x;
+  };
+
+  return {
+    distanceTo(point) {
+      const index = indexOf(point);
+      return index < 0 || distances[index] < 0 ? Number.POSITIVE_INFINITY : distances[index];
+    },
+    pathTo(point) {
+      return reconstructPath(parents, width, indexOf(point));
+    },
+  };
+}
 
 export function findPath(
   width: number,
@@ -12,41 +94,34 @@ export function findPath(
   goal: GridPoint,
   passable: (x: number, y: number) => boolean,
 ): GridPoint[] {
-  const queue: GridPoint[] = [start];
-  const parents = new Map<string, GridPoint | null>([[key(start.x, start.y), null]]);
-  let cursor = 0;
+  if (
+    start.x < 0 || start.y < 0 || start.x >= width || start.y >= height
+    || goal.x < 0 || goal.y < 0 || goal.x >= width || goal.y >= height
+  ) return [];
+  const size = width * height;
+  const parents = new Int32Array(size);
+  const queue = new Int32Array(size);
+  parents.fill(-2);
+  const startIndex = start.y * width + start.x;
+  const goalIndex = goal.y * width + goal.x;
+  parents[startIndex] = -1;
+  queue[0] = startIndex;
+  let head = 0;
+  let tail = 1;
 
-  while (cursor < queue.length) {
-    const current = queue[cursor++];
-    if (current.x === goal.x && current.y === goal.y) {
-      const result: GridPoint[] = [];
-      let step: GridPoint | null = current;
-      while (step) {
-        result.push(step);
-        step = parents.get(key(step.x, step.y)) ?? null;
-      }
-      return result.reverse().slice(1);
-    }
-
-    for (const next of [
-      { x: current.x + 1, y: current.y },
-      { x: current.x - 1, y: current.y },
-      { x: current.x, y: current.y + 1 },
-      { x: current.x, y: current.y - 1 },
-    ]) {
-      const nextKey = key(next.x, next.y);
-      if (
-        next.x < 0 ||
-        next.y < 0 ||
-        next.x >= width ||
-        next.y >= height ||
-        parents.has(nextKey) ||
-        !passable(next.x, next.y)
-      ) {
-        continue;
-      }
-      parents.set(nextKey, current);
-      queue.push(next);
+  while (head < tail) {
+    const currentIndex = queue[head++];
+    if (currentIndex === goalIndex) return reconstructPath(parents, width, goalIndex);
+    const x = currentIndex % width;
+    const y = Math.floor(currentIndex / width);
+    for (let direction = 0; direction < 4; direction++) {
+      const nextX = x + (direction === 0 ? 1 : direction === 1 ? -1 : 0);
+      const nextY = y + (direction === 2 ? 1 : direction === 3 ? -1 : 0);
+      if (nextX < 0 || nextY < 0 || nextX >= width || nextY >= height) continue;
+      const nextIndex = nextY * width + nextX;
+      if (parents[nextIndex] !== -2 || !passable(nextX, nextY)) continue;
+      parents[nextIndex] = currentIndex;
+      queue[tail++] = nextIndex;
     }
   }
   return [];

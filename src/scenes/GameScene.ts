@@ -1,6 +1,13 @@
 import Phaser from 'phaser';
 import { AudioController } from '../core/AudioController';
-import { findPath, lineRoute, manhattan, type GridPoint } from '../core/Grid';
+import {
+  buildPathTree,
+  findPath,
+  lineRoute,
+  manhattan,
+  type GridPoint,
+  type PathTree,
+} from '../core/Grid';
 import { BALANCE, COLORS } from '../config/balance';
 import { HEART_LINES, MISSION_PHASES } from '../config/missionConfig';
 import {
@@ -44,6 +51,7 @@ interface Worker {
   state: JobKind;
   path: GridPoint[];
   timer: number;
+  assignmentCooldown: number;
   target?: GridPoint;
   targetId?: number | string;
   carry?: { kind: ItemKind; amount: number };
@@ -175,10 +183,21 @@ const sy = (y: number) => y + NORTH_SHIFT;
 const HEART_TILE = { x: 32, y: sy(22) };
 // Heart floor: the 3×3 around the heart uses the dedicated heart floor frame.
 const HEART_FLOOR = { x: 31, y: sy(21), w: 3, h: 3 };
+const TERRAIN_MATERIAL_ANCHORS: ReadonlyArray<{
+  material: TerrainMaterial;
+  x: number;
+  y: number;
+  seed: number;
+}> = [
+  { material: 'slate', x: 32, y: sy(22), seed: 3 },
+  { material: 'basalt', x: 17, y: sy(19), seed: 11 },
+  { material: 'damp', x: 43, y: sy(25), seed: 19 },
+  { material: 'roots', x: 50, y: sy(34), seed: 29 },
+  { material: 'earth', x: 44, y: sy(8), seed: 37 },
+];
 
 export class GameScene extends Phaser.Scene {
   private tiles: WorldTile[][] = [];
-  private terrain!: Phaser.GameObjects.Graphics;
   private terrainRenderer!: TerrainRenderer;
   private detail!: Phaser.GameObjects.Graphics;
   private preview!: Phaser.GameObjects.Graphics;
@@ -198,6 +217,11 @@ export class GameScene extends Phaser.Scene {
   private nextId = 1;
   private roomGlows: Phaser.GameObjects.GameObject[] = [];
   private roomProps: Phaser.GameObjects.Image[] = [];
+  private heartPathTree?: PathTree;
+  private bannerAttackPath: GridPoint[] = [];
+  private nextHudUpdateAt = 0;
+  private bannerAttackTween?: Phaser.Tweens.Tween;
+  private bannerDefendTween?: Phaser.Tweens.Tween;
   private digMarks = new Set<string>();
   private tool: ToolKind = 'pan';
   private dragStart?: GridPoint;
@@ -302,7 +326,6 @@ export class GameScene extends Phaser.Scene {
   create(): void {
     this.makeTextures();
     this.createMap();
-    this.terrain = this.add.graphics().setDepth(0);
     this.detail = this.add.graphics().setDepth(4);
     this.preview = this.add.graphics().setDepth(60);
     this.statusLayer = this.add.graphics().setDepth(55);
@@ -479,6 +502,8 @@ export class GameScene extends Phaser.Scene {
             `${count(['mine'])} abbauen`,
             `${count(['pickup', 'deliver'])} transportieren`,
             `${this.items.length} lose Güter`,
+            `${Math.round(this.game.loop.actualFps)} FPS`,
+            `${this.tweens.getTweens().length} Tweens`,
             '0 Pfadfehler',
           ].join(' · ');
         }
@@ -1092,6 +1117,7 @@ export class GameScene extends Phaser.Scene {
       state: 'idle',
       path: [],
       timer: 0,
+      assignmentCooldown: 0,
     };
     this.workers.push(worker);
     return worker;
@@ -1158,7 +1184,7 @@ export class GameScene extends Phaser.Scene {
     if (!this.hud?.isStarted || this.ended) return;
     const dt = baseDt * this.speed;
     if (!dt) {
-      this.updateHud();
+      this.updateHud(false);
       return;
     }
     this.elapsed += dt;
@@ -1174,7 +1200,7 @@ export class GameScene extends Phaser.Scene {
     this.updateTraps(dt);
     this.updateMission();
     this.drawStatus();
-    this.updateHud();
+    this.updateHud(false);
   }
 
   private discoverAreas(): void {
@@ -1204,7 +1230,11 @@ export class GameScene extends Phaser.Scene {
       }
       this.audio.tone(node.kind === 'essence' ? 390 : 260, 0.14, 0.03, 'triangle');
       this.hud.toast(node.label, node.owner === 'natural' ? `${node.amount} Einheiten · natürliche Quelle` : 'Feindlich kontrolliert · Angriffsbanner empfohlen');
-      this.drawWorld();
+      this.redrawTerrain(this.rectPoints(
+        { x: node.chamber.x, y: node.chamber.y },
+        { x: node.chamber.x + node.chamber.w - 1, y: node.chamber.y + node.chamber.h - 1 },
+      ));
+      this.redrawWorldDetails(false);
     }
   }
 
@@ -1227,7 +1257,9 @@ export class GameScene extends Phaser.Scene {
         worker.timer = 0;
         worker.sprite.angle = 0;
         this.audio.tone(92, 0.035, 0.012, 'square');
-        this.drawWorld();
+        this.invalidateNavigation();
+        this.redrawTerrain([{ x, y }]);
+        this.redrawWorldDetails(false);
       }
       return;
     }
@@ -1243,6 +1275,7 @@ export class GameScene extends Phaser.Scene {
       worker.timer += dt;
       worker.sprite.angle = Math.sin(worker.timer * 16) * 8;
       if (worker.timer >= BALANCE.buildSeconds) {
+        const completedTarget = { ...worker.target };
         tile.construction = 'complete';
         const room = this.rooms.find((candidate) => candidate.id === tile.roomId);
         worker.state = 'idle';
@@ -1250,8 +1283,11 @@ export class GameScene extends Phaser.Scene {
         worker.timer = 0;
         worker.sprite.angle = 0;
         this.audio.tone(188, 0.045, 0.012, 'square');
-        this.drawWorld();
-        if (room && this.isRoomComplete(room)) {
+        const roomComplete = Boolean(room && this.isRoomComplete(room));
+        this.redrawTerrain([completedTarget]);
+        this.redrawWorldDetails(roomComplete);
+        this.wakeIdleWorkers();
+        if (room && roomComplete) {
           const def = ROOM_DEFINITIONS[room.kind];
           this.hud.toast(
             `${def.label} fertiggestellt`,
@@ -1275,14 +1311,16 @@ export class GameScene extends Phaser.Scene {
       worker.timer += dt;
       worker.sprite.angle = Math.sin(worker.timer * 13) * 7;
       if (worker.timer >= BALANCE.claimSeconds) {
+        const completedTarget = { ...worker.target };
         tile.control = 'owned';
         worker.state = 'idle';
         worker.target = undefined;
         worker.timer = 0;
         worker.sprite.angle = 0;
         this.checkClaims();
+        this.wakeIdleWorkers();
         this.audio.tone(146, 0.04, 0.012, 'triangle');
-        this.drawWorld();
+        this.redrawTerrain([completedTarget]);
       }
       return;
     }
@@ -1314,6 +1352,7 @@ export class GameScene extends Phaser.Scene {
       const item = this.items.find((candidate) => candidate.id === worker.targetId);
       if (item) {
         worker.carry = { kind: item.kind, amount: item.amount };
+        this.tweens.killTweensOf(item.sprite);
         item.sprite.destroy();
         this.items = this.items.filter((candidate) => candidate.id !== item.id);
         worker.carryText.setText(`${symbolForItem[item.kind]}${item.amount > 1 ? `×${item.amount}` : ''}`);
@@ -1371,18 +1410,24 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
+    if (worker.assignmentCooldown > 0) {
+      worker.assignmentCooldown = Math.max(0, worker.assignmentCooldown - dt);
+      return;
+    }
     this.assignWorker(worker);
+    if (worker.state === 'idle') worker.assignmentCooldown = 0.5;
   }
 
   private assignWorker(worker: Worker): void {
+    const routes = this.pathTreeFrom(worker);
     if (this.prisoner?.status === 'downed' && this.hasFunctionalRoom('prison')) {
       const alreadyReserved = this.workers.some((candidate) => candidate.state === 'prisoner-pick' || candidate.state === 'prisoner-deliver');
       if (!alreadyReserved) {
-        const path = this.pathBetween(worker, { x: Math.round(this.prisoner.x), y: Math.round(this.prisoner.y) });
-        if (path.length) {
+        const target = { x: Math.round(this.prisoner.x), y: Math.round(this.prisoner.y) };
+        if (Number.isFinite(routes.distanceTo(target))) {
           worker.state = 'prisoner-pick';
-          worker.path = path;
-          worker.target = { x: Math.round(this.prisoner.x), y: Math.round(this.prisoner.y) };
+          worker.path = routes.pathTo(target);
+          worker.target = target;
           return;
         }
       }
@@ -1391,57 +1436,65 @@ export class GameScene extends Phaser.Scene {
     const foodUrgent = this.phase === 1 || this.stock.ration < 3 || this.stock.biomass < 4;
     const workerIndex = Math.max(0, this.workers.indexOf(worker));
     for (const task of workerTaskOrder(workerIndex, foodUrgent, this.workPriorities)) {
-      if (this.tryAssignRoutineTask(worker, task, foodUrgent)) return;
+      if (this.tryAssignRoutineTask(worker, task, foodUrgent, routes)) return;
     }
     worker.state = 'idle';
   }
 
-  private tryAssignRoutineTask(worker: Worker, task: RoutineWorkerTask, foodUrgent: boolean): boolean {
-    if (task === 'haul') return this.tryAssignPickup(worker);
-    if (task === 'dig') return this.tryAssignDig(worker);
-    if (task === 'build') return this.tryAssignBuild(worker);
-    if (task === 'claim') return this.tryAssignClaim(worker);
-    return this.tryAssignMine(worker, foodUrgent);
+  private tryAssignRoutineTask(worker: Worker, task: RoutineWorkerTask, foodUrgent: boolean, routes: PathTree): boolean {
+    if (task === 'haul') return this.tryAssignPickup(worker, routes);
+    if (task === 'dig') return this.tryAssignDig(worker, routes);
+    if (task === 'build') return this.tryAssignBuild(worker, routes);
+    if (task === 'claim') return this.tryAssignClaim(worker, routes);
+    return this.tryAssignMine(worker, foodUrgent, routes);
   }
 
-  private tryAssignPickup(worker: Worker): boolean {
-    const availableItem = this.items
-      .filter((item) => !item.reservedBy)
-      .map((item) => ({ item, path: this.pathBetween(worker, { x: Math.round(item.x), y: Math.round(item.y) }) }))
-      .filter(({ path, item }) => path.length || (Math.round(worker.x) === Math.round(item.x) && Math.round(worker.y) === Math.round(item.y)))
-      .sort((a, b) => a.path.length - b.path.length)[0];
+  private tryAssignPickup(worker: Worker, routes: PathTree): boolean {
+    let availableItem: LooseItem | undefined;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    for (const item of this.items) {
+      if (item.reservedBy) continue;
+      const distance = routes.distanceTo({ x: Math.round(item.x), y: Math.round(item.y) });
+      if (distance < bestDistance) {
+        availableItem = item;
+        bestDistance = distance;
+      }
+    }
     if (!availableItem) return false;
-    availableItem.item.reservedBy = worker.id;
+    availableItem.reservedBy = worker.id;
     worker.state = 'pickup';
-    worker.path = availableItem.path;
-    worker.targetId = availableItem.item.id;
+    worker.path = routes.pathTo({ x: Math.round(availableItem.x), y: Math.round(availableItem.y) });
+    worker.targetId = availableItem.id;
     return true;
   }
 
-  private tryAssignMine(worker: Worker, foodUrgent: boolean): boolean {
+  private tryAssignMine(worker: Worker, foodUrgent: boolean, routes: PathTree): boolean {
     if (this.items.length >= 18) return false;
-    const mineable = this.nodes
-      .filter((node) => this.canMineNode(node))
-      .filter((node) => {
-        const active = this.workers.filter((candidate) => candidate.state === 'mine' && candidate.targetId === node.id).length;
-        return active < (foodUrgent && node.kind === 'biomass' ? 2 : 1);
-      })
-      .map((node) => ({ node, path: this.pathBetween(worker, node) }))
-      .filter(({ path, node }) => path.length || (Math.round(worker.x) === node.x && Math.round(worker.y) === node.y))
-      .sort((a, b) => {
-        const foodDelta = foodUrgent ? Number(b.node.kind === 'biomass') - Number(a.node.kind === 'biomass') : 0;
-        return foodDelta || a.path.length - b.path.length;
-      })[0];
+    let mineable: ResourceNode | undefined;
+    let bestFoodRank = Number.POSITIVE_INFINITY;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    for (const node of this.nodes) {
+      if (!this.canMineNode(node, routes)) continue;
+      const active = this.workers.filter((candidate) => candidate.state === 'mine' && candidate.targetId === node.id).length;
+      if (active >= (foodUrgent && node.kind === 'biomass' ? 2 : 1)) continue;
+      const foodRank = foodUrgent && node.kind === 'biomass' ? 0 : 1;
+      const distance = routes.distanceTo(node);
+      if (foodRank < bestFoodRank || (foodRank === bestFoodRank && distance < bestDistance)) {
+        mineable = node;
+        bestFoodRank = foodRank;
+        bestDistance = distance;
+      }
+    }
     if (!mineable) return false;
     worker.state = 'mine';
-    worker.path = mineable.path;
-    worker.targetId = mineable.node.id;
+    worker.path = routes.pathTo(mineable);
+    worker.targetId = mineable.id;
     worker.timer = 0;
     return true;
   }
 
-  private tryAssignDig(worker: Worker): boolean {
-    const frontier = this.findDigFrontier(worker);
+  private tryAssignDig(worker: Worker, routes: PathTree): boolean {
+    const frontier = this.findDigFrontier(routes);
     if (!frontier) return false;
     worker.state = 'dig';
     worker.path = frontier.path;
@@ -1450,8 +1503,8 @@ export class GameScene extends Phaser.Scene {
     return true;
   }
 
-  private tryAssignBuild(worker: Worker): boolean {
-    const target = this.findBuildTarget(worker);
+  private tryAssignBuild(worker: Worker, routes: PathTree): boolean {
+    const target = this.findBuildTarget(routes);
     if (!target) return false;
     const tile = this.tileAt(target.target.x, target.target.y);
     if (!tile) return false;
@@ -1460,12 +1513,12 @@ export class GameScene extends Phaser.Scene {
     worker.path = target.path;
     worker.target = target.target;
     worker.timer = 0;
-    this.drawWorld();
+    this.redrawWorldDetails(false);
     return true;
   }
 
-  private tryAssignClaim(worker: Worker): boolean {
-    const frontier = this.findClaimFrontier(worker);
+  private tryAssignClaim(worker: Worker, routes: PathTree): boolean {
+    const frontier = this.findClaimFrontier(routes);
     if (!frontier) return false;
     const tile = this.tileAt(frontier.target.x, frontier.target.y);
     if (!tile) return false;
@@ -1474,55 +1527,63 @@ export class GameScene extends Phaser.Scene {
     worker.path = frontier.path;
     worker.target = frontier.target;
     worker.timer = 0;
-    this.drawWorld();
+    this.redrawTerrain([frontier.target]);
     return true;
   }
 
-  private findDigFrontier(worker: Worker): { target: GridPoint; path: GridPoint[] } | undefined {
-    const candidates: { target: GridPoint; path: GridPoint[] }[] = [];
+  private findDigFrontier(routes: PathTree): { target: GridPoint; path: GridPoint[] } | undefined {
+    let bestTarget: GridPoint | undefined;
+    let bestApproach: GridPoint | undefined;
+    let bestDistance = Number.POSITIVE_INFINITY;
     for (const mark of this.digMarks) {
       const [x, y] = mark.split(',').map(Number);
+      const alreadyWorked = this.workers.some((candidate) => candidate.state === 'dig' && candidate.target?.x === x && candidate.target.y === y);
+      if (alreadyWorked) continue;
       for (const neighbor of this.neighbors(x, y)) {
-        if (!this.isPassable(neighbor.x, neighbor.y)) continue;
-        const path = this.pathBetween(worker, neighbor);
-        const alreadyWorked = this.workers.some((candidate) => candidate.state === 'dig' && candidate.target?.x === x && candidate.target.y === y);
-        if ((path.length || (Math.round(worker.x) === neighbor.x && Math.round(worker.y) === neighbor.y)) && !alreadyWorked) {
-          candidates.push({ target: { x, y }, path });
+        const distance = routes.distanceTo(neighbor);
+        if (distance < bestDistance) {
+          bestTarget = { x, y };
+          bestApproach = neighbor;
+          bestDistance = distance;
         }
       }
     }
-    return candidates.sort((a, b) => a.path.length - b.path.length)[0];
+    return bestTarget && bestApproach ? { target: bestTarget, path: routes.pathTo(bestApproach) } : undefined;
   }
 
-  private findClaimFrontier(worker: Worker): { target: GridPoint; path: GridPoint[] } | undefined {
-    const candidates: { target: GridPoint; path: GridPoint[] }[] = [];
+  private findClaimFrontier(routes: PathTree): { target: GridPoint; path: GridPoint[] } | undefined {
+    let bestTarget: GridPoint | undefined;
+    let bestDistance = Number.POSITIVE_INFINITY;
     for (let y = 0; y < H; y++) {
       for (let x = 0; x < W; x++) {
         if (!this.canClaimTile(x, y)) continue;
-        const path = this.pathBetween(worker, { x, y });
-        if (path.length || (Math.round(worker.x) === x && Math.round(worker.y) === y)) {
-          candidates.push({ target: { x, y }, path });
+        const distance = routes.distanceTo({ x, y });
+        if (distance < bestDistance) {
+          bestTarget = { x, y };
+          bestDistance = distance;
         }
       }
     }
-    return candidates.sort((a, b) => a.path.length - b.path.length)[0];
+    return bestTarget ? { target: bestTarget, path: routes.pathTo(bestTarget) } : undefined;
   }
 
-  private findBuildTarget(worker: Worker): { target: GridPoint; path: GridPoint[] } | undefined {
-    const candidates: { target: GridPoint; path: GridPoint[] }[] = [];
+  private findBuildTarget(routes: PathTree): { target: GridPoint; path: GridPoint[] } | undefined {
+    let bestTarget: GridPoint | undefined;
+    let bestDistance = Number.POSITIVE_INFINITY;
     for (const room of this.rooms) {
       for (let y = room.y; y < room.y + room.h; y++) {
         for (let x = room.x; x < room.x + room.w; x++) {
           const tile = this.tileAt(x, y);
           if (tile?.construction !== 'planned') continue;
-          const path = this.pathBetween(worker, { x, y });
-          if (path.length || (Math.round(worker.x) === x && Math.round(worker.y) === y)) {
-            candidates.push({ target: { x, y }, path });
+          const distance = routes.distanceTo({ x, y });
+          if (distance < bestDistance) {
+            bestTarget = { x, y };
+            bestDistance = distance;
           }
         }
       }
     }
-    return candidates.sort((a, b) => a.path.length - b.path.length)[0];
+    return bestTarget ? { target: bestTarget, path: routes.pathTo(bestTarget) } : undefined;
   }
 
   private canClaimTile(x: number, y: number): boolean {
@@ -1662,26 +1723,44 @@ export class GameScene extends Phaser.Scene {
   }
 
   private chooseTargetForUnit(actor: Actor): Enemy | undefined {
-    const possible = this.enemies.filter((enemy) => enemy.hp > 0 && enemy.sprite.visible);
-    if (!possible.length) return undefined;
-    const urgent = possible.filter((enemy) =>
-      enemy.wave || Phaser.Math.Distance.Between(enemy.x, enemy.y, HEART_TILE.x, HEART_TILE.y) < 8);
-    const inBanner = this.bannerAttack
-      ? possible.filter((enemy) => Phaser.Math.Distance.Between(enemy.x, enemy.y, this.bannerAttack!.x, this.bannerAttack!.y) <= 7)
-      : [];
-    const pool = urgent.length ? urgent : inBanner;
-    return pool.sort((a, b) =>
-      Phaser.Math.Distance.Between(actor.x, actor.y, a.x, a.y) - Phaser.Math.Distance.Between(actor.x, actor.y, b.x, b.y),
-    )[0];
+    let urgentExists = false;
+    for (const enemy of this.enemies) {
+      if (enemy.hp <= 0 || !enemy.sprite.visible) continue;
+      if (enemy.wave || Phaser.Math.Distance.Between(enemy.x, enemy.y, HEART_TILE.x, HEART_TILE.y) < 8) {
+        urgentExists = true;
+        break;
+      }
+    }
+    let nearest: Enemy | undefined;
+    let nearestDistance = Number.POSITIVE_INFINITY;
+    for (const enemy of this.enemies) {
+      if (enemy.hp <= 0 || !enemy.sprite.visible) continue;
+      const eligible = urgentExists
+        ? enemy.wave || Phaser.Math.Distance.Between(enemy.x, enemy.y, HEART_TILE.x, HEART_TILE.y) < 8
+        : Boolean(this.bannerAttack
+          && Phaser.Math.Distance.Between(enemy.x, enemy.y, this.bannerAttack.x, this.bannerAttack.y) <= 7);
+      if (!eligible) continue;
+      const distance = Phaser.Math.Distance.Between(actor.x, actor.y, enemy.x, enemy.y);
+      if (distance < nearestDistance) {
+        nearest = enemy;
+        nearestDistance = distance;
+      }
+    }
+    return nearest;
   }
 
   private chooseTargetForEnemy(enemy: Enemy): Actor | undefined {
-    return this.units
-      .filter((unit) => unit.hp > 0)
-      .sort((a, b) =>
-        Phaser.Math.Distance.Between(enemy.x, enemy.y, a.x, a.y) - Phaser.Math.Distance.Between(enemy.x, enemy.y, b.x, b.y),
-      )
-      .find((unit) => Phaser.Math.Distance.Between(enemy.x, enemy.y, unit.x, unit.y) < (enemy.wave ? 14 : 7));
+    let nearest: Actor | undefined;
+    let nearestDistance = enemy.wave ? 14 : 7;
+    for (const unit of this.units) {
+      if (unit.hp <= 0) continue;
+      const distance = Phaser.Math.Distance.Between(enemy.x, enemy.y, unit.x, unit.y);
+      if (distance < nearestDistance) {
+        nearest = unit;
+        nearestDistance = distance;
+      }
+    }
+    return nearest;
   }
 
   private moveActorToward(actor: Actor, target: GridPoint, dt: number): void {
@@ -1914,6 +1993,7 @@ export class GameScene extends Phaser.Scene {
       mine: 'Abbau',
     };
     this.hud.toast('Arbeitspriorität', `${taskLabels[task]}: ${labels[this.workPriorities[task]]}`);
+    this.wakeIdleWorkers();
     this.updateHud();
   }
 
@@ -1929,7 +2009,8 @@ export class GameScene extends Phaser.Scene {
         marked++;
       }
       this.hud.toast('Grabung markiert', `${marked} Felsfelder · ${Math.min(3, this.workers.length)} Arbeiter verfügbar`);
-      this.drawWorld();
+      this.wakeIdleWorkers();
+      this.redrawWorldDetails(false);
       return;
     }
     if (this.tool.startsWith('room-')) {
@@ -1938,6 +2019,7 @@ export class GameScene extends Phaser.Scene {
     }
     if (this.tool === 'banner-attack') {
       this.bannerAttack = end;
+      this.refreshBannerAttackPath();
       this.createBanner('attack', end);
       this.audio.tone(235, 0.1, 0.025, 'square');
       return;
@@ -1973,7 +2055,8 @@ export class GameScene extends Phaser.Scene {
     const room: Room = { id: this.nextId++, kind, x, y, w, h, progress: 0, activeRecipe: false };
     this.rooms.push(room);
     this.assignRoomTiles(room, 'planned');
-    this.drawWorld();
+    this.wakeIdleWorkers();
+    this.redrawWorldDetails(false);
     this.audio.tone(188, 0.09, 0.02, 'square');
     this.hud.toast(
       `${def.label} geplant`,
@@ -2042,26 +2125,33 @@ export class GameScene extends Phaser.Scene {
   }
 
   private terrainMaterialAt(x: number, y: number): TerrainMaterial {
-    const anchors: Array<{ material: TerrainMaterial; x: number; y: number; seed: number }> = [
-      { material: 'slate', x: 32, y: sy(22), seed: 3 },
-      { material: 'basalt', x: 17, y: sy(19), seed: 11 },
-      { material: 'damp', x: 43, y: sy(25), seed: 19 },
-      { material: 'roots', x: 50, y: sy(34), seed: 29 },
-      { material: 'earth', x: 44, y: sy(8), seed: 37 },
-    ];
-    return anchors
-      .map((anchor) => {
-        const dx = x - anchor.x;
-        const dy = y - anchor.y;
-        const jitter = (((x * 41 + y * 67 + anchor.seed * 23) % 19) - 9) * 1.8;
-        return { material: anchor.material, score: dx * dx + dy * dy + jitter };
-      })
-      .sort((a, b) => a.score - b.score)[0].material;
+    let material: TerrainMaterial = 'slate';
+    let bestScore = Number.POSITIVE_INFINITY;
+    for (const anchor of TERRAIN_MATERIAL_ANCHORS) {
+      const dx = x - anchor.x;
+      const dy = y - anchor.y;
+      const jitter = (((x * 41 + y * 67 + anchor.seed * 23) % 19) - 9) * 1.8;
+      const score = dx * dx + dy * dy + jitter;
+      if (score < bestScore) {
+        material = anchor.material;
+        bestScore = score;
+      }
+    }
+    return material;
   }
 
   private drawWorld(): void {
-    if (!this.terrain || !this.terrainRenderer) return;
+    if (!this.terrainRenderer) return;
     this.terrainRenderer.render(this.buildTerrainQuery());
+    this.redrawWorldDetails(true);
+  }
+
+  private redrawTerrain(points: GridPoint[]): void {
+    if (!this.terrainRenderer || !points.length) return;
+    this.terrainRenderer.renderTiles(this.buildTerrainQuery(), points);
+  }
+
+  private redrawWorldDetails(rebuildRoomAssets: boolean): void {
     this.detail.clear();
     this.drawChartedChambers();
 
@@ -2094,8 +2184,8 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.drawHeartSanctum();
-    this.drawRoomDecor();
-    this.rebuildRoomGlows();
+    this.drawRoomDecor(rebuildRoomAssets);
+    if (rebuildRoomAssets) this.rebuildRoomGlows();
   }
 
   /** Mission-map information: location and resource family, but no exact yield. */
@@ -2141,7 +2231,10 @@ export class GameScene extends Phaser.Scene {
 
   /** Soft coloured glow per room — rebuilt only on world change, few objects. */
   private rebuildRoomGlows(): void {
-    for (const glow of this.roomGlows) glow.destroy();
+    for (const glow of this.roomGlows) {
+      this.tweens.killTweensOf(glow);
+      glow.destroy();
+    }
     this.roomGlows = [];
     const tint: Partial<Record<RoomKind, number>> = {
       kitchen: 0x6f9b62,
@@ -2166,9 +2259,11 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private drawRoomDecor(): void {
-    for (const prop of this.roomProps) prop.destroy();
-    this.roomProps = [];
+  private drawRoomDecor(rebuildProps: boolean): void {
+    if (rebuildProps) {
+      for (const prop of this.roomProps) prop.destroy();
+      this.roomProps = [];
+    }
 
     for (const room of this.rooms) {
       const ox = room.x * TILE;
@@ -2197,6 +2292,7 @@ export class GameScene extends Phaser.Scene {
         }
         continue;
       }
+      if (!rebuildProps) continue;
 
       switch (room.kind) {
         case 'bedroom': {
@@ -2393,10 +2489,9 @@ export class GameScene extends Phaser.Scene {
         );
     }
     if (this.bannerAttack) {
-      const route = this.pathBetween(HEART_TILE, this.bannerAttack);
       this.statusLayer.lineStyle(3, COLORS.blood, 0.18);
       let previous: GridPoint = HEART_TILE;
-      for (const point of route) {
+      for (const point of this.bannerAttackPath) {
         this.statusLayer.lineBetween(this.wx(previous.x), this.wy(previous.y), this.wx(point.x), this.wy(point.y));
         previous = point;
       }
@@ -2491,8 +2586,10 @@ export class GameScene extends Phaser.Scene {
     this.selectedContext = undefined;
   }
 
-  private updateHud(): void {
+  private updateHud(force = true): void {
     if (!this.hud) return;
+    if (!force && this.elapsed < this.nextHudUpdateAt) return;
+    this.nextHudUpdateAt = this.elapsed + 0.25;
     const objective = MISSION_PHASES[Math.min(this.phase - 1, MISSION_PHASES.length - 1)];
     const state: HudState = {
       hp: this.heartHp,
@@ -2542,10 +2639,12 @@ export class GameScene extends Phaser.Scene {
     return true;
   }
 
-  private canMineNode(node: ResourceNode): boolean {
+  private canMineNode(node: ResourceNode, routes?: PathTree): boolean {
     if (!node.discovered || !node.claimed || node.amount <= 0) return false;
     if (this.enemies.some((enemy) => enemy.origin === node.id)) return false;
-    return this.reachableFromHeart(node.x, node.y);
+    return routes
+      ? Number.isFinite(routes.distanceTo(node))
+      : this.reachableFromHeart(node.x, node.y);
   }
 
   private createLooseItem(kind: ItemKind, amount: number, x: number, y: number): LooseItem {
@@ -2562,6 +2661,7 @@ export class GameScene extends Phaser.Scene {
     });
     this.items.push(item);
     this.tweens.add({ targets: item.sprite, y: item.sprite.y - 3, yoyo: true, repeat: -1, duration: 850 + item.id % 300 });
+    this.wakeIdleWorkers();
     return item;
   }
 
@@ -2594,14 +2694,21 @@ export class GameScene extends Phaser.Scene {
 
   private createBanner(kind: 'attack' | 'defend', point: GridPoint): void {
     const existing = kind === 'attack' ? this.bannerAttackSprite : this.bannerDefendSprite;
+    const existingTween = kind === 'attack' ? this.bannerAttackTween : this.bannerDefendTween;
+    if (existingTween) this.tweens.remove(existingTween);
     existing?.destroy(true);
     const pole = this.add.rectangle(0, 0, 2, 25, 0xcbb372).setOrigin(0.5, 1);
     const flag = this.add.triangle(0, -24, 0, 0, 15, 6, 0, 12, kind === 'attack' ? 0xa7464e : 0x50779b);
     const glow = this.add.circle(0, -8, kind === 'attack' ? TILE * 6 : TILE * 2, kind === 'attack' ? 0xa7464e : 0x50779b, 0.035);
     const container = this.add.container(this.wx(point.x), this.wy(point.y), [glow, pole, flag]).setDepth(29);
-    this.tweens.add({ targets: flag, scaleX: 0.78, yoyo: true, repeat: -1, duration: 620 });
-    if (kind === 'attack') this.bannerAttackSprite = container;
-    else this.bannerDefendSprite = container;
+    const tween = this.tweens.add({ targets: flag, scaleX: 0.78, yoyo: true, repeat: -1, duration: 620 });
+    if (kind === 'attack') {
+      this.bannerAttackSprite = container;
+      this.bannerAttackTween = tween;
+    } else {
+      this.bannerDefendSprite = container;
+      this.bannerDefendTween = tween;
+    }
   }
 
   private fitKnownMap(): void {
@@ -2641,14 +2748,40 @@ export class GameScene extends Phaser.Scene {
 
   private reachableFromHeart(x: number, y: number): boolean {
     if (!this.isPassable(x, y)) return false;
-    return findPath(W, H, HEART_TILE, { x, y }, (px, py) => this.isPassable(px, py)).length > 0
-      || (x === HEART_TILE.x && y === HEART_TILE.y);
+    this.heartPathTree ??= this.pathTreeFrom(HEART_TILE);
+    return Number.isFinite(this.heartPathTree.distanceTo({ x, y }));
+  }
+
+  private pathTreeFrom(from: GridPoint): PathTree {
+    const start = {
+      x: Phaser.Math.Clamp(Math.round(from.x), 0, W - 1),
+      y: Phaser.Math.Clamp(Math.round(from.y), 0, H - 1),
+    };
+    return buildPathTree(W, H, start, (x, y) => this.isPassable(x, y));
   }
 
   private pathBetween(from: GridPoint, to: GridPoint): GridPoint[] {
     const start = { x: Phaser.Math.Clamp(Math.round(from.x), 0, W - 1), y: Phaser.Math.Clamp(Math.round(from.y), 0, H - 1) };
     const goal = { x: Phaser.Math.Clamp(Math.round(to.x), 0, W - 1), y: Phaser.Math.Clamp(Math.round(to.y), 0, H - 1) };
     return findPath(W, H, start, goal, (x, y) => this.isPassable(x, y));
+  }
+
+  private invalidateNavigation(): void {
+    this.heartPathTree = undefined;
+    this.refreshBannerAttackPath();
+    this.wakeIdleWorkers();
+  }
+
+  private refreshBannerAttackPath(): void {
+    this.bannerAttackPath = this.bannerAttack
+      ? this.pathBetween(HEART_TILE, this.bannerAttack)
+      : [];
+  }
+
+  private wakeIdleWorkers(): void {
+    for (const worker of this.workers) {
+      if (worker.state === 'idle') worker.assignmentCooldown = 0;
+    }
   }
 
   private pointerToTile(pointer: Phaser.Input.Pointer): GridPoint {
