@@ -1,31 +1,165 @@
 # Hollow Covenant
 
-Ein spielbarer HTML5-Vertical-Slice eines unterirdischen Dungeon-Management-Spiels.
+[![Deploy to GitHub Pages](https://github.com/emfau88/Hollow/actions/workflows/deploy.yml/badge.svg)](https://github.com/emfau88/Hollow/actions/workflows/deploy.yml)
 
-## Spielen
+<p align="center">
+  <strong><a href="https://emfau88.github.io/Hollow/">▶ Hollow Covenant direkt im Browser spielen</a></strong>
+</p>
+
+**Hollow Covenant** ist ein spielbarer HTML5-Vertical-Slice eines düsteren, mobile-tauglichen Dungeon-Management-Spiels. Unter einer angeblich heiligen Metropole erwacht ein uraltes Dungeon-Herz: Der Spieler gräbt ein unterirdisches Reich aus, erschließt Rohstoffe, organisiert sichtbare Produktionsketten, baut eine kleine indirekt gesteuerte Armee auf und entscheidet über das Schicksal besiegter Inquisitoren.
+
+> **Projektstatus:** spielbarer Proof of Concept in aktiver Entwicklung. Zielplattformen sind Smartphone und Tablet im Querformat sowie Desktop-Browser. Grafik, Audio, Balancing und technische Architektur sind noch nicht auf finalem Produktionsniveau.
+
+<p align="center">
+  <a href="https://emfau88.github.io/Hollow/"><img src="docs/HOLLOW_COVENANT_START.png" width="49%" alt="Startbildschirm von Hollow Covenant"></a>
+  <a href="https://emfau88.github.io/Hollow/"><img src="docs/HOLLOW_COVENANT_DESKTOP.png" width="49%" alt="Aktuelle Desktop-Spielansicht von Hollow Covenant"></a>
+</p>
+
+## Vision
+
+Der Vertical Slice soll eine zentrale These beweisen:
+
+> Strategisches Graben und eine sichtbare Wirtschaft erzeugen militärische Macht; der Umgang mit Gefangenen bestimmt zugleich, welche Gesellschaft unter der Erde entsteht.
+
+Die sechs Designpfeiler sind:
+
+1. **Strategisches Graben** zu sichtbaren Rohstoff-, Raum- und Konfliktzielen.
+2. **Sichtbare Wirtschaft** mit physischen Gütern und Transportwegen.
+3. **Wirtschaft erzeugt Militärmacht** durch Einheiten, Fallen und Expansion.
+4. **Indirekte Führung** über Prioritäten, Banner und autonome Einheiten.
+5. **Gefangene verbinden Kampf und Moral** mit konkreten spielmechanischen Folgen.
+6. **Lesbarkeit vor Systemmenge**: Voraussetzungen und Stillstände sollen verständlich sein.
+
+Die vollständige Produktvision, Zielerfahrung und Definition of Done stehen im [Masterplan](Hollow_Covenant_Masterplan.md).
+
+## Was bereits spielbar ist
+
+- handgebaute Untergrundkarte mit 64 × 48 Feldern, Fog of War und mehreren Geologieregionen;
+- Gang- und Kammerplanung, feldweises Graben, Beanspruchen und Errichten von Räumen;
+- autonome Arbeiter mit persistentem Jobboard, Reservierungen und einstellbaren Arbeitsprioritäten;
+- physische Rohstoffe, sichtbarer Transport, Lagerkapazitäten sowie blockierbare Raum-Ein- und -Ausgänge;
+- drei Produktionsketten: Biomasse → Rationen, Roherz → Metall und Metall → Rüstungsgüter;
+- sechs Raumtypen: Lager, Schlafkammer, Pilzküche, Schmelze, Werkstatt und Gefängnis;
+- drei reguläre Kampfeinheiten sowie ein rekrutierbarer Inquisitor;
+- Angriffsbanner, Haltebanner, Bolzenfallen, Covenant-Puls, Hunger und Heilung in Betten;
+- natürliche Ressourcen, Zwergen-Claim, Essenzschrein und drei Inquisitionswellen;
+- fünfteilige Missionsführung mit Checklisten, Freischaltungen, Sieg und Niederlage;
+- Gefangenenablauf mit Eskorte, Zelle und den Entscheidungen Freilassen, Rekrutieren oder Opfern;
+- Vertrauen und Furcht mit Auswirkungen auf Armee, Ressourcen und Finalwelle;
+- responsives HUD, Querformat-Sperre, Vollbildmodus, Touch-Steuerung sowie Pause, 1× und 2× Geschwindigkeit.
+
+Die Mission ist als kompakter Durchlauf mit einer Zielgröße von etwa 8–10 Minuten angelegt. Es gibt bewusst keinen Sandbox-Modus.
+
+## Kernschleife
+
+```text
+Ziel wählen → Tunnel planen → Arbeiter graben und beanspruchen
+     ↓
+Rohstoff abbauen → sichtbar transportieren → verarbeiten
+     ↓
+Räume, Kämpfer und Fallen finanzieren → Standort erobern
+     ↓
+Gefangenenentscheidung treffen → Finalwelle überstehen
+```
+
+## Schnellstart
+
+Voraussetzungen:
+
+- Node.js 22
+- npm
 
 ```bash
-npm install
+git clone https://github.com/emfau88/Hollow.git
+cd Hollow
+npm ci
 npm run dev
 ```
 
-Anschließend `http://localhost:5188/` öffnen.
+Danach `http://localhost:5188/` öffnen.
 
-## Produktionsversion
+### Produktionsversion lokal prüfen
 
 ```bash
 npm run build
 npm run preview
 ```
 
+Die Vorschau läuft standardmäßig unter `http://localhost:4188/`.
+
 ## Steuerung
 
-- Maus/Touch ziehen: je nach Werkzeug Kamera, Gang, Kammer oder Raum
-- Mausrad/Pinch: Zoom
-- WASD/Pfeiltasten: Kamera
-- `F`: Karte einpassen
-- `P`: Pause
-- `R`: Knick einer geplanten Gangroute drehen
-- `Esc`: Kamerawerkzeug
+### Maus und Tastatur
 
-Der optionale Diagnosemodus ist unter `?debug=1` verfügbar.
+| Eingabe | Aktion |
+|---|---|
+| Ziehen | je nach aktivem Werkzeug Kamera bewegen, Gang/Kammer planen oder Raum aufziehen |
+| Mausrad | zoomen |
+| `WASD` / Pfeiltasten | Kamera bewegen |
+| `F` | bekannte Karte einpassen |
+| `P` | Pause ein-/ausschalten |
+| `R` | Knick einer geplanten L-Gangroute drehen |
+| `Esc` | zum Kamerawerkzeug wechseln |
+
+Weitere Aktionen wie Geschwindigkeit, Vollbild, Audio, Covenant-Puls, Arbeitsprioritäten, Bau, Rekrutierung und Kampfsteuerung sind direkt über das HUD erreichbar.
+
+### Touch
+
+- im Querformat spielen;
+- mit einem Finger je nach Werkzeug ziehen;
+- mit zwei Fingern verschieben und per Pinch zoomen;
+- Kartenansicht, Vollbild und Simulationsgeschwindigkeit über das HUD steuern.
+
+## Entwicklung
+
+| Befehl | Zweck |
+|---|---|
+| `npm run dev` | Vite-Entwicklungsserver auf Port 5188 |
+| `npm test` | alle Vitest-Tests einmal ausführen |
+| `npm run test:watch` | Tests im Watch-Modus |
+| `npm run lint` | strikte TypeScript-Prüfung ohne Ausgabe |
+| `npm run build` | TypeScript prüfen, Vite-Build erzeugen und Sites-Paket vorbereiten |
+| `npm run preview` | Produktionsbuild lokal auf Port 4188 starten |
+
+Der optionale Diagnosemodus ist unter `http://localhost:5188/?debug=1` verfügbar. Er zeigt Simulations- und Arbeiterdaten und bietet Abkürzungen für wiederholbare QA-Szenarien.
+
+## Technik und Projektstruktur
+
+- **Engine:** Phaser 3.90.0
+- **Sprache:** TypeScript 5 mit aktiviertem Strict Mode
+- **Build:** Vite 7
+- **Tests:** Vitest 3
+- **Darstellung:** WebGL/Canvas mit DOM-/CSS-HUD
+- **Simulation:** fester 10-Hz-Takt, Rendering bis 60 FPS
+- **Deployment:** statischer Build über GitHub Actions/GitHub Pages; zusätzlich Sites-kompatible Paketierung
+
+```text
+src/
+  config/   Balancewerte, Terrain- und Missionskonfiguration
+  core/     Regeln, Pathfinding, Jobboard, Terrain und Audio
+  data/     Räume, Einheiten, Gegenstände und Rezepte
+  scenes/   Phaser-Spielszene und Laufzeitorchestrierung
+  ui/       DOM-basiertes HUD
+tests/      Regel-, Missions-, Job-, Wirtschafts- und Pfadtests
+public/     Laufzeit-Assets
+scripts/    reproduzierbare Asset- und Deployment-Aufbereitung
+docs/       QA-, Asset-, Imagegen- und Änderungsdokumentation
+```
+
+Bei jedem Push auf `main` installiert der GitHub-Actions-Workflow die Abhängigkeiten, prüft TypeScript, führt die Tests aus, baut die Anwendung und ist für das anschließende GitHub-Pages-Deployment konfiguriert.
+
+## Projektdokumentation
+
+- [Masterplan](Hollow_Covenant_Masterplan.md) – Produktvision, Scope, Systeme und Definition of Done
+- [Changelog](docs/CHANGELOG.md) – bisherige Entwicklungsschritte
+- [QA-Bericht](docs/QA_REPORT.md) – automatisierte und manuelle Prüfungen
+- [Asset-Manifest](docs/ASSET_MANIFEST.md) – aktive und verworfene Grafikassets
+- [Imagegen-Log](docs/IMAGEGEN_LOG.md) – dokumentierte Generierungen und lokale Aufbereitung
+
+## Bewusste Grenzen des Vertical Slice
+
+Der aktuelle Scope enthält unter anderem keine prozeduralen Karten, mehrere Ebenen, Oberflächenwelt, Forschung, Handel, Multiplayer, Konten, Backend, Monetarisierung oder ein umfangreiches Savegame-System. Die Oberfläche ist derzeit deutschsprachig. Audio und Grafik dienen dem Proof of Concept und sind nicht als finale Release-Assets zu verstehen.
+
+## Lizenz
+
+Aktuell ist keine Lizenzdatei im Repository hinterlegt. Nutzung, Weitergabe oder Wiederverwendung von Code und Assets ist damit nicht pauschal freigegeben.

@@ -4,6 +4,7 @@ import type { RoutineWorkerTask, WorkPriorities } from '../core/WorkerPriorities
 export interface HudCallbacks {
   setTool(tool: ToolKind): void;
   recruit(kind: UnitKind): void;
+  summonWorker(): void;
   setSpeed(speed: 0 | 1 | 2): void;
   cycleWorkPriority(task: RoutineWorkerTask): void;
   fitCamera(): void;
@@ -34,8 +35,16 @@ export interface HudState {
   elapsed: number;
   trust: number;
   fear: number;
+  workers: number;
+  maxWorkers: number;
+  hungryUnits: number;
   pulseReady: boolean;
+  canSummonWorker: boolean;
+  workerSummonReason?: string;
   canRecruit: Record<'guard' | 'archer' | 'hexbinder', boolean>;
+  recruitReasons: Record<'guard' | 'archer' | 'hexbinder', string | undefined>;
+  toolLocks: Partial<Record<ToolKind, string>>;
+  objectiveChecklist: Array<{ label: string; done: boolean }>;
   workerJobs: Record<RoutineWorkerTask, number>;
   workPriorities: WorkPriorities;
   context?: { title: string; body: string };
@@ -65,6 +74,8 @@ export class HudController {
   private buildMenu?: HTMLElement;
   private commandMenu?: HTMLElement;
   private pulseButton?: HTMLButtonElement;
+  private summonWorkerButton?: HTMLButtonElement;
+  private objectiveChecklist?: HTMLElement;
   private contextPanel?: HTMLElement;
 
   constructor(callbacks: HudCallbacks) {
@@ -90,6 +101,9 @@ export class HudController {
           ${resource('essence', '✦', 'Essenz')}
           ${resource('armour', '⬟', 'Rüstung')}
           <div class="resource"><span class="resource-icon">⌂</span><span><strong data-value="beds">0/0</strong><small>Betten</small></span></div>
+          <div class="resource"><span class="resource-icon">⚒</span><span><strong data-value="workers">3/5</strong><small>Arbeiter</small></span></div>
+          <div class="resource need-resource"><span class="resource-icon">!</span><span><strong data-value="hungry">0</strong><small>Hungrig</small></span></div>
+          <div class="resource"><span class="resource-icon">⚔</span><span><strong data-value="wave">Ruhe</strong><small>Bedrohung</small></span></div>
         </div>
         <div class="time-controls">
           <button class="icon-btn" data-speed="0" title="Pause">Ⅱ</button>
@@ -106,6 +120,7 @@ export class HudController {
           <div class="phase" data-value="phase">Phase 1 · 00:00</div>
           <h2 data-value="objective-title">Etwas Essbares</h2>
           <p data-value="objective-body">Öffne einen Weg zur Pilzgrotte.</p>
+          <ul class="objective-checklist" data-objective-checklist></ul>
           <div class="objective-progress">${[1, 2, 3, 4, 5].map((n) => `<i data-phase="${n}"></i>`).join('')}</div>
         </section>
         <section class="panel context-panel">
@@ -121,19 +136,19 @@ export class HudController {
             <div class="popover-heading"><strong>Raum bauen</strong><span>Auf beanspruchtem Boden aufziehen</span></div>
             <div class="popover-grid">
               <button class="room-btn" data-tool="room-storage"><b>▦</b>Lager<small>0 Metall</small></button>
-              <button class="room-btn" data-tool="room-bedroom"><b>⌂</b>Schlafen<small>ab 2 Metall</small></button>
+              <button class="room-btn" data-tool="room-bedroom"><b>⌂</b>Schlafen<small>Phase 2 · ab 2 Metall</small></button>
               <button class="room-btn" data-tool="room-kitchen"><b>♨</b>Küche<small>4 Metall</small></button>
-              <button class="room-btn" data-tool="room-smelter"><b>♨</b>Schmelze<small>5 Metall</small></button>
-              <button class="room-btn" data-tool="room-workshop"><b>⚒</b>Werkstatt<small>5 Metall</small></button>
-              <button class="room-btn" data-tool="room-prison"><b>▥</b>Gefängnis<small>6 Metall</small></button>
+              <button class="room-btn" data-tool="room-smelter"><b>♨</b>Schmelze<small>Phase 2 · ab 5 Metall</small></button>
+              <button class="room-btn" data-tool="room-workshop"><b>⚒</b>Werkstatt<small>Phase 3 · ab 5 Metall</small></button>
+              <button class="room-btn" data-tool="room-prison"><b>▥</b>Gefängnis<small>Phase 5 · ab 6 Metall</small></button>
             </div>
           </section>
           <section class="tool-popover" data-popover="command" hidden>
             <div class="popover-heading"><strong>Befehle</strong><span>Kampfgebiet und Verteidigung steuern</span></div>
             <div class="popover-grid compact">
-              <button class="tool-btn" data-tool="banner-attack"><b>⚑</b>Angriff<small>Banner setzen</small></button>
+              <button class="tool-btn" data-tool="banner-attack"><b>⚑</b>Angriff<small>Phase 4 · Banner</small></button>
               <button class="tool-btn" data-tool="banner-defend"><b>⚐</b>Halten<small>Banner setzen</small></button>
-              <button class="tool-btn" data-tool="trap"><b>⌄</b>Falle<small>2 Rüstung</small></button>
+              <button class="tool-btn" data-tool="trap"><b>⌄</b>Falle<small>Phase 3 · 2 Metall</small></button>
             </div>
           </section>
           <section class="tool-popover work-popover" data-popover="work" hidden>
@@ -147,11 +162,12 @@ export class HudController {
             </div>
           </section>
           <section class="tool-popover" data-popover="recruit" hidden>
-            <div class="popover-heading"><strong>Rekrutieren</strong><span>Benötigt Bett, Ration und Ausrüstung</span></div>
+            <div class="popover-heading"><strong>Gefolge rufen</strong><span>Das Herz beschwört Arbeiter und Kämpfer</span></div>
             <div class="popover-grid compact">
-              <button class="recruit-btn" data-recruit="guard" title="Benötigt Küche, Werkstatt, 1 Ration und 1 Rüstung"><b>⬟</b>Guard<small>1R · 1⚙</small></button>
-              <button class="recruit-btn" data-recruit="archer" title="Benötigt Küche, Werkstatt, 1 Ration und 1 Rüstung"><b>➶</b>Archer<small>1R · 1⚙</small></button>
-              <button class="recruit-btn" data-recruit="hexbinder" title="Benötigt Küche, Essenzschrein, 1 Ration und 3 Essenz"><b>✦</b>Hexbinder<small>1R · 3E</small></button>
+              <button class="recruit-btn worker-summon-btn" data-action="summon-worker"><b>⚒</b>Arbeiter<small>2 Essenz · max. 5</small></button>
+              <button class="recruit-btn" data-recruit="guard" title="Benötigt Küche, Werkstatt, 1 Ration und 1 Rüstung"><b>⬟</b>Guard<small>Phase 3 · 1R · 1⚙</small></button>
+              <button class="recruit-btn" data-recruit="archer" title="Benötigt Küche, Werkstatt, 1 Ration und 1 Rüstung"><b>➶</b>Archer<small>Phase 3 · 1R · 1⚙</small></button>
+              <button class="recruit-btn" data-recruit="hexbinder" title="Benötigt Küche, Essenzschrein, 1 Ration und 3 Essenz"><b>✦</b>Hexbinder<small>Phase 5 · 1R · 3E</small></button>
             </div>
           </section>
         </div>
@@ -162,7 +178,7 @@ export class HudController {
           <button class="tool-btn menu-btn" data-menu="build" aria-expanded="false"><b>▦</b>Bauen<small>6 Räume</small></button>
           <button class="tool-btn menu-btn" data-menu="work" aria-expanded="false"><b>≡</b>Arbeit<small>Prioritäten</small></button>
           <button class="tool-btn menu-btn" data-menu="command" aria-expanded="false"><b>⚑</b>Befehle<small>Kampf & Falle</small></button>
-          <button class="tool-btn menu-btn" data-menu="recruit" aria-expanded="false"><b>⬟</b>Einheiten<small>Rekrutieren</small></button>
+          <button class="tool-btn menu-btn" data-menu="recruit" aria-expanded="false"><b>⬟</b>Gefolge<small>Rufen</small></button>
         </nav>
       </div>
       <div class="modal-shell">
@@ -203,6 +219,8 @@ export class HudController {
     this.buildMenu = root.querySelector<HTMLElement>('[data-menu="build"]') ?? undefined;
     this.commandMenu = root.querySelector<HTMLElement>('[data-menu="command"]') ?? undefined;
     this.pulseButton = root.querySelector<HTMLButtonElement>('[data-action="pulse"]') ?? undefined;
+    this.summonWorkerButton = root.querySelector<HTMLButtonElement>('[data-action="summon-worker"]') ?? undefined;
+    this.objectiveChecklist = root.querySelector<HTMLElement>('[data-objective-checklist]') ?? undefined;
     this.contextPanel = root.querySelector<HTMLElement>('.context-panel') ?? undefined;
     this.bind();
   }
@@ -219,6 +237,10 @@ export class HudController {
         this.closeToolMenus();
         this.callbacks.recruit(button.dataset.recruit as UnitKind);
       });
+    });
+    this.root.querySelector('[data-action="summon-worker"]')?.addEventListener('click', () => {
+      this.closeToolMenus();
+      this.callbacks.summonWorker();
     });
     this.root.querySelectorAll<HTMLElement>('[data-work]').forEach((button) => {
       button.addEventListener('click', () => {
@@ -290,6 +312,9 @@ export class HudController {
       essence: state.essence,
       armour: state.armour,
       beds: `${state.bedsUsed}/${state.beds}`,
+      workers: `${state.workers}/${state.maxWorkers}`,
+      hungry: state.hungryUnits,
+      wave: state.wave,
       phase: `Phase ${state.phase} · ${formatTime(state.elapsed)}`,
       'objective-title': state.objectiveTitle,
       'objective-body': state.objectiveBody,
@@ -305,6 +330,12 @@ export class HudController {
     });
     this.toolNodes.forEach((node) => {
       node.classList.toggle('active', node.dataset.tool === state.tool);
+      const tool = node.dataset.tool as ToolKind;
+      const reason = state.toolLocks[tool];
+      if (node instanceof HTMLButtonElement) node.disabled = Boolean(reason);
+      node.classList.toggle('locked', Boolean(reason));
+      if (reason) node.setAttribute('title', reason);
+      else if (node.hasAttribute('data-tool')) node.removeAttribute('title');
     });
     this.buildMenu?.classList.toggle('active', state.tool.startsWith('room-'));
     this.commandMenu?.classList.toggle(
@@ -316,7 +347,22 @@ export class HudController {
     });
     for (const kind of ['guard', 'archer', 'hexbinder'] as const) {
       const button = this.recruitButtons.get(kind);
-      if (button) button.disabled = !state.canRecruit[kind];
+      if (button) {
+        button.disabled = !state.canRecruit[kind];
+        button.title = state.recruitReasons[kind] ?? 'Bereit zur Rekrutierung';
+      }
+    }
+    if (this.summonWorkerButton) {
+      this.summonWorkerButton.disabled = !state.canSummonWorker;
+      this.summonWorkerButton.title = state.workerSummonReason ?? 'Zusätzlichen Arbeiter am Herz beschwören';
+    }
+    if (this.objectiveChecklist) {
+      this.objectiveChecklist.replaceChildren(...state.objectiveChecklist.map((item) => {
+        const entry = document.createElement('li');
+        entry.className = item.done ? 'done' : '';
+        entry.textContent = `${item.done ? '✓' : '○'} ${item.label}`;
+        return entry;
+      }));
     }
     const priorityLabel = ['Niedrig', 'Normal', 'Hoch'] as const;
     for (const task of ['haul', 'dig', 'build', 'claim', 'mine'] as const) {

@@ -1,18 +1,20 @@
 # QA-Bericht – Hollow Covenant
 
-**Stand:** 20. Juli 2026  
+**Stand:** 26. Juli 2026  
 **Build:** 1.0.0
 
 ## Automatisierte Prüfung
 
 - TypeScript-Prüfung: bestanden
 - Vite-Produktionsbuild: bestanden
-- Vitest: 13/13 Tests bestanden
+- Vitest: 26/26 Tests bestanden
 - Pfadfindung und L-Routen: bestanden
 - Produktionsrezepte: bestanden
 - Rekrutierungsvoraussetzungen: bestanden
 - Gefangenenkonsequenzen: bestanden
 - Fünfteiliger Missionsfluss: bestanden
+- flächenabhängige Raumkosten und Produktionsskalierung: bestanden
+- Phase 3 mit einem zusätzlichen Rekruten: bestanden
 
 ## Browserprüfung
 
@@ -22,9 +24,13 @@ Geprüft wurde die laufende Anwendung, nicht nur der Quellcode:
 - Raum als frei gezogene Zone errichten
 - Gangroute markieren
 - drei Arbeiter graben automatisch
+- nördlicher Invasionsweg erzeugt keine Claim-Jobs
+- Arbeiterbeschwörung verbraucht 2 Essenz und erhöht 3/5 auf 4/5
+- Phasenräume und Rekruten zeigen Sperren samt Gründen
+- Missionscheckliste zeigt konkrete Teilfortschritte
 - Pilzgrotte aufdecken
-- Angriffsbanner setzen
-- Höhlengegner automatisch bekämpfen
+- Pilzgrotte ohne erzwungenen Startkampf erschließen
+- neues Kartenherz bei normalem Zoom klar lesbar
 - Biomasse abbauen, sichtbar tragen und in die Wirtschaft überführen
 - Phase 1 abschließen
 - Diagnosemodus öffnen

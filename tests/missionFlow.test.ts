@@ -26,9 +26,19 @@ describe('Missionsfluss', () => {
     expect(phase).toBe(2);
     phase = missionPhase({ ...base, phase, hasSmelter: true, metalProduced: 2, beds: 2 });
     expect(phase).toBe(3);
-    phase = missionPhase({ ...base, phase, hasWorkshop: true, armourProduced: 2, recruited: 2 });
+    phase = missionPhase({ ...base, phase, hasWorkshop: true, armourProduced: 2, recruited: 1 });
     expect(phase).toBe(4);
     phase = missionPhase({ ...base, phase, dwarfClaimed: true, dwarfOreMined: 6 });
     expect(phase).toBe(5);
+  });
+
+  it('verschiebt Phase 3 nicht länger hinter zwei zusätzliche Rekruten', () => {
+    expect(missionPhase({
+      ...base,
+      phase: 3,
+      hasWorkshop: true,
+      armourProduced: 2,
+      recruited: 1,
+    })).toBe(4);
   });
 });

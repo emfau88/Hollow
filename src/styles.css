@@ -296,6 +296,21 @@ button {
   line-height: 1.45;
 }
 
+.objective-checklist {
+  display: grid;
+  gap: 3px;
+  margin: 9px 0 0;
+  padding: 0;
+  color: #aaa18f;
+  font-size: 10px;
+  line-height: 1.25;
+  list-style: none;
+}
+
+.objective-checklist li.done {
+  color: #85b294;
+}
+
 .objective-progress {
   display: flex;
   gap: 4px;
@@ -473,10 +488,15 @@ button {
 
 .recruit-btn:disabled,
 .room-btn:disabled,
+.tool-btn:disabled,
 .icon-btn:disabled {
   cursor: not-allowed;
   filter: grayscale(0.7);
   opacity: 0.38;
+}
+
+.tool-btn.locked small {
+  color: #8f6e6e;
 }
 
 .selection-hint {

@@ -1,7 +1,7 @@
 export const MISSION_PHASES = [
   {
     title: 'Etwas Essbares',
-    body: 'Grabe zur Pilzgrotte im Osten, sichere 4 Biomasse und stelle in einer Pilzküche 2 Rationen her.',
+    body: 'Erschließe die sichere Pilzgrotte und bringe deine erste Nahrungskette in Gang.',
   },
   {
     title: 'Metall ist überzeugender',
@@ -9,7 +9,7 @@ export const MISSION_PHASES = [
   },
   {
     title: 'Armee im Budget',
-    body: 'Errichte eine Werkstatt, fertige Rüstungsgüter und rekrutiere zwei zusätzliche Kämpfer.',
+    body: 'Errichte eine Werkstatt, fertige Rüstungsgüter und rekrutiere einen zusätzlichen Kämpfer.',
   },
   {
     title: 'Eigentumsfragen',
@@ -22,7 +22,7 @@ export const MISSION_PHASES = [
 ] as const;
 
 export const HEART_LINES = {
-  start: 'Drei Arbeiter, zehn Barren und ein bewaffneter Optimist. Wir hatten schlechtere Anfänge.',
+  start: 'Drei Arbeiter, zwölf Barren und ein bewaffneter Optimist. Wir hatten schlechtere Anfänge.',
   kitchen: 'Die Küche funktioniert. Der Begriff „Küche“ bleibt vorerst großzügig ausgelegt.',
   blocked: 'Die Produktion wartet auf Material. Ihre Ansprüche werden zunehmend extravagant.',
   wave: 'Die Oberfläche schickt erneut Fachpersonal für gescheiterte Invasionen.',

@@ -14,18 +14,19 @@ export interface RoomDefinition {
   label: string;
   minW: number;
   minH: number;
-  baseCost: number;
+  maxW: number;
+  maxH: number;
   color: number;
   symbol: string;
 }
 
 export const ROOM_DEFINITIONS: Record<RoomKind, RoomDefinition> = {
-  storage: { label: 'Lager', minW: 2, minH: 1, baseCost: 0, color: 0x6f6755, symbol: '▦' },
-  bedroom: { label: 'Schlafkammer', minW: 2, minH: 2, baseCost: 2, color: 0x435772, symbol: '⌂' },
-  kitchen: { label: 'Pilzküche', minW: 2, minH: 3, baseCost: 4, color: 0x536d4d, symbol: '♨' },
-  smelter: { label: 'Schmelze', minW: 2, minH: 3, baseCost: 5, color: 0x775044, symbol: '♨' },
-  workshop: { label: 'Werkstatt', minW: 2, minH: 3, baseCost: 5, color: 0x6b5b47, symbol: '⚒' },
-  prison: { label: 'Gefängnis', minW: 2, minH: 3, baseCost: 6, color: 0x554a62, symbol: '▥' },
+  storage: { label: 'Lager', minW: 2, minH: 1, maxW: 6, maxH: 6, color: 0x6f6755, symbol: '▦' },
+  bedroom: { label: 'Schlafkammer', minW: 2, minH: 2, maxW: 4, maxH: 4, color: 0x435772, symbol: '⌂' },
+  kitchen: { label: 'Pilzküche', minW: 2, minH: 3, maxW: 4, maxH: 4, color: 0x536d4d, symbol: '♨' },
+  smelter: { label: 'Schmelze', minW: 2, minH: 3, maxW: 4, maxH: 4, color: 0x775044, symbol: '♨' },
+  workshop: { label: 'Werkstatt', minW: 2, minH: 3, maxW: 4, maxH: 4, color: 0x6b5b47, symbol: '⚒' },
+  prison: { label: 'Gefängnis', minW: 2, minH: 3, maxW: 4, maxH: 4, color: 0x554a62, symbol: '▥' },
 };
 
 export const ITEM_LABELS: Record<ItemKind, string> = {

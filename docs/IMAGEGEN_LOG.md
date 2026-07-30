@@ -1,7 +1,8 @@
 # Imagegen-Log
 
-**Stand:** 23. Juli 2026
-**Verwendet:** 6 von maximal 6 freigegebenen Generierungen
+**Stand:** 26. Juli 2026
+**Ursprünglicher Terrain-/Raum-Pass:** 6 von maximal 6 Generierungen
+**Aktueller Gameplay-Herz-Pass:** 1 Generierung
 
 Alle Aufrufe nutzten das integrierte Imagegen-Werkzeug. Covenant-Herz und
 Ressourcen-Vorschau dienten ausschließlich als Stilreferenzen. Die finalen
@@ -44,3 +45,19 @@ reduziert und als PNG-Dateien gespeichert.
 
 Die sichtbaren Terrainformen stammen aus diesen PNG-Assets. Der Renderer wählt
 lediglich Frames, Rotationen und Zustandsränder aus.
+
+## Gameplay-Herz V2 – 26. Juli 2026
+
+Ein zusätzlicher, späterer Polish-Pass erzeugte genau ein neues Bild:
+
+- orthogonale Draufsicht;
+- vier große Eisen-/Goldformen statt Filigran;
+- roter Kern mit rund 40 Prozent Motivbreite;
+- starke eingebrannte Außenkontur;
+- flacher Grün-Key, lokal entfernt;
+- finales Laufzeitasset: `public/assets/generated/covenant-heart-gameplay-256.png`.
+
+Der vollständige Prompt verlangte ausdrücklich Lesbarkeit bei 64–96 Pixeln,
+keine Ketten, keine kleinen Spitzen, keine Umgebung und keine Schrift. Verwendet
+wurde das integrierte Imagegen-Werkzeug; die lokale Aufbereitung erfolgte mit
+dem Chroma-Key-Helfer des Imagegen-Workflows.

@@ -34,6 +34,18 @@ import {
   type RoutineWorkerTask,
   type WorkPriorities,
 } from '../core/WorkerPriorities';
+import {
+  WorkerJobBoard,
+  type DeliveryKind,
+  type WorkerJob,
+  type WorkerJobSpec,
+} from '../core/JobSystem';
+import {
+  bedroomCapacity,
+  prisonCapacity,
+  productionStations,
+  roomCost,
+} from '../core/GameRules';
 
 const TILE = BALANCE.tileSize;
 const W = BALANCE.mapWidth;
@@ -52,6 +64,13 @@ interface Worker {
   path: GridPoint[];
   timer: number;
   assignmentCooldown: number;
+  jobId?: string;
+  delivery?: { kind: DeliveryKind; roomId?: number; trapId?: number };
+  idleReason?: string;
+  lastProgressX: number;
+  lastProgressY: number;
+  stuckSeconds: number;
+  pathFailures: number;
   target?: GridPoint;
   targetId?: number | string;
   carry?: { kind: ItemKind; amount: number };
@@ -68,6 +87,10 @@ interface Actor {
   sprite: Phaser.GameObjects.Sprite;
   path: GridPoint[];
   bed: boolean;
+  hungerTimer: number;
+  hungry: boolean;
+  seekingFood: boolean;
+  healing: boolean;
 }
 
 interface Enemy {
@@ -95,7 +118,11 @@ interface LooseItem {
   x: number;
   y: number;
   sprite: Phaser.GameObjects.Sprite;
-  reservedBy?: number;
+  amountText?: Phaser.GameObjects.Text;
+  location: 'loose' | 'output' | 'stored';
+  sourceRoomId?: number;
+  storageRoomId?: number;
+  storageSlot?: number;
 }
 
 interface Room {
@@ -107,6 +134,7 @@ interface Room {
   h: number;
   progress: number;
   activeRecipe: boolean;
+  inputStored: number;
 }
 
 interface ResourceNode {
@@ -172,6 +200,7 @@ interface WorldTile {
   visibility: TileVisibility;
   control: TileControl;
   construction: TileConstruction;
+  claimable: boolean;
   roomId?: number;
   roomKind?: TileRoomKind;
 }
@@ -220,8 +249,14 @@ export class GameScene extends Phaser.Scene {
   private heartPathTree?: PathTree;
   private bannerAttackPath: GridPoint[] = [];
   private nextHudUpdateAt = 0;
+  private nextStatusDrawAt = 0;
   private bannerAttackTween?: Phaser.Tweens.Tween;
   private bannerDefendTween?: Phaser.Tweens.Tween;
+  private jobBoard = new WorkerJobBoard();
+  private jobsDirty = true;
+  private nextJobSyncAt = 0;
+  private pathFailureCount = 0;
+  private roomInputVisuals = new Map<number, Phaser.GameObjects.Container>();
   private digMarks = new Set<string>();
   private tool: ToolKind = 'pan';
   private dragStart?: GridPoint;
@@ -252,6 +287,12 @@ export class GameScene extends Phaser.Scene {
   private lastHeartLine = -30;
   private finalSpawnAt = 0;
   private finalSpawned = false;
+  private waveOneSpawnAt?: number;
+  private waveTwoSpawnAt?: number;
+  private waveOneStartedAt?: number;
+  private waveOneWarned = false;
+  private waveTwoWarned = false;
+  private workerSummoning = false;
   private ended = false;
   private claimToast = new Set<string>();
   private pointerDistance?: number;
@@ -279,7 +320,7 @@ export class GameScene extends Phaser.Scene {
   preload(): void {
     // Terrain is built as a calm in-engine atlas in makeTextures(). Loading an
     // external pebble sheet here made the entire world shimmer while panning.
-    this.load.image('generated-covenant-heart', 'assets/generated/covenant-heart.png');
+    this.load.image('generated-covenant-heart', 'assets/generated/covenant-heart-gameplay-256.png');
     this.load.image('resource-iron-vein', 'assets/generated/resources-v2/iron-vein.png');
     this.load.image('resource-iron-depleted', 'assets/generated/resources-v2/iron-vein-depleted.png');
     this.load.image('resource-fungus-cluster', 'assets/generated/resources-v2/fungus-cluster.png');
@@ -321,10 +362,38 @@ export class GameScene extends Phaser.Scene {
     this.load.image('room-prop-workbench', 'assets/generated/room-props-v3/workbench.png');
     this.load.image('room-prop-prison', 'assets/generated/room-props-v3/prison-gate.png');
     this.load.image('room-prop-storage', 'assets/generated/room-props-v3/storage.png');
+    for (const key of [
+      'worker',
+      'guard',
+      'archer',
+      'hexbinder',
+      'inquisitor',
+      'crawler',
+      'dwarf',
+      'crossbow',
+      'adept',
+      'captain',
+      'scout',
+      'warden',
+      'item-ore',
+      'item-biomass',
+      'item-essence',
+      'item-metal',
+      'item-ration',
+      'item-armour',
+      'trap',
+      'prisoner',
+    ]) {
+      const textureKey = ['guard', 'archer', 'hexbinder', 'inquisitor'].includes(key)
+        ? `unit-${key}`
+        : ['crawler', 'dwarf', 'crossbow', 'adept', 'captain', 'scout', 'warden'].includes(key)
+          ? `enemy-${key}`
+          : key;
+      this.load.image(textureKey, `assets/generated/units-v1/${key}.png`);
+    }
   }
 
   create(): void {
-    this.makeTextures();
     this.createMap();
     this.detail = this.add.graphics().setDepth(4);
     this.preview = this.add.graphics().setDepth(60);
@@ -345,6 +414,7 @@ export class GameScene extends Phaser.Scene {
     }, TILE, W, H);
     this.createNodes();
     this.drawWorld();
+    this.seedStartingStorage();
     this.createStartingPopulation();
     this.createBanner('defend', this.bannerDefend);
     this.setupHud();
@@ -371,6 +441,7 @@ export class GameScene extends Phaser.Scene {
     this.hud = new HudController({
       setTool: (tool) => this.setTool(tool),
       recruit: (kind) => this.recruit(kind),
+      summonWorker: () => this.summonWorker(),
       setSpeed: (speed) => this.setSpeed(speed),
       cycleWorkPriority: (task) => this.cycleWorkPriority(task),
       fitCamera: () => this.fitKnownMap(),
@@ -403,10 +474,10 @@ export class GameScene extends Phaser.Scene {
     document.querySelector('#hud')?.append(panel);
 
     panel.querySelector('[data-debug="resources"]')?.addEventListener('click', () => {
-      this.stock.metal += 10;
-      this.stock.ration += 10;
+      this.storeItem('metal', 10);
+      this.storeItem('ration', 10);
       this.stock.essence += 10;
-      this.stock.armour += 10;
+      this.storeItem('armour', 10);
       this.updateHud();
     });
     panel.querySelector('[data-debug="reveal"]')?.addEventListener('click', () => {
@@ -422,9 +493,9 @@ export class GameScene extends Phaser.Scene {
       this.fitKnownMap();
     });
     panel.querySelector('[data-debug="economy"]')?.addEventListener('click', () => {
-      this.stock.metal += 30;
-      this.stock.ration += 10;
-      this.stock.armour += 10;
+      this.storeItem('metal', 10);
+      this.storeItem('ration', 5);
+      this.storeItem('armour', 5);
       this.stock.essence += 10;
       this.stats.biomassMined = 4;
       this.stats.rationsProduced = 2;
@@ -450,7 +521,7 @@ export class GameScene extends Phaser.Scene {
       ];
       for (const room of debugRooms) {
         if (!this.rooms.some((candidate) => candidate.kind === room.kind)) {
-          const builtRoom: Room = { id: this.nextId++, ...room, progress: 0, activeRecipe: false };
+          const builtRoom: Room = { id: this.nextId++, ...room, progress: 0, activeRecipe: false, inputStored: 0 };
           this.rooms.push(builtRoom);
           this.assignRoomTiles(builtRoom, 'complete');
         }
@@ -477,7 +548,7 @@ export class GameScene extends Phaser.Scene {
         x: point.x,
         y: point.y,
         status: 'cell',
-        sprite: this.add.sprite(this.wx(point.x), this.wy(point.y), 'prisoner').setDepth(31),
+        sprite: this.add.sprite(this.wx(point.x), this.wy(point.y), 'prisoner').setDisplaySize(34, 34).setDepth(31),
       };
       this.setSpeed(0);
       this.hud.showPrisoner();
@@ -494,6 +565,7 @@ export class GameScene extends Phaser.Scene {
         const value = panel.querySelector('[data-debug-value]');
         if (value) {
           const count = (states: JobKind[]) => this.workers.filter((worker) => states.includes(worker.state)).length;
+          const jobs = this.jobBoard.stats(this.elapsed);
           value.textContent = [
             `Phase ${this.phase}`,
             `${count(['dig'])} graben`,
@@ -501,10 +573,12 @@ export class GameScene extends Phaser.Scene {
             `${count(['claim'])} beanspruchen`,
             `${count(['mine'])} abbauen`,
             `${count(['pickup', 'deliver'])} transportieren`,
-            `${this.items.length} lose Güter`,
+            `${this.items.filter((item) => item.location !== 'stored').length} lose Güter`,
+            `${this.storedAmount()}/${this.storageCapacity()} Lager`,
+            `${jobs.total} Jobs/${jobs.reserved} reserviert`,
             `${Math.round(this.game.loop.actualFps)} FPS`,
             `${this.tweens.getTweens().length} Tweens`,
-            '0 Pfadfehler',
+            `${this.pathFailureCount} Pfadfehler`,
           ].join(' · ');
         }
       },
@@ -576,7 +650,7 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  update(_time: number, delta: number): void {
+  update(time: number, delta: number): void {
     const camera = this.cameras.main;
     const move = (delta / 1000) * 500 / camera.zoom;
     if (this.cameraKeys) {
@@ -586,6 +660,34 @@ export class GameScene extends Phaser.Scene {
       if (this.cameraKeys.D.isDown || this.cameraKeys.RIGHT.isDown) camera.scrollX += move;
     }
     this.handlePinch();
+    this.interpolateActors(delta);
+    if (time >= this.nextStatusDrawAt) {
+      this.nextStatusDrawAt = time + 33;
+      this.drawStatus();
+    }
+  }
+
+  private interpolateActors(delta: number): void {
+    const blend = 1 - Math.exp(-Math.min(delta, 100) / 42);
+    for (const worker of this.workers) {
+      worker.sprite.setPosition(
+        Phaser.Math.Linear(worker.sprite.x, this.wx(worker.x), blend),
+        Phaser.Math.Linear(worker.sprite.y, this.wy(worker.y), blend),
+      );
+      worker.carryText.setPosition(worker.sprite.x, worker.sprite.y - 13);
+    }
+    for (const actor of this.units) {
+      actor.sprite.setPosition(
+        Phaser.Math.Linear(actor.sprite.x, this.wx(actor.x), blend),
+        Phaser.Math.Linear(actor.sprite.y, this.wy(actor.y), blend),
+      );
+    }
+    for (const enemy of this.enemies) {
+      enemy.sprite.setPosition(
+        Phaser.Math.Linear(enemy.sprite.x, this.wx(enemy.x), blend),
+        Phaser.Math.Linear(enemy.sprite.y, this.wy(enemy.y), blend),
+      );
+    }
   }
 
   private handlePinch(): void {
@@ -606,90 +708,6 @@ export class GameScene extends Phaser.Scene {
     }
     this.pointerDistance = distance;
     this.pinchMid = mid;
-  }
-
-  private makeTextures(): void {
-    const generate = (key: string, width: number, height: number, draw: (g: Phaser.GameObjects.Graphics) => void) => {
-      if (this.textures.exists(key)) return;
-      const g = this.make.graphics({ x: 0, y: 0 });
-      draw(g);
-      g.generateTexture(key, width, height);
-      g.destroy();
-    };
-
-    generate('worker', 18, 18, (g) => {
-      g.fillStyle(0x2c313a).fillCircle(9, 10, 7);
-      g.fillStyle(0xd3a84a).fillRect(5, 3, 8, 5);
-      g.fillStyle(0x1a1d24).fillRect(6, 11, 3, 6).fillRect(11, 11, 3, 6);
-      g.fillStyle(0xf3e2b5).fillRect(7, 7, 2, 2).fillRect(11, 7, 2, 2);
-    });
-    generate('unit-guard', 22, 22, (g) => {
-      g.fillStyle(0x384d5f).fillRect(4, 8, 14, 11);
-      g.fillStyle(0x8f9ca8).fillTriangle(5, 8, 11, 2, 17, 8);
-      g.lineStyle(2, 0xd3a84a).strokeCircle(11, 12, 8);
-      g.fillStyle(0xd6c7a7).fillRect(9, 7, 4, 3);
-    });
-    generate('unit-archer', 22, 22, (g) => {
-      g.fillStyle(0x42495e).fillCircle(11, 11, 8);
-      g.lineStyle(2, 0xb98754).strokeCircle(15, 11, 5);
-      g.lineStyle(1, 0xe3ca8a).lineBetween(5, 11, 18, 11);
-      g.fillStyle(0x718fa2).fillTriangle(8, 3, 14, 3, 11, 8);
-    });
-    generate('unit-hexbinder', 22, 22, (g) => {
-      g.fillStyle(0x514a72).fillTriangle(3, 19, 11, 3, 19, 19);
-      g.fillStyle(0x9c8ee3).fillCircle(11, 10, 3);
-      g.lineStyle(1, 0xc2b7ff).strokeCircle(11, 10, 7);
-    });
-    generate('unit-inquisitor', 22, 22, (g) => {
-      g.fillStyle(0xb7b1a4).fillRect(4, 5, 14, 14);
-      g.fillStyle(0x3f5873).fillTriangle(3, 6, 11, 1, 19, 6);
-      g.fillStyle(0x6c3a3f).fillRect(9, 8, 4, 8);
-    });
-    generate('enemy-crawler', 20, 20, (g) => {
-      g.fillStyle(0x5b754e).fillEllipse(10, 11, 15, 10);
-      g.lineStyle(2, 0x738f63);
-      for (let i = 0; i < 4; i++) {
-        g.lineBetween(5 + i * 3, 13, 2 + i * 5, 18);
-      }
-      g.fillStyle(0xd3b36b).fillCircle(7, 9, 1).fillCircle(12, 9, 1);
-    });
-    generate('enemy-dwarf', 22, 22, (g) => {
-      g.fillStyle(0x76564a).fillRect(4, 8, 14, 11);
-      g.fillStyle(0xb98b59).fillTriangle(4, 8, 11, 2, 18, 8);
-      g.fillStyle(0xb5a590).fillRect(7, 9, 8, 7);
-    });
-    generate('enemy-inquisition', 22, 22, (g) => {
-      g.fillStyle(0xd0c8b8).fillTriangle(3, 20, 11, 2, 19, 20);
-      g.fillStyle(0x9a3e49).fillRect(9, 7, 4, 10);
-      g.fillStyle(0x3a3e4c).fillRect(7, 5, 8, 3);
-    });
-    generate('prisoner', 22, 22, (g) => {
-      g.fillStyle(0x4a4e59).fillEllipse(11, 15, 16, 8);
-      g.fillStyle(0xc9c1b2).fillCircle(13, 10, 5);
-      g.lineStyle(2, 0x6a586e).lineBetween(4, 17, 18, 10);
-    });
-    generate('trap', 24, 24, (g) => {
-      g.fillStyle(0x3d3330).fillRect(2, 4, 20, 16);
-      g.fillStyle(0xc4a365);
-      for (let x = 4; x <= 18; x += 5) g.fillTriangle(x, 18, x + 2, 8, x + 4, 18);
-    });
-
-    const itemColors: Record<ItemKind, number> = {
-      ore: COLORS.iron,
-      biomass: COLORS.fungus,
-      essence: COLORS.essence,
-      metal: 0xb2abb0,
-      ration: 0xc79b58,
-      armour: 0x7893a4,
-    };
-    for (const kind of Object.keys(itemColors) as ItemKind[]) {
-      generate(itemTexture[kind], 14, 14, (g) => {
-        g.fillStyle(0x0b0c10, 0.7).fillCircle(7, 8, 6);
-        g.fillStyle(itemColors[kind]).fillCircle(7, 7, 4);
-        g.lineStyle(1, 0xf2e3bc, 0.55).strokeCircle(7, 7, 4);
-      });
-    }
-
   }
 
   /**
@@ -878,6 +896,7 @@ export class GameScene extends Phaser.Scene {
         visibility: 'hidden',
         control: 'neutral',
         construction: 'none',
+        claimable: true,
       })));
 
     const carve = (
@@ -887,6 +906,7 @@ export class GameScene extends Phaser.Scene {
       h: number,
       visibility: TileVisibility = 'hidden',
       control: TileControl = 'neutral',
+      claimable = true,
     ) => {
       for (let ty = y; ty < y + h; ty++) {
         for (let tx = x; tx < x + w; tx++) {
@@ -895,6 +915,7 @@ export class GameScene extends Phaser.Scene {
             tile.geology = 'excavated';
             tile.visibility = visibility;
             tile.control = control;
+            tile.claimable = claimable;
           }
         }
       }
@@ -929,13 +950,13 @@ export class GameScene extends Phaser.Scene {
     };
 
     carve(26, sy(18), 13, 9, 'revealed', 'owned');
-    carve(31, sy(3), 3, 16, 'revealed');
-    carve(28, sy(0), 9, 4, 'revealed');
+    carve(31, sy(3), 3, 15, 'revealed', 'neutral', false);
+    carve(28, sy(0), 9, 4, 'revealed', 'neutral', false);
 
     // A longer northern approach keeps the entrance from visually clipping
     // against the map boundary and gives invasion waves a readable runway.
-    carve(30, 0, 5, NORTH_SHIFT + 1, 'revealed');
-    carve(28, 6, 9, 5, 'revealed');
+    carve(30, 0, 5, NORTH_SHIFT + 1, 'revealed', 'neutral', false);
+    carve(28, 6, 9, 5, 'revealed', 'neutral', false);
 
     // Strategic targets are pre-existing, disconnected caverns. The player can
     // read their silhouette and only needs to dig a connecting tunnel.
@@ -953,6 +974,7 @@ export class GameScene extends Phaser.Scene {
       h: 2,
       progress: 0,
       activeRecipe: false,
+      inputStored: 0,
     };
     this.rooms.push(storage);
     this.assignRoomTiles(storage, 'complete');
@@ -1040,8 +1062,8 @@ export class GameScene extends Phaser.Scene {
       node.sprite.setVisible(false);
     }
 
-    this.spawnEnemy('crawler', 44, sy(28), { origin: 'fungus' });
-    this.spawnEnemy('crawler', 47, sy(30), { origin: 'fungus' });
+    // The first economic objective is intentionally safe. Combat begins only
+    // once the player has produced equipment and recruited a second fighter.
     this.spawnEnemy('dwarf', 16, sy(16), { origin: 'dwarf' });
     this.spawnEnemy('dwarf', 18, sy(18), { origin: 'dwarf' });
     this.spawnEnemy('crossbow', 15, sy(18), { origin: 'dwarf' });
@@ -1100,7 +1122,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private createWorker(x: number, y: number): Worker {
-    const sprite = this.add.sprite(this.wx(x), this.wy(y), 'worker').setDepth(31);
+    const sprite = this.add.sprite(this.wx(x), this.wy(y), 'worker').setDisplaySize(29, 29).setDepth(31);
     const carryText = this.add.text(this.wx(x), this.wy(y) - 13, '', {
       fontFamily: 'Arial',
       fontSize: '10px',
@@ -1118,6 +1140,10 @@ export class GameScene extends Phaser.Scene {
       path: [],
       timer: 0,
       assignmentCooldown: 0,
+      lastProgressX: x,
+      lastProgressY: y,
+      stuckSeconds: 0,
+      pathFailures: 0,
     };
     this.workers.push(worker);
     return worker;
@@ -1125,6 +1151,12 @@ export class GameScene extends Phaser.Scene {
 
   private createUnit(kind: UnitKind, x: number, y: number, recruited: boolean): Actor {
     const def = UNIT_DEFINITIONS[kind];
+    const displaySize: Record<UnitKind, number> = {
+      guard: 34,
+      archer: 31,
+      hexbinder: 33,
+      inquisitor: 34,
+    };
     const actor: Actor = {
       id: this.nextId++,
       kind,
@@ -1133,9 +1165,13 @@ export class GameScene extends Phaser.Scene {
       hp: def.hp,
       maxHp: def.hp,
       cooldown: 0,
-      sprite: this.add.sprite(this.wx(x), this.wy(y), `unit-${kind}`).setDepth(32),
+      sprite: this.add.sprite(this.wx(x), this.wy(y), `unit-${kind}`).setDisplaySize(displaySize[kind], displaySize[kind]).setDepth(32),
       path: [],
       bed: recruited,
+      hungerTimer: BALANCE.hungerSeconds,
+      hungry: false,
+      seekingFood: false,
+      healing: false,
     };
     actor.sprite.setInteractive({ useHandCursor: true }).on('pointerdown', () => {
       this.selectedContext = {
@@ -1148,14 +1184,14 @@ export class GameScene extends Phaser.Scene {
   }
 
   private spawnEnemy(kind: EnemyKind, x: number, y: number, options: { origin?: string; wave?: number } = {}): Enemy {
-    const stats: Record<EnemyKind, { hp: number; damage: number; range: number; attack: number; texture: string }> = {
-      crawler: { hp: 35, damage: 5, range: 1.1, attack: 1.2, texture: 'enemy-crawler' },
-      dwarf: { hp: 70, damage: 8, range: 1.1, attack: 1.1, texture: 'enemy-dwarf' },
-      crossbow: { hp: 45, damage: 7, range: 5, attack: 1.4, texture: 'enemy-dwarf' },
-      adept: { hp: 50, damage: 7, range: 4, attack: 1.35, texture: 'enemy-inquisition' },
-      captain: { hp: 120, damage: 12, range: 4, attack: 1.2, texture: 'enemy-inquisition' },
-      scout: { hp: 42, damage: 6, range: 1.1, attack: 1, texture: 'enemy-inquisition' },
-      warden: { hp: 105, damage: 12, range: 1.1, attack: 1.3, texture: 'enemy-inquisition' },
+    const stats: Record<EnemyKind, { hp: number; damage: number; range: number; attack: number; texture: string; size: number }> = {
+      crawler: { hp: 35, damage: 5, range: 1.1, attack: 1.2, texture: 'enemy-crawler', size: 31 },
+      dwarf: { hp: 70, damage: 8, range: 1.1, attack: 1.1, texture: 'enemy-dwarf', size: 33 },
+      crossbow: { hp: 45, damage: 7, range: 5, attack: 1.4, texture: 'enemy-crossbow', size: 32 },
+      adept: { hp: 50, damage: 7, range: 4, attack: 1.35, texture: 'enemy-adept', size: 32 },
+      captain: { hp: 120, damage: 12, range: 4, attack: 1.2, texture: 'enemy-captain', size: 37 },
+      scout: { hp: 42, damage: 6, range: 1.1, attack: 1, texture: 'enemy-scout', size: 31 },
+      warden: { hp: 105, damage: 12, range: 1.1, attack: 1.3, texture: 'enemy-warden', size: 38 },
     };
     const def = stats[kind];
     const enemy: Enemy = {
@@ -1169,7 +1205,7 @@ export class GameScene extends Phaser.Scene {
       range: def.range,
       attackSeconds: def.attack,
       cooldown: 0,
-      sprite: this.add.sprite(this.wx(x), this.wy(y), def.texture).setDepth(32),
+      sprite: this.add.sprite(this.wx(x), this.wy(y), def.texture).setDisplaySize(def.size, def.size).setDepth(32),
       path: [],
       origin: options.origin,
       wave: options.wave,
@@ -1194,12 +1230,13 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.discoverAreas();
+    this.refreshJobs();
     for (const worker of this.workers) this.updateWorker(worker, dt);
     this.updateProduction(dt);
+    this.updateUnitNeeds(dt);
     this.updateCombat(dt);
     this.updateTraps(dt);
     this.updateMission();
-    this.drawStatus();
     this.updateHud(false);
   }
 
@@ -1239,8 +1276,28 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updateWorker(worker: Worker, dt: number): void {
+    if (worker.jobId && worker.state !== 'idle') {
+      this.jobBoard.touch(worker.jobId, worker.id, this.elapsed);
+    }
     if (worker.path.length) {
+      const beforeX = worker.x;
+      const beforeY = worker.y;
       this.moveAlongPath(worker, dt, BALANCE.workerSpeed);
+      const moved = Phaser.Math.Distance.Between(beforeX, beforeY, worker.x, worker.y);
+      if (moved > 0.005) {
+        worker.stuckSeconds = 0;
+        worker.lastProgressX = worker.x;
+        worker.lastProgressY = worker.y;
+        this.jobBoard.touch(worker.jobId, worker.id, this.elapsed);
+      } else {
+        worker.stuckSeconds += dt;
+        if (worker.stuckSeconds >= 1.5) {
+          worker.pathFailures++;
+          this.pathFailureCount++;
+          worker.idleReason = 'Weg blockiert – Auftrag wird neu vergeben';
+          this.releaseWorkerJob(worker);
+        }
+      }
       return;
     }
 
@@ -1253,6 +1310,7 @@ export class GameScene extends Phaser.Scene {
         tile.geology = 'excavated';
         tile.visibility = 'revealed';
         this.digMarks.delete(this.key(x, y));
+        this.finishWorkerJob(worker);
         worker.state = 'idle';
         worker.timer = 0;
         worker.sprite.angle = 0;
@@ -1260,6 +1318,7 @@ export class GameScene extends Phaser.Scene {
         this.invalidateNavigation();
         this.redrawTerrain([{ x, y }]);
         this.redrawWorldDetails(false);
+        this.markJobsDirty();
       }
       return;
     }
@@ -1267,6 +1326,7 @@ export class GameScene extends Phaser.Scene {
     if (worker.state === 'build' && worker.target) {
       const tile = this.tileAt(worker.target.x, worker.target.y);
       if (!tile || tile.construction !== 'building') {
+        this.releaseWorkerJob(worker);
         worker.state = 'idle';
         worker.target = undefined;
         worker.timer = 0;
@@ -1278,6 +1338,7 @@ export class GameScene extends Phaser.Scene {
         const completedTarget = { ...worker.target };
         tile.construction = 'complete';
         const room = this.rooms.find((candidate) => candidate.id === tile.roomId);
+        this.finishWorkerJob(worker);
         worker.state = 'idle';
         worker.target = undefined;
         worker.timer = 0;
@@ -1287,13 +1348,12 @@ export class GameScene extends Phaser.Scene {
         this.redrawTerrain([completedTarget]);
         this.redrawWorldDetails(roomComplete);
         this.wakeIdleWorkers();
+        this.markJobsDirty();
         if (room && roomComplete) {
           const def = ROOM_DEFINITIONS[room.kind];
           this.hud.toast(
             `${def.label} fertiggestellt`,
-            room.kind === 'bedroom'
-              ? `${Math.floor((room.w * room.h) / 4)} Betten verfügbar.`
-              : `${room.w * room.h} Felder funktionsbereit.`,
+            `${this.roomScaleSummary(room)} verfügbar.`,
           );
         }
       }
@@ -1303,6 +1363,7 @@ export class GameScene extends Phaser.Scene {
     if (worker.state === 'claim' && worker.target) {
       const tile = this.tileAt(worker.target.x, worker.target.y);
       if (!tile || tile.control !== 'claiming') {
+        this.releaseWorkerJob(worker);
         worker.state = 'idle';
         worker.target = undefined;
         worker.timer = 0;
@@ -1313,6 +1374,7 @@ export class GameScene extends Phaser.Scene {
       if (worker.timer >= BALANCE.claimSeconds) {
         const completedTarget = { ...worker.target };
         tile.control = 'owned';
+        this.finishWorkerJob(worker);
         worker.state = 'idle';
         worker.target = undefined;
         worker.timer = 0;
@@ -1321,6 +1383,7 @@ export class GameScene extends Phaser.Scene {
         this.wakeIdleWorkers();
         this.audio.tone(146, 0.04, 0.012, 'triangle');
         this.redrawTerrain([completedTarget]);
+        this.markJobsDirty();
       }
       return;
     }
@@ -1328,6 +1391,7 @@ export class GameScene extends Phaser.Scene {
     if (worker.state === 'mine' && worker.targetId) {
       const node = this.nodes.find((candidate) => candidate.id === worker.targetId);
       if (!node || !this.canMineNode(node)) {
+        this.releaseWorkerJob(worker);
         worker.state = 'idle';
         return;
       }
@@ -1341,6 +1405,7 @@ export class GameScene extends Phaser.Scene {
         this.createLooseItem(node.kind, amount, node.x + Phaser.Math.FloatBetween(-0.25, 0.25), node.y + Phaser.Math.FloatBetween(-0.25, 0.25));
         if (node.id === 'fungus') this.stats.biomassMined += amount;
         if (node.id === 'dwarf') this.stats.dwarfOreMined += amount;
+        this.finishWorkerJob(worker, false);
         worker.state = 'idle';
         worker.timer = 0;
         worker.sprite.angle = 0;
@@ -1351,16 +1416,17 @@ export class GameScene extends Phaser.Scene {
     if (worker.state === 'pickup' && worker.targetId) {
       const item = this.items.find((candidate) => candidate.id === worker.targetId);
       if (item) {
-        worker.carry = { kind: item.kind, amount: item.amount };
-        this.tweens.killTweensOf(item.sprite);
-        item.sprite.destroy();
-        this.items = this.items.filter((candidate) => candidate.id !== item.id);
-        worker.carryText.setText(`${symbolForItem[item.kind]}${item.amount > 1 ? `×${item.amount}` : ''}`);
+        const carryLimit = worker.delivery?.kind === 'trap' ? 1 : 2;
+        const amount = this.takeFromItem(item, Math.min(carryLimit, item.amount));
+        worker.carry = { kind: item.kind, amount };
+        worker.carryText.setText(`${symbolForItem[item.kind]}${amount > 1 ? `×${amount}` : ''}`);
         worker.state = 'deliver';
-        const destination = this.deliveryPoint(item.kind);
+        const destination = this.deliveryPoint(worker.delivery ?? { kind: item.kind === 'essence' ? 'heart' : 'storage' });
         worker.path = this.pathBetween(worker, destination);
         worker.target = destination;
+        this.jobBoard.touch(worker.jobId, worker.id, this.elapsed);
       } else {
+        this.releaseWorkerJob(worker);
         worker.state = 'idle';
       }
       return;
@@ -1368,11 +1434,37 @@ export class GameScene extends Phaser.Scene {
 
     if (worker.state === 'deliver' && worker.carry) {
       const { kind, amount } = worker.carry;
-      this.stock[kind] += amount;
-      this.stats.hauled += amount;
-      this.popup(worker.x, worker.y, `+${amount} ${ITEM_LABELS[kind]}`, kind === 'essence' ? '#a99be9' : '#d8c38e');
+      let delivered = amount;
+      if (worker.delivery?.kind === 'room' && worker.delivery.roomId !== undefined) {
+        const room = this.rooms.find((candidate) => candidate.id === worker.delivery?.roomId);
+        if (room) {
+          room.inputStored += amount;
+          this.syncRoomInputVisual(room);
+        } else {
+          delivered = 0;
+        }
+      } else if (worker.delivery?.kind === 'trap' && worker.delivery.trapId !== undefined) {
+        const trap = this.traps.find((candidate) => candidate.id === worker.delivery?.trapId);
+        if (trap) {
+          trap.charges = Math.min(6, trap.charges + amount * 6);
+          trap.sprite.clearTint();
+        } else {
+          delivered = 0;
+        }
+      } else if (kind === 'essence' || worker.delivery?.kind === 'heart') {
+        this.stock[kind] += amount;
+      } else {
+        const remaining = this.storeItem(kind, amount);
+        delivered -= remaining;
+        if (remaining) this.createLooseItem(kind, remaining, worker.x, worker.y);
+      }
+      this.stats.hauled += delivered;
+      if (delivered) {
+        this.popup(worker.x, worker.y, `+${delivered} ${ITEM_LABELS[kind]}`, kind === 'essence' ? '#a99be9' : '#d8c38e');
+      }
       worker.carry = undefined;
       worker.carryText.setText('');
+      this.finishWorkerJob(worker);
       worker.state = 'idle';
       this.audio.tone(kind === 'metal' || kind === 'armour' ? 320 : 210, 0.06, 0.015, 'triangle');
       return;
@@ -1415,7 +1507,12 @@ export class GameScene extends Phaser.Scene {
       return;
     }
     this.assignWorker(worker);
-    if (worker.state === 'idle') worker.assignmentCooldown = 0.5;
+    if (worker.state === 'idle') {
+      worker.assignmentCooldown = 0.5;
+      const storageBlocked = this.items.some((item) => item.location !== 'stored')
+        && !this.items.some((item) => item.location !== 'stored' && (item.kind === 'essence' || this.canStoreAmount(item.kind, 1)))
+      if (storageBlocked) worker.idleReason = 'Lager und Ausgänge voll';
+    }
   }
 
   private assignWorker(worker: Worker): void {
@@ -1436,159 +1533,230 @@ export class GameScene extends Phaser.Scene {
     const foodUrgent = this.phase === 1 || this.stock.ration < 3 || this.stock.biomass < 4;
     const workerIndex = Math.max(0, this.workers.indexOf(worker));
     for (const task of workerTaskOrder(workerIndex, foodUrgent, this.workPriorities)) {
-      if (this.tryAssignRoutineTask(worker, task, foodUrgent, routes)) return;
+      if (this.tryAssignRoutineTask(worker, task, routes)) return;
     }
     worker.state = 'idle';
+    const jobs = this.jobBoard.stats(this.elapsed);
+    worker.idleReason = jobs.total === 0
+      ? 'Kein offener Auftrag'
+      : jobs.reserved >= jobs.total
+        ? 'Alle erreichbaren Aufträge reserviert'
+        : 'Aufträge vorhanden · Weg durch Fels oder Gegner blockiert';
   }
 
-  private tryAssignRoutineTask(worker: Worker, task: RoutineWorkerTask, foodUrgent: boolean, routes: PathTree): boolean {
-    if (task === 'haul') return this.tryAssignPickup(worker, routes);
-    if (task === 'dig') return this.tryAssignDig(worker, routes);
-    if (task === 'build') return this.tryAssignBuild(worker, routes);
-    if (task === 'claim') return this.tryAssignClaim(worker, routes);
-    return this.tryAssignMine(worker, foodUrgent, routes);
-  }
-
-  private tryAssignPickup(worker: Worker, routes: PathTree): boolean {
-    let availableItem: LooseItem | undefined;
-    let bestDistance = Number.POSITIVE_INFINITY;
-    for (const item of this.items) {
-      if (item.reservedBy) continue;
-      const distance = routes.distanceTo({ x: Math.round(item.x), y: Math.round(item.y) });
-      if (distance < bestDistance) {
-        availableItem = item;
-        bestDistance = distance;
+  private tryAssignRoutineTask(worker: Worker, task: RoutineWorkerTask, routes: PathTree): boolean {
+    let selected: { job: WorkerJob; path: GridPoint[] } | undefined;
+    let bestScore = Number.NEGATIVE_INFINITY;
+    for (const job of this.jobBoard.available(task, worker.id, this.elapsed)) {
+      const approach = job.action === 'dig'
+        ? this.neighbors(job.target.x, job.target.y)
+          .map((target) => ({ target, distance: routes.distanceTo(target) }))
+          .sort((a, b) => a.distance - b.distance)[0]
+        : { target: job.target, distance: routes.distanceTo(job.target) };
+      if (!approach || !Number.isFinite(approach.distance)) continue;
+      const score = job.priority * 1000 - approach.distance;
+      if (score > bestScore) {
+        bestScore = score;
+        selected = { job, path: routes.pathTo(approach.target) };
       }
     }
-    if (!availableItem) return false;
-    availableItem.reservedBy = worker.id;
-    worker.state = 'pickup';
-    worker.path = routes.pathTo({ x: Math.round(availableItem.x), y: Math.round(availableItem.y) });
-    worker.targetId = availableItem.id;
-    return true;
-  }
-
-  private tryAssignMine(worker: Worker, foodUrgent: boolean, routes: PathTree): boolean {
-    if (this.items.length >= 18) return false;
-    let mineable: ResourceNode | undefined;
-    let bestFoodRank = Number.POSITIVE_INFINITY;
-    let bestDistance = Number.POSITIVE_INFINITY;
-    for (const node of this.nodes) {
-      if (!this.canMineNode(node, routes)) continue;
-      const active = this.workers.filter((candidate) => candidate.state === 'mine' && candidate.targetId === node.id).length;
-      if (active >= (foodUrgent && node.kind === 'biomass' ? 2 : 1)) continue;
-      const foodRank = foodUrgent && node.kind === 'biomass' ? 0 : 1;
-      const distance = routes.distanceTo(node);
-      if (foodRank < bestFoodRank || (foodRank === bestFoodRank && distance < bestDistance)) {
-        mineable = node;
-        bestFoodRank = foodRank;
-        bestDistance = distance;
+    if (!selected || !this.jobBoard.reserve(selected.job.id, worker.id, this.elapsed)) return false;
+    const { job, path } = selected;
+    worker.jobId = job.id;
+    worker.idleReason = undefined;
+    worker.path = path;
+    worker.timer = 0;
+    worker.target = job.target;
+    worker.targetId = job.targetId;
+    worker.delivery = job.destination
+      ? {
+        kind: job.destination,
+        roomId: job.destination === 'room' ? job.destinationId : undefined,
+        trapId: job.destination === 'trap' ? job.destinationId : undefined,
       }
+      : undefined;
+    worker.state = job.action === 'haul' || job.action === 'supply' ? 'pickup' : job.action;
+    if (job.action === 'build') {
+      const tile = this.tileAt(job.target.x, job.target.y);
+      if (tile) tile.construction = 'building';
+      this.redrawWorldDetails(false);
     }
-    if (!mineable) return false;
-    worker.state = 'mine';
-    worker.path = routes.pathTo(mineable);
-    worker.targetId = mineable.id;
-    worker.timer = 0;
+    if (job.action === 'claim') {
+      const tile = this.tileAt(job.target.x, job.target.y);
+      if (tile) tile.control = 'claiming';
+      this.redrawTerrain([job.target]);
+    }
     return true;
   }
 
-  private tryAssignDig(worker: Worker, routes: PathTree): boolean {
-    const frontier = this.findDigFrontier(routes);
-    if (!frontier) return false;
-    worker.state = 'dig';
-    worker.path = frontier.path;
-    worker.target = frontier.target;
-    worker.timer = 0;
-    return true;
+  private markJobsDirty(): void {
+    this.jobsDirty = true;
   }
 
-  private tryAssignBuild(worker: Worker, routes: PathTree): boolean {
-    const target = this.findBuildTarget(routes);
-    if (!target) return false;
-    const tile = this.tileAt(target.target.x, target.target.y);
-    if (!tile) return false;
-    tile.construction = 'building';
-    worker.state = 'build';
-    worker.path = target.path;
-    worker.target = target.target;
-    worker.timer = 0;
-    this.redrawWorldDetails(false);
-    return true;
+  private refreshJobs(force = false): void {
+    if (!force && !this.jobsDirty && this.elapsed < this.nextJobSyncAt) return;
+    this.jobBoard.sync(this.buildJobSpecs(), this.elapsed);
+    this.jobsDirty = false;
+    this.nextJobSyncAt = this.elapsed + 0.5;
   }
 
-  private tryAssignClaim(worker: Worker, routes: PathTree): boolean {
-    const frontier = this.findClaimFrontier(routes);
-    if (!frontier) return false;
-    const tile = this.tileAt(frontier.target.x, frontier.target.y);
-    if (!tile) return false;
-    tile.control = 'claiming';
-    worker.state = 'claim';
-    worker.path = frontier.path;
-    worker.target = frontier.target;
-    worker.timer = 0;
-    this.redrawTerrain([frontier.target]);
-    return true;
-  }
-
-  private findDigFrontier(routes: PathTree): { target: GridPoint; path: GridPoint[] } | undefined {
-    let bestTarget: GridPoint | undefined;
-    let bestApproach: GridPoint | undefined;
-    let bestDistance = Number.POSITIVE_INFINITY;
+  private buildJobSpecs(): WorkerJobSpec[] {
+    const jobs: WorkerJobSpec[] = [];
     for (const mark of this.digMarks) {
       const [x, y] = mark.split(',').map(Number);
-      const alreadyWorked = this.workers.some((candidate) => candidate.state === 'dig' && candidate.target?.x === x && candidate.target.y === y);
-      if (alreadyWorked) continue;
-      for (const neighbor of this.neighbors(x, y)) {
-        const distance = routes.distanceTo(neighbor);
-        if (distance < bestDistance) {
-          bestTarget = { x, y };
-          bestApproach = neighbor;
-          bestDistance = distance;
-        }
-      }
+      jobs.push({
+        id: `dig:${mark}`,
+        category: 'dig',
+        action: 'dig',
+        target: { x, y },
+        priority: 20,
+      });
     }
-    return bestTarget && bestApproach ? { target: bestTarget, path: routes.pathTo(bestApproach) } : undefined;
-  }
-
-  private findClaimFrontier(routes: PathTree): { target: GridPoint; path: GridPoint[] } | undefined {
-    let bestTarget: GridPoint | undefined;
-    let bestDistance = Number.POSITIVE_INFINITY;
-    for (let y = 0; y < H; y++) {
-      for (let x = 0; x < W; x++) {
-        if (!this.canClaimTile(x, y)) continue;
-        const distance = routes.distanceTo({ x, y });
-        if (distance < bestDistance) {
-          bestTarget = { x, y };
-          bestDistance = distance;
-        }
-      }
-    }
-    return bestTarget ? { target: bestTarget, path: routes.pathTo(bestTarget) } : undefined;
-  }
-
-  private findBuildTarget(routes: PathTree): { target: GridPoint; path: GridPoint[] } | undefined {
-    let bestTarget: GridPoint | undefined;
-    let bestDistance = Number.POSITIVE_INFINITY;
     for (const room of this.rooms) {
       for (let y = room.y; y < room.y + room.h; y++) {
         for (let x = room.x; x < room.x + room.w; x++) {
-          const tile = this.tileAt(x, y);
-          if (tile?.construction !== 'planned') continue;
-          const distance = routes.distanceTo({ x, y });
-          if (distance < bestDistance) {
-            bestTarget = { x, y };
-            bestDistance = distance;
-          }
+          const construction = this.tileAt(x, y)?.construction;
+          if (construction !== 'planned' && construction !== 'building') continue;
+          jobs.push({
+            id: `build:${x},${y}`,
+            category: 'build',
+            action: 'build',
+            target: { x, y },
+            priority: 24,
+          });
         }
       }
     }
-    return bestTarget ? { target: bestTarget, path: routes.pathTo(bestTarget) } : undefined;
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const tile = this.tileAt(x, y);
+        if (!tile || (!this.canClaimTile(x, y) && tile.control !== 'claiming')) continue;
+        jobs.push({
+          id: `claim:${x},${y}`,
+          category: 'claim',
+          action: 'claim',
+          target: { x, y },
+          priority: tile.control === 'claiming' ? 30 : 18,
+        });
+      }
+    }
+
+    const foodUrgent = this.phase === 1 || this.stock.ration < 3 || this.stock.biomass < 4;
+    if (this.items.filter((item) => item.location !== 'stored').length < 18) {
+      for (const node of this.nodes) {
+        if (!this.canMineNode(node)) continue;
+        jobs.push({
+          id: `mine:${node.id}`,
+          category: 'mine',
+          action: 'mine',
+          target: { x: node.x, y: node.y },
+          targetId: node.id,
+          priority: foodUrgent && node.kind === 'biomass' ? 34 : 12,
+          maxWorkers: foodUrgent && node.kind === 'biomass' ? 2 : 1,
+        });
+      }
+    }
+
+    const roomsReceiving = new Set<number>();
+    for (const item of this.items.filter((candidate) => candidate.location !== 'stored')) {
+      const room = this.roomNeedingInput(item.kind, roomsReceiving);
+      if (room) roomsReceiving.add(room.id);
+      const destination: DeliveryKind | undefined = room
+        ? 'room'
+        : item.kind === 'essence'
+          ? 'heart'
+          : this.canStoreAmount(item.kind, Math.min(2, item.amount))
+            ? 'storage'
+            : undefined;
+      if (!destination) continue;
+      jobs.push({
+        id: `haul:${item.id}`,
+        category: 'haul',
+        action: 'haul',
+        target: { x: Math.round(item.x), y: Math.round(item.y) },
+        targetId: item.id,
+        destination,
+        destinationId: room?.id,
+        priority: item.location === 'output' ? 38 : room ? 30 : 16,
+      });
+    }
+
+    const usedStacks = new Set<number>();
+    for (const room of this.rooms
+      .filter((candidate) => this.isRoomComplete(candidate) && candidate.kind in RECIPES)
+      .sort((a, b) => a.inputStored - b.inputStored)) {
+      if (roomsReceiving.has(room.id)) continue;
+      const recipe = RECIPES[room.kind as keyof typeof RECIPES];
+      if (room.inputStored >= recipe.inputAmount * productionStations(room.w * room.h) * 2) continue;
+      const stack = this.items.find((item) =>
+        item.location === 'stored' && item.kind === recipe.input && !usedStacks.has(item.id));
+      if (!stack) continue;
+      usedStacks.add(stack.id);
+      jobs.push({
+        id: `supply:room:${room.id}`,
+        category: 'haul',
+        action: 'supply',
+        target: { x: Math.round(stack.x), y: Math.round(stack.y) },
+        targetId: stack.id,
+        destination: 'room',
+        destinationId: room.id,
+        priority: room.inputStored < recipe.inputAmount ? 44 : 26,
+      });
+    }
+
+    for (const trap of this.traps.filter((candidate) => candidate.charges === 0)) {
+      const stack = this.items.find((item) =>
+        item.location === 'stored' && item.kind === 'armour' && !usedStacks.has(item.id));
+      if (!stack) continue;
+      usedStacks.add(stack.id);
+      jobs.push({
+        id: `supply:trap:${trap.id}`,
+        category: 'haul',
+        action: 'supply',
+        target: { x: Math.round(stack.x), y: Math.round(stack.y) },
+        targetId: stack.id,
+        destination: 'trap',
+        destinationId: trap.id,
+        priority: 48,
+      });
+    }
+    return jobs;
+  }
+
+  private finishWorkerJob(worker: Worker, complete = true): void {
+    if (complete) this.jobBoard.complete(worker.jobId);
+    else this.jobBoard.releaseWorker(worker.id);
+    worker.jobId = undefined;
+    worker.delivery = undefined;
+    worker.target = undefined;
+    worker.targetId = undefined;
+    worker.stuckSeconds = 0;
+    this.markJobsDirty();
+  }
+
+  private releaseWorkerJob(worker: Worker): void {
+    this.jobBoard.releaseWorker(worker.id);
+    if (worker.carry) {
+      this.createLooseItem(worker.carry.kind, worker.carry.amount, worker.x, worker.y);
+      worker.carry = undefined;
+      worker.carryText.setText('');
+    }
+    worker.jobId = undefined;
+    worker.delivery = undefined;
+    worker.target = undefined;
+    worker.targetId = undefined;
+    worker.path = [];
+    worker.timer = 0;
+    worker.stuckSeconds = 0;
+    worker.state = 'idle';
+    worker.assignmentCooldown = 0.2;
+    this.markJobsDirty();
   }
 
   private canClaimTile(x: number, y: number): boolean {
     const tile = this.tileAt(x, y);
     if (!tile || tile.geology !== 'excavated' || tile.visibility !== 'revealed') return false;
+    if (!tile.claimable) return false;
     if (tile.control !== 'neutral' && tile.control !== 'enemy') return false;
     if (tile.roomId !== undefined || tile.roomKind === 'heart') return false;
     if (!this.neighbors(x, y).some((neighbor) => this.tileAt(neighbor.x, neighbor.y)?.control === 'owned')) return false;
@@ -1619,8 +1787,7 @@ export class GameScene extends Phaser.Scene {
       entity.x += (dx / distance) * step;
       entity.y += (dy / distance) * step;
     }
-    entity.sprite.setPosition(this.wx(entity.x), this.wy(entity.y));
-    if ('carryText' in entity) entity.carryText.setPosition(this.wx(entity.x), this.wy(entity.y) - 13);
+    if (Math.abs(dx) > 0.02) entity.sprite.setFlipX(dx < 0);
   }
 
   private updateProduction(dt: number): void {
@@ -1628,20 +1795,24 @@ export class GameScene extends Phaser.Scene {
       if (!this.isRoomComplete(room)) continue;
       if (!(room.kind in RECIPES)) continue;
       const recipe = RECIPES[room.kind as keyof typeof RECIPES];
+      const stations = productionStations(room.w * room.h);
+      const cycleSeconds = recipe.seconds / stations;
       if (!room.activeRecipe) {
-        if (this.stock[recipe.input] >= recipe.inputAmount) {
-          this.stock[recipe.input] -= recipe.inputAmount;
-          room.activeRecipe = true;
-          room.progress = 0;
-        }
+        const outputBlocked = this.items.some((item) => item.location === 'output' && item.sourceRoomId === room.id);
+        if (outputBlocked || room.inputStored < recipe.inputAmount) continue;
+        room.inputStored -= recipe.inputAmount;
+        this.syncRoomInputVisual(room);
+        room.activeRecipe = true;
+        room.progress = 0;
+        this.markJobsDirty();
         continue;
       }
       room.progress += dt;
-      if (room.progress < recipe.seconds) continue;
+      if (room.progress < cycleSeconds) continue;
       room.activeRecipe = false;
       room.progress = 0;
       const center = this.roomCenter(room);
-      this.createLooseItem(recipe.output, recipe.outputAmount, center.x, center.y);
+      this.createLooseItem(recipe.output, recipe.outputAmount, center.x, center.y, 'output', room.id);
       if (recipe.output === 'metal') this.stats.metalProduced += recipe.outputAmount;
       if (recipe.output === 'armour') this.stats.armourProduced += recipe.outputAmount;
       if (recipe.output === 'ration') this.stats.rationsProduced += recipe.outputAmount;
@@ -1651,10 +1822,62 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  private updateUnitNeeds(dt: number): void {
+    const bedroom = this.rooms.find((room) => room.kind === 'bedroom' && this.isRoomComplete(room));
+    const combatActive = this.enemies.some((enemy) => enemy.active && enemy.hp > 0);
+    let freeBeds = this.bedCapacity() - this.bedsUsed();
+    for (const actor of this.units.filter((unit) => !unit.bed)) {
+      if (freeBeds <= 0) break;
+      actor.bed = true;
+      freeBeds--;
+    }
+    for (const actor of this.units) {
+      actor.hungerTimer -= dt;
+      if (actor.hungerTimer <= 0) actor.seekingFood = true;
+
+      const threatened = this.enemies.some((enemy) =>
+        enemy.active && enemy.hp > 0 && Phaser.Math.Distance.Between(actor.x, actor.y, enemy.x, enemy.y) < 8);
+      if (actor.seekingFood) {
+        actor.hungry = true;
+        const storage = this.storageRooms()[0];
+        if (!combatActive && !this.bannerAttack && storage && this.stock.ration >= 1) {
+          const foodPoint = this.roomCenter(storage);
+          if (Phaser.Math.Distance.Between(actor.x, actor.y, foodPoint.x, foodPoint.y) > 1.1) {
+            this.moveActorToward(actor, foodPoint, dt);
+          } else {
+            actor.path = [];
+            this.consumeStock('ration', 1);
+            actor.seekingFood = false;
+            actor.hungry = false;
+            actor.hungerTimer = BALANCE.hungerSeconds;
+            this.popup(actor.x, actor.y, 'Ration', '#d9bd7a', 650);
+          }
+        }
+        actor.healing = false;
+        if (!combatActive && !this.bannerAttack) continue;
+      }
+
+      actor.healing = false;
+      if (!actor.bed || !bedroom || actor.hp >= actor.maxHp) continue;
+      if (combatActive || threatened || this.bannerAttack) continue;
+      const bed = this.roomCenter(bedroom);
+      const distance = Phaser.Math.Distance.Between(actor.x, actor.y, bed.x, bed.y);
+      actor.healing = true;
+      if (distance > 1.1) {
+        this.moveActorToward(actor, bed, dt);
+      } else {
+        actor.path = [];
+        actor.hp = Math.min(actor.maxHp, actor.hp + BALANCE.bedroomHealingPerSecond * dt);
+      }
+    }
+  }
+
   private updateCombat(dt: number): void {
     for (const actor of this.units) {
       actor.cooldown = Math.max(0, actor.cooldown - dt);
       if (actor.hp <= 0) continue;
+      if (actor.healing) continue;
+      if (actor.seekingFood && !this.bannerAttack && !this.enemies.some((enemy) => enemy.active && enemy.hp > 0)) continue;
       const target = this.chooseTargetForUnit(actor);
       if (!target) {
         if (actor.hp < actor.maxHp * 0.3) this.moveActorToward(actor, this.bannerDefend, dt);
@@ -1664,9 +1887,10 @@ export class GameScene extends Phaser.Scene {
       const def = UNIT_DEFINITIONS[actor.kind];
       if (distance <= def.range) {
         if (actor.cooldown <= 0) {
-          actor.cooldown = def.attackSeconds;
+          actor.cooldown = def.attackSeconds / (actor.hungry ? BALANCE.hungryAttackMultiplier : 1);
           const damage = def.damage * (this.stats.fear >= 30 ? 1.08 : 1);
           target.hp -= damage;
+          this.animateAttack(actor.sprite, target.sprite, def.range > 2);
           this.hitFlash(target.sprite);
           this.popup(target.x, target.y, `−${Math.round(damage)}`, '#e5a29d', 550);
           if (actor.kind === 'hexbinder') target.cooldown += 0.25;
@@ -1694,6 +1918,7 @@ export class GameScene extends Phaser.Scene {
           if (enemy.cooldown <= 0) {
             enemy.cooldown = enemy.attackSeconds;
             target.hp -= enemy.damage;
+            this.animateAttack(enemy.sprite, target.sprite, enemy.range > 2);
             this.hitFlash(target.sprite);
             this.popup(target.x, target.y, `−${enemy.damage}`, '#df7e83', 550);
             if (target.hp <= 0) {
@@ -1711,6 +1936,7 @@ export class GameScene extends Phaser.Scene {
           if (enemy.cooldown <= 0) {
             enemy.cooldown = enemy.attackSeconds;
             this.heartHp -= enemy.damage;
+            this.animateAttack(enemy.sprite, undefined, false);
             this.cameras.main.shake(90, 0.002);
           }
         } else {
@@ -1720,6 +1946,25 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (this.heartHp <= 0 && !this.ended) this.endGame(false);
+  }
+
+  private animateAttack(
+    attacker: Phaser.GameObjects.Sprite,
+    target?: Phaser.GameObjects.Sprite,
+    ranged = false,
+  ): void {
+    if (target) attacker.setFlipX(target.x < attacker.x);
+    const baseScaleX = attacker.scaleX;
+    const baseScaleY = attacker.scaleY;
+    this.tweens.add({
+      targets: attacker,
+      scaleX: baseScaleX * (ranged ? 0.92 : 1.1),
+      scaleY: baseScaleY * (ranged ? 1.06 : 0.92),
+      duration: 80,
+      yoyo: true,
+      ease: 'Quad.easeOut',
+      onComplete: () => attacker.setScale(baseScaleX, baseScaleY),
+    });
   }
 
   private chooseTargetForUnit(actor: Actor): Enemy | undefined {
@@ -1767,7 +2012,10 @@ export class GameScene extends Phaser.Scene {
     if (!actor.path.length || manhattan(actor.path.at(-1) ?? actor, target) > 1) {
       actor.path = this.pathBetween(actor, { x: Math.round(target.x), y: Math.round(target.y) });
     }
-    if (actor.path.length) this.moveAlongPath(actor, dt, BALANCE.combatSpeed);
+    if (actor.path.length) {
+      const speed = BALANCE.combatSpeed * (actor.hungry ? BALANCE.hungryMoveMultiplier : 1);
+      this.moveAlongPath(actor, dt, speed);
+    }
   }
 
   private moveEnemyToward(enemy: Enemy, target: GridPoint, dt: number): void {
@@ -1784,7 +2032,7 @@ export class GameScene extends Phaser.Scene {
         x: enemy.x,
         y: enemy.y,
         status: 'downed',
-        sprite: this.add.sprite(this.wx(enemy.x), this.wy(enemy.y), 'prisoner').setDepth(31),
+        sprite: this.add.sprite(this.wx(enemy.x), this.wy(enemy.y), 'prisoner').setDisplaySize(34, 34).setDepth(31),
       };
       this.hud.toast('Captain kampfunfähig', 'Baue ein Gefängnis mit freier Zelle. Ein Arbeiter übernimmt die Eskorte.', true, 7000);
       this.setSpeed(1);
@@ -1813,14 +2061,23 @@ export class GameScene extends Phaser.Scene {
     for (const trap of this.traps) {
       trap.cooldown = Math.max(0, trap.cooldown - dt);
       if (trap.charges <= 0 || trap.cooldown > 0) continue;
-      const target = this.enemies.find((enemy) => enemy.hp > 0 && Phaser.Math.Distance.Between(trap.x, trap.y, enemy.x, enemy.y) < 1.25);
+      const target = this.enemies
+        .filter((enemy) => enemy.hp > 0 && enemy.sprite.visible)
+        .sort((a, b) =>
+          Phaser.Math.Distance.Between(trap.x, trap.y, a.x, a.y)
+          - Phaser.Math.Distance.Between(trap.x, trap.y, b.x, b.y))
+        .find((enemy) => Phaser.Math.Distance.Between(trap.x, trap.y, enemy.x, enemy.y) <= BALANCE.trapRange);
       if (!target) continue;
       trap.charges--;
-      trap.cooldown = 1.1;
-      target.hp -= 18;
+      trap.cooldown = BALANCE.trapCooldown;
+      target.hp -= BALANCE.trapDamage;
       this.popup(trap.x, trap.y, `Falle ${trap.charges}/6`, '#d8bb73');
       this.audio.tone(170, 0.06, 0.02, 'square');
-      if (!trap.charges) trap.sprite.setTint(0x555158);
+      if (!trap.charges) {
+        trap.sprite.setTint(0x555158);
+        this.markJobsDirty();
+        this.wakeIdleWorkers();
+      }
     }
   }
 
@@ -1832,16 +2089,42 @@ export class GameScene extends Phaser.Scene {
     }
     if (this.phase === 2 && hasRoom('smelter') && this.stats.metalProduced >= 2 && beds >= 2) {
       this.advancePhase(3);
-      this.spawnWave(1);
     }
-    if (this.phase === 3 && hasRoom('workshop') && this.stats.armourProduced >= 2 && this.stats.recruited >= 2) {
+    if (this.phase === 3 && hasRoom('workshop') && this.stats.armourProduced >= 2 && this.stats.recruited >= 1) {
       this.advancePhase(4);
     }
     const dwarf = this.nodes.find((node) => node.id === 'dwarf');
     if (this.phase === 4 && dwarf?.claimed && this.stats.dwarfOreMined >= 6) {
       this.advancePhase(5);
-      this.spawnWave(2);
     }
+
+    if (this.currentWave < 1 && this.waveOneSpawnAt === undefined
+      && (this.stats.recruited >= 1 || this.elapsed >= BALANCE.firstWaveLatest)) {
+      this.waveOneSpawnAt = Math.min(
+        BALANCE.firstWaveLatest,
+        Math.max(BALANCE.firstWaveEarliest, this.elapsed + BALANCE.waveWarningSeconds),
+      );
+    }
+    if (this.waveOneSpawnAt !== undefined && !this.waveOneWarned
+      && this.elapsed >= this.waveOneSpawnAt - BALANCE.waveWarningSeconds) {
+      this.waveOneWarned = true;
+      this.hud.toast('Inquisition gesichtet', `Vermessungstrupp in ${Math.max(1, Math.ceil(this.waveOneSpawnAt - this.elapsed))} Sekunden.`, true, 7000);
+    }
+    if (this.waveOneSpawnAt !== undefined && this.elapsed >= this.waveOneSpawnAt) this.spawnWave(1);
+
+    if (dwarf?.claimed && this.currentWave >= 1 && this.currentWave < 2 && this.waveTwoSpawnAt === undefined) {
+      this.waveTwoSpawnAt = Math.max(
+        this.elapsed + BALANCE.waveWarningSeconds,
+        (this.waveOneStartedAt ?? this.elapsed) + BALANCE.secondWaveDelay,
+      );
+    }
+    if (this.waveTwoSpawnAt !== undefined && !this.waveTwoWarned
+      && this.elapsed >= this.waveTwoSpawnAt - BALANCE.waveWarningSeconds) {
+      this.waveTwoWarned = true;
+      this.hud.toast('Säuberungstrupp unterwegs', `${Math.max(1, Math.ceil(this.waveTwoSpawnAt - this.elapsed))} Sekunden Vorbereitung.`, true, 7000);
+    }
+    if (this.waveTwoSpawnAt !== undefined && this.elapsed >= this.waveTwoSpawnAt) this.spawnWave(2);
+
     if (this.stats.choice && !this.finalSpawned && this.elapsed >= this.finalSpawnAt) this.spawnFinalWave();
     if (this.finalSpawned && !this.enemies.some((enemy) => enemy.wave === 3) && !this.ended) {
       this.endGame(true);
@@ -1859,7 +2142,10 @@ export class GameScene extends Phaser.Scene {
   private spawnWave(number: number): void {
     if (number <= this.currentWave) return;
     this.currentWave = number;
-    const composition = number === 1 ? ['scout', 'scout', 'adept'] as EnemyKind[] : ['scout', 'scout', 'adept', 'warden'] as EnemyKind[];
+    if (number === 1) this.waveOneStartedAt = this.elapsed;
+    const composition = number === 1
+      ? ['scout', 'scout', 'scout'] as EnemyKind[]
+      : ['scout', 'scout', 'scout', 'scout', 'adept'] as EnemyKind[];
     composition.forEach((kind, index) => this.spawnEnemy(kind, 30 + (index % 4) * 2, 1 + Math.floor(index / 4), { wave: number }));
     this.audio.alarm();
     this.heartSpeak(HEART_LINES.wave);
@@ -1870,8 +2156,8 @@ export class GameScene extends Phaser.Scene {
   private spawnFinalWave(): void {
     this.finalSpawned = true;
     this.currentWave = 3;
-    const composition: EnemyKind[] = ['scout', 'scout', 'adept', 'adept', 'warden', 'warden'];
-    if (this.stats.choice === 'Freigelassen') composition.pop();
+    const composition: EnemyKind[] = ['scout', 'scout', 'scout', 'scout', 'scout', 'adept', 'adept', 'warden'];
+    if (this.stats.choice === 'Freigelassen') composition.splice(composition.indexOf('scout'), 1);
     if (this.stats.choice === 'Geopfert') composition.push('warden');
     composition.forEach((kind, index) => this.spawnEnemy(kind, 29 + (index % 4) * 2, 1 + Math.floor(index / 4), { wave: 3 }));
     this.audio.alarm();
@@ -1886,7 +2172,7 @@ export class GameScene extends Phaser.Scene {
         this.hud.toast('Rekrutierung blockiert', 'Benötigt 2 Rationen und ein freies Bett.', true);
         return;
       }
-      this.stock.ration -= 2;
+      this.consumeStock('ration', 2);
       this.stats.trust += 5;
       this.stats.choice = 'Rekrutiert';
       this.createUnit('inquisitor', this.prisoner.x, this.prisoner.y, true);
@@ -1905,26 +2191,48 @@ export class GameScene extends Phaser.Scene {
     this.prisoner = undefined;
     this.hud.hideModal();
     this.setSpeed(1);
-    this.finalSpawnAt = this.elapsed + 8;
-    this.hud.toast('Urteil vollstreckt', 'Die Finalwelle formiert sich am Haupteingang.', true);
+    this.finalSpawnAt = this.elapsed + BALANCE.finalWaveDelay;
+    this.hud.toast('Urteil vollstreckt', `Die Finalwelle trifft in ${BALANCE.finalWaveDelay} Sekunden ein.`, true);
+  }
+
+  private summonWorker(): void {
+    const reason = this.workerSummonBlockReason();
+    if (reason) {
+      this.hud.toast('Arbeiterbeschwörung blockiert', reason, true);
+      return;
+    }
+    this.consumeStock('essence', BALANCE.workerSummonCost);
+    this.workerSummoning = true;
+    this.updateHud();
+    this.hud.toast('Arbeiter wird gerufen', `${BALANCE.workerSummonSeconds} Sekunden am Covenant-Herz.`);
+    this.time.delayedCall(BALANCE.workerSummonSeconds * 1000, () => {
+      this.workerSummoning = false;
+      if (this.ended) return;
+      this.createWorker(HEART_TILE.x - 1, HEART_TILE.y + 1);
+      this.markJobsDirty();
+      this.wakeIdleWorkers();
+      this.popup(HEART_TILE.x, HEART_TILE.y, 'ARBEITER', '#e5c66e', 950);
+      this.updateHud();
+    });
+  }
+
+  private workerSummonBlockReason(): string | undefined {
+    if (this.workerSummoning) return 'Das Herz beschwört bereits einen Arbeiter.';
+    if (this.workers.length >= BALANCE.maxWorkers) return `Arbeiterlimit erreicht (${BALANCE.maxWorkers}).`;
+    if (this.stock.essence < BALANCE.workerSummonCost) {
+      return `Benötigt ${BALANCE.workerSummonCost} Essenz.`;
+    }
+    return undefined;
   }
 
   private recruit(kind: UnitKind): void {
     if (kind === 'inquisitor') return;
     const def = UNIT_DEFINITIONS[kind];
-    const needsWorkshop = kind === 'guard' || kind === 'archer';
-    if (this.bedsUsed() >= this.bedCapacity()) return this.hud.toast('Kein freies Bett', 'Erweitere die Schlafkammer.', true);
-    if (!this.hasFunctionalRoom('kitchen')) return this.hud.toast('Keine Küche', 'Normale Rekruten benötigen eine fertiggestellte Pilzküche.', true);
-    if (needsWorkshop && !this.hasFunctionalRoom('workshop')) return this.hud.toast('Keine Werkstatt', 'Guard und Archer benötigen eine fertiggestellte Werkstatt.', true);
-    if (kind === 'hexbinder' && !this.nodes.find((node) => node.id === 'shrine')?.claimed) {
-      return this.hud.toast('Schrein nicht erobert', 'Der Hexbinder benötigt Zugang zur arkanen Quelle.', true);
-    }
-    if (this.stock.ration < def.ration || this.stock.armour < def.armour || this.stock.essence < def.essence) {
-      return this.hud.toast('Voraussetzungen fehlen', `Benötigt ${def.ration} Ration, ${def.armour} Rüstung und ${def.essence} Essenz.`, true);
-    }
-    this.stock.ration -= def.ration;
-    this.stock.armour -= def.armour;
-    this.stock.essence -= def.essence;
+    const reason = this.recruitBlockReason(kind);
+    if (reason) return this.hud.toast('Rekrutierung blockiert', reason, true);
+    this.consumeStock('ration', def.ration);
+    this.consumeStock('armour', def.armour);
+    this.consumeStock('essence', def.essence);
     this.hud.toast(`${def.label} wird gerufen`, `${BALANCE.recruitmentSeconds[kind]} Sekunden am Covenant-Herz.`);
     this.time.delayedCall((BALANCE.recruitmentSeconds[kind] * 1000) / Math.max(this.speed, 1), () => {
       if (this.ended) return;
@@ -1942,7 +2250,7 @@ export class GameScene extends Phaser.Scene {
 
   private covenantPulse(): void {
     if (this.stock.essence < BALANCE.pulseCost || this.pulseCooldown > 0) return;
-    this.stock.essence -= BALANCE.pulseCost;
+    this.consumeStock('essence', BALANCE.pulseCost);
     this.pulseCooldown = BALANCE.pulseCooldown;
     this.heartHp = Math.min(BALANCE.heartHp, this.heartHp + 20);
     for (const enemy of this.enemies.filter((candidate) =>
@@ -1957,6 +2265,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   private setTool(tool: ToolKind): void {
+    const lockReason = this.toolLockReason(tool);
+    if (lockReason) {
+      this.hud.toast('Noch nicht freigeschaltet', lockReason, true);
+      return;
+    }
     this.tool = tool;
     const hints: Partial<Record<ToolKind, string>> = {
       pan: 'Ziehen: Kamera bewegen · Mausrad/Pinch: zoomen · Klick: untersuchen',
@@ -1964,16 +2277,33 @@ export class GameScene extends Phaser.Scene {
       chamber: 'Ziehe eine rechteckige Kammer (max. 10×10)',
       'banner-attack': 'Setze das Banner auf ein feindliches Gebiet. Kämpfer sammeln sich automatisch.',
       'banner-defend': 'Setze den Haltepunkt. Frontkämpfer stehen vor Fernkämpfern.',
-      trap: 'Klicke auf begehbaren Boden. Kosten: 2 Rüstungsgüter · 6 Ladungen.',
+      trap: `Klicke auf beanspruchten Boden. Kosten: ${BALANCE.trapBuildMetal} Metall · 1 Rüstung lädt 6 Schüsse.`,
     };
     if (tool.startsWith('room-')) {
       const kind = tool.slice(5) as RoomKind;
       const room = ROOM_DEFINITIONS[kind];
-      this.hud.setHint(`${room.label}: mindestens ${room.minW}×${room.minH} auf beanspruchtem Boden · ${room.baseCost} Metall`);
+      const minimumCost = roomCost(kind, room.minW * room.minH);
+      this.hud.setHint(`${room.label}: ${room.minW}×${room.minH} bis ${room.maxW}×${room.maxH} · ab ${minimumCost} Metall`);
     } else {
       this.hud.setHint(hints[tool]);
     }
     this.updateHud();
+  }
+
+  private toolLockReason(tool: ToolKind): string | undefined {
+    if (tool === 'room-bedroom' || tool === 'room-smelter') {
+      return this.phase < 2 ? 'Wird nach der ersten Nahrungskette in Phase 2 freigeschaltet.' : undefined;
+    }
+    if (tool === 'room-workshop' || tool === 'trap') {
+      return this.phase < 3 ? 'Wird mit Phase 3 nach Metallproduktion und zwei Betten freigeschaltet.' : undefined;
+    }
+    if (tool === 'banner-attack') {
+      return this.phase < 4 ? 'Das Angriffsbanner wird nach dem ersten zusätzlichen Kämpfer freigeschaltet.' : undefined;
+    }
+    if (tool === 'room-prison') {
+      return this.phase < 5 ? 'Das Gefängnis wird für die Schreinmission in Phase 5 freigeschaltet.' : undefined;
+    }
+    return undefined;
   }
 
   private setSpeed(speed: 0 | 1 | 2): void {
@@ -2009,6 +2339,7 @@ export class GameScene extends Phaser.Scene {
         marked++;
       }
       this.hud.toast('Grabung markiert', `${marked} Felsfelder · ${Math.min(3, this.workers.length)} Arbeiter verfügbar`);
+      this.markJobsDirty();
       this.wakeIdleWorkers();
       this.redrawWorldDetails(false);
       return;
@@ -2038,8 +2369,13 @@ export class GameScene extends Phaser.Scene {
     const w = Math.abs(end.x - start.x) + 1;
     const h = Math.abs(end.y - start.y) + 1;
     const def = ROOM_DEFINITIONS[kind];
+    const lockReason = this.toolLockReason(`room-${kind}`);
+    if (lockReason) return this.hud.toast('Raum noch gesperrt', lockReason, true);
     const orientationValid = (w >= def.minW && h >= def.minH) || (w >= def.minH && h >= def.minW);
     if (!orientationValid) return this.hud.toast('Fläche zu klein', `${def.label} benötigt mindestens ${def.minW}×${def.minH}.`, true);
+    if (w > def.maxW || h > def.maxH) {
+      return this.hud.toast('Fläche zu groß', `${def.label} ist auf ${def.maxW}×${def.maxH} Felder begrenzt.`, true);
+    }
     const cells = this.rectPoints(start, end);
     if (cells.some((point) => {
       const tile = this.tileAt(point.x, point.y);
@@ -2050,34 +2386,57 @@ export class GameScene extends Phaser.Scene {
     if (cells.some((point) => this.rooms.some((room) => this.pointInRoom(point, room)))) {
       return this.hud.toast('Fläche belegt', 'Ein bestehender Raum blockiert die Auswahl.', true);
     }
-    if (this.stock.metal < def.baseCost) return this.hud.toast('Zu wenig Metall', `${def.label} kostet ${def.baseCost} Metall.`, true);
-    this.stock.metal -= def.baseCost;
-    const room: Room = { id: this.nextId++, kind, x, y, w, h, progress: 0, activeRecipe: false };
+    const cost = roomCost(kind, cells.length);
+    if (this.stock.metal < cost) return this.hud.toast('Zu wenig Metall', `${def.label} kostet bei ${cells.length} Feldern ${cost} Metall.`, true);
+    this.consumeStock('metal', cost);
+    const room: Room = { id: this.nextId++, kind, x, y, w, h, progress: 0, activeRecipe: false, inputStored: 0 };
     this.rooms.push(room);
     this.assignRoomTiles(room, 'planned');
+    this.markJobsDirty();
     this.wakeIdleWorkers();
     this.redrawWorldDetails(false);
     this.audio.tone(188, 0.09, 0.02, 'square');
     this.hud.toast(
       `${def.label} geplant`,
-      `${w * h} Felder · Arbeiter errichten den Raum jetzt Feld für Feld.`,
+      `${w * h} Felder · ${cost} Metall · ${this.roomScaleSummary(room)}`,
     );
   }
 
+  private roomScaleSummary(room: Pick<Room, 'kind' | 'w' | 'h'>): string {
+    const cells = room.w * room.h;
+    if (room.kind === 'bedroom') return `${bedroomCapacity(cells)} Betten`;
+    if (room.kind === 'prison') return `${prisonCapacity(cells)} Zellen`;
+    if (room.kind in RECIPES) return `${productionStations(cells)} Produktionsstation(en)`;
+    return `${cells * 5} Lagerplätze`;
+  }
+
   private placeTrap(point: GridPoint): void {
-    if (!this.isPassable(point.x, point.y) || this.stock.armour < 2) {
-      return this.hud.toast('Falle blockiert', 'Benötigt begehbaren Boden und 2 Rüstungsgüter.', true);
+    const tile = this.tileAt(point.x, point.y);
+    if (this.phase < 3) {
+      return this.hud.toast('Falle noch gesperrt', 'Fallen werden mit der Werkstatt in Phase 3 freigeschaltet.', true);
     }
-    this.stock.armour -= 2;
+    if (!tile || !this.isPassable(point.x, point.y) || tile.control !== 'owned'
+      || tile.roomId !== undefined || tile.roomKind !== undefined) {
+      return this.hud.toast('Falle blockiert', 'Wähle freien, beanspruchten Boden.', true);
+    }
+    if (this.traps.some((trap) => trap.x === point.x && trap.y === point.y)) {
+      return this.hud.toast('Feld belegt', 'Hier steht bereits eine Falle.', true);
+    }
+    if (this.stock.metal < BALANCE.trapBuildMetal) {
+      return this.hud.toast('Zu wenig Metall', `Eine Bolzenfalle kostet ${BALANCE.trapBuildMetal} Metall.`, true);
+    }
+    this.consumeStock('metal', BALANCE.trapBuildMetal);
     this.traps.push({
       id: this.nextId++,
       x: point.x,
       y: point.y,
-      charges: 6,
+      charges: 0,
       cooldown: 0,
-      sprite: this.add.sprite(this.wx(point.x), this.wy(point.y), 'trap').setDepth(16),
+      sprite: this.add.sprite(this.wx(point.x), this.wy(point.y), 'trap').setDisplaySize(27, 27).setDepth(16).setTint(0x66616a),
     });
-    this.hud.toast('Bolzenfalle geladen', '6 Ladungen · Arbeiter liefern automatisch nach, sobald Rüstung verfügbar ist.');
+    this.markJobsDirty();
+    this.wakeIdleWorkers();
+    this.hud.toast('Bolzenfalle gebaut', 'Leer · ein Arbeiter liefert automatisch 1 Rüstungsgut für 6 Schüsse.');
   }
 
   private drawPreview(start: GridPoint, end: GridPoint): void {
@@ -2088,7 +2447,20 @@ export class GameScene extends Phaser.Scene {
         this.preview.fillRect(point.x * TILE + 3, point.y * TILE + 3, TILE - 6, TILE - 6);
       }
     } else if (this.tool === 'chamber' || this.tool.startsWith('room-')) {
-      const valid = !this.tool.startsWith('room-') || this.rectPoints(start, end).every((point) => this.isPassable(point.x, point.y));
+      const cells = this.rectPoints(start, end);
+      const width = Math.abs(end.x - start.x) + 1;
+      const height = Math.abs(end.y - start.y) + 1;
+      let valid = true;
+      if (this.tool.startsWith('room-')) {
+        const kind = this.tool.slice(5) as RoomKind;
+        const def = ROOM_DEFINITIONS[kind];
+        const largeEnough = (width >= def.minW && height >= def.minH) || (width >= def.minH && height >= def.minW);
+        valid = largeEnough
+          && width <= def.maxW
+          && height <= def.maxH
+          && cells.every((point) => this.tileAt(point.x, point.y)?.control === 'owned' && this.isPassable(point.x, point.y));
+        this.hud.setHint(`${def.label}: ${width}×${height} · ${roomCost(kind, cells.length)} Metall · ${valid ? this.roomScaleSummary({ kind, w: width, h: height }) : 'Fläche ungültig'}`);
+      }
       this.preview.fillStyle(valid ? 0x68ac82 : 0xbd5d62, 0.34);
       const x = Math.min(start.x, end.x) * TILE;
       const y = Math.min(start.y, end.y) * TILE;
@@ -2501,17 +2873,33 @@ export class GameScene extends Phaser.Scene {
         enemy.active && Phaser.Math.Distance.Between(worker.x, worker.y, enemy.x, enemy.y) < 4);
       if (endangered) {
         this.statusLayer.lineStyle(2, COLORS.blood, dangerPulse)
-          .strokeCircle(this.wx(worker.x), this.wy(worker.y), 12);
+          .strokeCircle(worker.sprite.x, worker.sprite.y, 12);
       }
     }
-    for (const actor of this.units) this.healthBar(actor.x, actor.y, actor.hp / actor.maxHp, 0x6da78b);
+    for (const actor of this.units) {
+      const ringColor = actor.hungry ? 0xc58a48 : actor.healing ? 0x72c59a : 0x72b58e;
+      this.statusLayer.lineStyle(actor.healing || actor.hungry ? 2 : 1, ringColor, 0.72)
+        .strokeCircle(actor.sprite.x, actor.sprite.y + 2, 13);
+      if (actor.healing) {
+        const cx = actor.sprite.x + 10;
+        const cy = actor.sprite.y - 10;
+        this.statusLayer.fillStyle(0x8bd3aa, 0.95).fillRect(cx - 3, cy - 1, 7, 2).fillRect(cx, cy - 4, 2, 8);
+      } else if (actor.hungry) {
+        this.statusLayer.fillStyle(0xd39a50, 0.95).fillCircle(actor.sprite.x + 10, actor.sprite.y - 10, 3);
+      }
+      this.healthBar(actor.sprite.x, actor.sprite.y, actor.hp / actor.maxHp, 0x6da78b);
+    }
     for (const enemy of this.enemies.filter((candidate) => candidate.sprite.visible)) {
-      if (enemy.hp < enemy.maxHp) this.healthBar(enemy.x, enemy.y, enemy.hp / enemy.maxHp, COLORS.blood);
+      if (enemy.active || enemy.wave) {
+        this.statusLayer.lineStyle(2, 0xd96065, 0.88)
+          .strokeCircle(enemy.sprite.x, enemy.sprite.y + 2, 13);
+        this.healthBar(enemy.sprite.x, enemy.sprite.y, enemy.hp / enemy.maxHp, 0xd96065);
+      }
     }
     for (const room of this.rooms.filter((candidate) => candidate.activeRecipe)) {
       const recipe = RECIPES[room.kind as keyof typeof RECIPES];
       const center = this.roomCenter(room);
-      const progress = room.progress / recipe.seconds;
+      const progress = room.progress / (recipe.seconds / productionStations(room.w * room.h));
       this.statusLayer.fillStyle(0x090a0d, 0.85).fillRect(this.wx(center.x) - 18, this.wy(room.y) - 18, 36, 4);
       this.statusLayer.fillStyle(COLORS.gold).fillRect(this.wx(center.x) - 17, this.wy(room.y) - 17, 34 * progress, 2);
     }
@@ -2531,8 +2919,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   private healthBar(x: number, y: number, ratio: number, color: number): void {
-    this.statusLayer.fillStyle(0x08090c, 0.85).fillRect(this.wx(x) - 10, this.wy(y) - 16, 20, 3);
-    this.statusLayer.fillStyle(color).fillRect(this.wx(x) - 9, this.wy(y) - 15, Math.max(0, 18 * ratio), 1);
+    this.statusLayer.fillStyle(0x08090c, 0.85).fillRect(x - 10, y - 16, 20, 3);
+    this.statusLayer.fillStyle(color).fillRect(x - 9, y - 15, Math.max(0, 18 * ratio), 1);
   }
 
   private inspectAt(point: GridPoint): void {
@@ -2562,9 +2950,40 @@ export class GameScene extends Phaser.Scene {
         status = `Baufortschritt ${complete}/${room.w * room.h}`;
       } else if (room.kind in RECIPES) {
         const recipe = RECIPES[room.kind as keyof typeof RECIPES];
-        status = room.activeRecipe ? `Produktion ${Math.floor((room.progress / recipe.seconds) * 100)} %` : `Wartet auf ${ITEM_LABELS[recipe.input]}`;
+        const stations = productionStations(room.w * room.h);
+        const cycleSeconds = recipe.seconds / stations;
+        const outputBlocked = this.items.some((item) => item.location === 'output' && item.sourceRoomId === room.id);
+        status = room.activeRecipe
+          ? `Produktion ${Math.floor((room.progress / cycleSeconds) * 100)} % · ${stations} Station(en) · Eingang ${room.inputStored}`
+          : outputBlocked
+            ? `Ausgang blockiert · Eingang ${room.inputStored}`
+            : room.inputStored < recipe.inputAmount
+              ? `Wartet auf ${recipe.inputAmount - room.inputStored} ${ITEM_LABELS[recipe.input]} · ${stations} Station(en)`
+              : `Eingang ${room.inputStored}/${recipe.inputAmount} ${ITEM_LABELS[recipe.input]} · ${stations} Station(en)`;
+      } else if (room.kind === 'storage') {
+        const stored = this.items
+          .filter((item) => item.location === 'stored' && item.storageRoomId === room.id)
+          .reduce((sum, item) => sum + item.amount, 0);
+        status = `Lager ${stored}/${room.w * room.h * 5}`;
       }
-      this.selectedContext = { title: def.label, body: `${room.w}×${room.h} Felder · ${status}` };
+      this.selectedContext = { title: def.label, body: `${room.w}×${room.h} Felder · ${roomCost(room.kind, room.w * room.h)} Metall · ${status}` };
+      return;
+    }
+    const trap = this.traps.find((candidate) => Phaser.Math.Distance.Between(point.x, point.y, candidate.x, candidate.y) < 1);
+    if (trap) {
+      this.selectedContext = {
+        title: 'Bolzenfalle',
+        body: `${trap.charges}/6 Schüsse · ${BALANCE.trapDamage} Schaden · ${BALANCE.trapRange} Felder Reichweite${trap.charges ? '' : ' · Keine Ladung: wartet auf 1 Rüstungsgut'}`,
+      };
+      return;
+    }
+    const actor = this.units.find((candidate) => Phaser.Math.Distance.Between(point.x, point.y, candidate.x, candidate.y) < 1);
+    if (actor) {
+      const need = actor.healing ? 'heilt im Bett' : actor.hungry ? 'hungrig: −20 % Bewegung, −15 % Angriff' : `nächste Ration in ${Math.ceil(actor.hungerTimer)} s`;
+      this.selectedContext = {
+        title: UNIT_DEFINITIONS[actor.kind].label,
+        body: `${Math.ceil(actor.hp)}/${actor.maxHp} HP · ${need}`,
+      };
       return;
     }
     const worker = this.workers.find((candidate) => Phaser.Math.Distance.Between(point.x, point.y, candidate.x, candidate.y) < 1);
@@ -2580,7 +2999,16 @@ export class GameScene extends Phaser.Scene {
         'prisoner-pick': 'Holt Gefangenen',
         'prisoner-deliver': 'Eskortiert Gefangenen',
       };
-      this.selectedContext = { title: `Arbeiter ${worker.id}`, body: `${labels[worker.state]}${worker.carry ? ` · trägt ${ITEM_LABELS[worker.carry.kind]}` : ''}` };
+      const workerStatus = worker.state === 'idle' ? worker.idleReason ?? labels.idle : labels[worker.state];
+      this.selectedContext = { title: `Arbeiter ${worker.id}`, body: `${workerStatus}${worker.carry ? ` · trägt ${ITEM_LABELS[worker.carry.kind]}` : ''} · ${worker.pathFailures} Pfadfehler` };
+      return;
+    }
+    const tile = this.tileAt(point.x, point.y);
+    if (tile?.geology === 'excavated' && !tile.claimable) {
+      this.selectedContext = {
+        title: 'Haupteingang',
+        body: 'Neutraler Invasionsweg · wird von Arbeitern nicht beansprucht und kann nicht bebaut werden.',
+      };
       return;
     }
     this.selectedContext = undefined;
@@ -2602,7 +3030,7 @@ export class GameScene extends Phaser.Scene {
       armour: this.stock.armour,
       beds: this.bedCapacity(),
       bedsUsed: this.bedsUsed(),
-      wave: String(this.currentWave),
+      wave: this.waveStatus(),
       speed: this.speed,
       tool: this.tool,
       phase: this.phase,
@@ -2611,12 +3039,31 @@ export class GameScene extends Phaser.Scene {
       elapsed: this.elapsed,
       trust: this.stats.trust,
       fear: this.stats.fear,
+      workers: this.workers.length,
+      maxWorkers: BALANCE.maxWorkers,
+      hungryUnits: this.units.filter((unit) => unit.hungry).length,
       pulseReady: this.stock.essence >= BALANCE.pulseCost && this.pulseCooldown <= 0,
+      canSummonWorker: this.workerSummonBlockReason() === undefined,
+      workerSummonReason: this.workerSummonBlockReason(),
       canRecruit: {
         guard: this.canRecruit('guard'),
         archer: this.canRecruit('archer'),
         hexbinder: this.canRecruit('hexbinder'),
       },
+      recruitReasons: {
+        guard: this.recruitBlockReason('guard'),
+        archer: this.recruitBlockReason('archer'),
+        hexbinder: this.recruitBlockReason('hexbinder'),
+      },
+      toolLocks: {
+        'room-bedroom': this.toolLockReason('room-bedroom'),
+        'room-smelter': this.toolLockReason('room-smelter'),
+        'room-workshop': this.toolLockReason('room-workshop'),
+        'room-prison': this.toolLockReason('room-prison'),
+        'banner-attack': this.toolLockReason('banner-attack'),
+        trap: this.toolLockReason('trap'),
+      },
+      objectiveChecklist: this.missionChecklist(),
       workerJobs: {
         haul: this.workers.filter((worker) => worker.state === 'pickup' || worker.state === 'deliver').length,
         dig: this.workers.filter((worker) => worker.state === 'dig').length,
@@ -2630,13 +3077,75 @@ export class GameScene extends Phaser.Scene {
     this.hud.update(state);
   }
 
+  private missionChecklist(): Array<{ label: string; done: boolean }> {
+    const hasRoom = (kind: RoomKind) => this.hasFunctionalRoom(kind);
+    if (this.phase === 1) {
+      const fungus = this.nodes.find((node) => node.id === 'fungus');
+      return [
+        { label: 'Pilzgrotte erreichen', done: Boolean(fungus?.discovered) },
+        { label: 'Pilzgrotte beanspruchen', done: Boolean(fungus?.claimed) },
+        { label: `4 Biomasse bergen (${Math.min(4, this.stats.biomassMined)}/4)`, done: this.stats.biomassMined >= 4 },
+        { label: 'Pilzküche fertigstellen', done: hasRoom('kitchen') },
+        { label: `2 Rationen herstellen (${Math.min(2, this.stats.rationsProduced)}/2)`, done: this.stats.rationsProduced >= 2 },
+      ];
+    }
+    if (this.phase === 2) {
+      return [
+        { label: 'Kleine Eisenader beanspruchen', done: Boolean(this.nodes.find((node) => node.id === 'iron')?.claimed) },
+        { label: 'Schmelze fertigstellen', done: hasRoom('smelter') },
+        { label: `2 Metall produzieren (${Math.min(2, this.stats.metalProduced)}/2)`, done: this.stats.metalProduced >= 2 },
+        { label: `2 Betten bereitstellen (${Math.min(2, this.bedCapacity())}/2)`, done: this.bedCapacity() >= 2 },
+      ];
+    }
+    if (this.phase === 3) {
+      return [
+        { label: 'Werkstatt fertigstellen', done: hasRoom('workshop') },
+        { label: `2 Rüstungsgüter herstellen (${Math.min(2, this.stats.armourProduced)}/2)`, done: this.stats.armourProduced >= 2 },
+        { label: `Einen Kämpfer rekrutieren (${Math.min(1, this.stats.recruited)}/1)`, done: this.stats.recruited >= 1 },
+      ];
+    }
+    if (this.phase === 4) {
+      return [
+        { label: 'Angriffsbanner beim Zwergen-Claim setzen', done: Boolean(this.bannerAttack) },
+        { label: 'Zwergen-Claim erobern und beanspruchen', done: Boolean(this.nodes.find((node) => node.id === 'dwarf')?.claimed) },
+        { label: `6 Roherz bergen (${Math.min(6, this.stats.dwarfOreMined)}/6)`, done: this.stats.dwarfOreMined >= 6 },
+      ];
+    }
+    return [
+      { label: 'Essenzschrein erobern', done: Boolean(this.nodes.find((node) => node.id === 'shrine')?.claimed) },
+      { label: 'Gefängnis mit freier Zelle bauen', done: hasRoom('prison') },
+      { label: 'Captain in die Zelle bringen', done: this.prisoner?.status === 'cell' || Boolean(this.stats.choice) },
+      { label: 'Urteil sprechen', done: Boolean(this.stats.choice) },
+      { label: 'Finalwelle überstehen', done: this.ended && this.heartHp > 0 },
+    ];
+  }
+
+  private waveStatus(): string {
+    const active = this.enemies.some((enemy) => enemy.wave && enemy.hp > 0);
+    if (active) return `Welle ${this.currentWave}`;
+    if (this.stats.choice && !this.finalSpawned) return `Finale ${Math.max(0, Math.ceil(this.finalSpawnAt - this.elapsed))}s`;
+    if (this.waveTwoSpawnAt !== undefined && this.currentWave < 2) return `W2 ${Math.max(0, Math.ceil(this.waveTwoSpawnAt - this.elapsed))}s`;
+    if (this.waveOneSpawnAt !== undefined && this.currentWave < 1) return `W1 ${Math.max(0, Math.ceil(this.waveOneSpawnAt - this.elapsed))}s`;
+    return this.currentWave ? `W${this.currentWave} vorbei` : 'Ruhe';
+  }
+
   private canRecruit(kind: 'guard' | 'archer' | 'hexbinder'): boolean {
+    return this.recruitBlockReason(kind) === undefined;
+  }
+
+  private recruitBlockReason(kind: 'guard' | 'archer' | 'hexbinder'): string | undefined {
     const def = UNIT_DEFINITIONS[kind];
-    if (this.bedsUsed() >= this.bedCapacity() || this.stock.ration < def.ration) return false;
-    if (!this.hasFunctionalRoom('kitchen')) return false;
-    if ((kind === 'guard' || kind === 'archer') && (!this.hasFunctionalRoom('workshop') || this.stock.armour < def.armour)) return false;
-    if (kind === 'hexbinder' && (!this.nodes.find((node) => node.id === 'shrine')?.claimed || this.stock.essence < def.essence)) return false;
-    return true;
+    if (this.phase < 3 && (kind === 'guard' || kind === 'archer')) return 'Kämpfer werden in Phase 3 freigeschaltet.';
+    if (this.phase < 5 && kind === 'hexbinder') return 'Hexbinder werden in Phase 5 freigeschaltet.';
+    if (this.bedsUsed() >= this.bedCapacity()) return 'Kein freies Bett · Schlafkammer bauen oder vergrößern.';
+    if (!this.hasFunctionalRoom('kitchen')) return 'Keine fertige Pilzküche.';
+    if ((kind === 'guard' || kind === 'archer') && !this.hasFunctionalRoom('workshop')) return 'Keine fertige Werkstatt.';
+    if (kind === 'hexbinder' && !this.nodes.find((node) => node.id === 'shrine')?.claimed) return 'Essenzschrein noch nicht erobert.';
+    const missing: string[] = [];
+    if (this.stock.ration < def.ration) missing.push(`${def.ration} Ration`);
+    if (this.stock.armour < def.armour) missing.push(`${def.armour} Rüstung`);
+    if (this.stock.essence < def.essence) missing.push(`${def.essence} Essenz`);
+    return missing.length ? `Fehlt: ${missing.join(', ')}.` : undefined;
   }
 
   private canMineNode(node: ResourceNode, routes?: PathTree): boolean {
@@ -2647,28 +3156,232 @@ export class GameScene extends Phaser.Scene {
       : this.reachableFromHeart(node.x, node.y);
   }
 
-  private createLooseItem(kind: ItemKind, amount: number, x: number, y: number): LooseItem {
+  private createLooseItem(
+    kind: ItemKind,
+    amount: number,
+    x: number,
+    y: number,
+    location: LooseItem['location'] = 'loose',
+    sourceRoomId?: number,
+  ): LooseItem {
     const item: LooseItem = {
       id: this.nextId++,
       kind,
       amount,
       x,
       y,
-      sprite: this.add.sprite(this.wx(x), this.wy(y), itemTexture[kind]).setDepth(25),
+      sprite: this.add.sprite(this.wx(x), this.wy(y), itemTexture[kind]).setDisplaySize(location === 'stored' ? 20 : 24, location === 'stored' ? 20 : 24).setDepth(25),
+      location,
+      sourceRoomId,
     };
     item.sprite.setInteractive({ useHandCursor: true }).on('pointerdown', () => {
-      this.selectedContext = { title: ITEM_LABELS[kind], body: `Lose Menge: ${amount} · wartet auf Transport` };
+      const locationLabel = item.location === 'stored'
+        ? 'eingelagert'
+        : item.location === 'output'
+          ? 'wartet am Maschinenausgang'
+          : 'wartet auf Transport';
+      this.selectedContext = { title: ITEM_LABELS[kind], body: `Menge: ${item.amount} · ${locationLabel}` };
     });
     this.items.push(item);
-    this.tweens.add({ targets: item.sprite, y: item.sprite.y - 3, yoyo: true, repeat: -1, duration: 850 + item.id % 300 });
+    this.syncItemAmountText(item);
+    if (location !== 'stored') {
+      this.tweens.add({ targets: item.sprite, y: item.sprite.y - 3, yoyo: true, repeat: -1, duration: 850 + item.id % 300 });
+    }
+    this.markJobsDirty();
     this.wakeIdleWorkers();
     return item;
   }
 
-  private deliveryPoint(kind: ItemKind): GridPoint {
-    if (kind === 'essence') return { ...HEART_TILE };
-    const storage = this.rooms.find((room) => room.kind === 'storage');
+  private seedStartingStorage(): void {
+    const starting = {
+      ore: this.stock.ore,
+      biomass: this.stock.biomass,
+      metal: this.stock.metal,
+      ration: this.stock.ration,
+      armour: this.stock.armour,
+    };
+    this.stock.ore = 0;
+    this.stock.biomass = 0;
+    this.stock.metal = 0;
+    this.stock.ration = 0;
+    this.stock.armour = 0;
+    for (const [kind, amount] of Object.entries(starting) as Array<[Exclude<ItemKind, 'essence'>, number]>) {
+      if (amount) this.storeItem(kind, amount);
+    }
+  }
+
+  private storageRooms(): Room[] {
+    return this.rooms.filter((room) => room.kind === 'storage' && this.isRoomComplete(room));
+  }
+
+  private storagePoint(room: Room, slot: number): GridPoint {
+    return { x: room.x + (slot % room.w), y: room.y + Math.floor(slot / room.w) };
+  }
+
+  private storageCapacity(): number {
+    return this.storageRooms().reduce((sum, room) => sum + room.w * room.h * 5, 0);
+  }
+
+  private storedAmount(): number {
+    return this.items
+      .filter((item) => item.location === 'stored')
+      .reduce((sum, item) => sum + item.amount, 0);
+  }
+
+  private canStoreAmount(kind: ItemKind, amount: number): boolean {
+    if (kind === 'essence') return true;
+    const matchingSpace = this.items
+      .filter((item) => item.location === 'stored' && item.kind === kind)
+      .reduce((sum, item) => sum + Math.max(0, 5 - item.amount), 0);
+    const freeSlots = this.storageRooms().reduce((sum, room) => {
+      const used = this.items.filter((item) => item.location === 'stored' && item.storageRoomId === room.id).length;
+      return sum + Math.max(0, room.w * room.h - used);
+    }, 0);
+    return matchingSpace + freeSlots * 5 >= amount;
+  }
+
+  private storeItem(kind: Exclude<ItemKind, 'essence'>, amount: number): number {
+    let remaining = amount;
+    for (const stack of this.items.filter((item) => item.location === 'stored' && item.kind === kind && item.amount < 5)) {
+      const moved = Math.min(remaining, 5 - stack.amount);
+      stack.amount += moved;
+      remaining -= moved;
+      this.syncItemAmountText(stack);
+      if (!remaining) break;
+    }
+    while (remaining > 0) {
+      const slot = this.findFreeStorageSlot();
+      if (!slot) break;
+      const moved = Math.min(5, remaining);
+      const point = this.storagePoint(slot.room, slot.index);
+      const stack = this.createLooseItem(kind, moved, point.x, point.y, 'stored');
+      stack.storageRoomId = slot.room.id;
+      stack.storageSlot = slot.index;
+      stack.sprite.setDisplaySize(20, 20);
+      this.syncItemAmountText(stack);
+      remaining -= moved;
+    }
+    this.recountStoredStock();
+    return remaining;
+  }
+
+  private findFreeStorageSlot(): { room: Room; index: number } | undefined {
+    for (const room of this.storageRooms()) {
+      for (let index = 0; index < room.w * room.h; index++) {
+        if (!this.items.some((item) =>
+          item.location === 'stored' && item.storageRoomId === room.id && item.storageSlot === index)) {
+          return { room, index };
+        }
+      }
+    }
+    return undefined;
+  }
+
+  private recountStoredStock(): void {
+    for (const kind of ['ore', 'biomass', 'metal', 'ration', 'armour'] as const) {
+      this.stock[kind] = this.items
+        .filter((item) => item.location === 'stored' && item.kind === kind)
+        .reduce((sum, item) => sum + item.amount, 0);
+    }
+  }
+
+  private consumeStock(kind: ItemKind, amount: number): boolean {
+    if (this.stock[kind] < amount) return false;
+    if (kind === 'essence') {
+      this.stock.essence -= amount;
+      return true;
+    }
+    let remaining = amount;
+    for (const stack of [...this.items].filter((item) => item.location === 'stored' && item.kind === kind)) {
+      const taken = Math.min(remaining, stack.amount);
+      stack.amount -= taken;
+      remaining -= taken;
+      if (stack.amount <= 0) this.destroyItem(stack);
+      else this.syncItemAmountText(stack);
+      if (!remaining) break;
+    }
+    this.recountStoredStock();
+    this.markJobsDirty();
+    return remaining === 0;
+  }
+
+  private takeFromItem(item: LooseItem, amount: number): number {
+    const taken = Math.min(amount, item.amount);
+    item.amount -= taken;
+    if (item.amount <= 0) this.destroyItem(item);
+    else this.syncItemAmountText(item);
+    if (item.location === 'stored') this.recountStoredStock();
+    this.markJobsDirty();
+    return taken;
+  }
+
+  private destroyItem(item: LooseItem): void {
+    this.tweens.killTweensOf(item.sprite);
+    item.amountText?.destroy();
+    item.sprite.destroy();
+    this.items = this.items.filter((candidate) => candidate.id !== item.id);
+  }
+
+  private syncItemAmountText(item: LooseItem): void {
+    if (item.amount <= 1) {
+      item.amountText?.destroy();
+      item.amountText = undefined;
+      return;
+    }
+    item.amountText ??= this.add.text(item.sprite.x + 7, item.sprite.y + 5, '', {
+      fontFamily: 'Arial',
+      fontSize: '8px',
+      fontStyle: 'bold',
+      color: '#f4e5b8',
+      stroke: '#090a0d',
+      strokeThickness: 2,
+    }).setOrigin(0.5).setDepth(27);
+    item.amountText.setText(`×${item.amount}`).setPosition(item.sprite.x + 7, item.sprite.y + 5);
+  }
+
+  private roomNeedingInput(kind: ItemKind, excluded = new Set<number>()): Room | undefined {
+    return this.rooms
+      .filter((room) => this.isRoomComplete(room) && room.kind in RECIPES)
+      .filter((room) => !excluded.has(room.id))
+      .filter((room) => RECIPES[room.kind as keyof typeof RECIPES].input === kind)
+      .filter((room) => {
+        const recipe = RECIPES[room.kind as keyof typeof RECIPES];
+        return room.inputStored < recipe.inputAmount * productionStations(room.w * room.h) * 2;
+      })
+      .sort((a, b) => a.inputStored - b.inputStored || a.id - b.id)[0];
+  }
+
+  private deliveryPoint(delivery: { kind: DeliveryKind; roomId?: number; trapId?: number }): GridPoint {
+    if (delivery.kind === 'heart') return { ...HEART_TILE };
+    if (delivery.kind === 'room') {
+      const room = this.rooms.find((candidate) => candidate.id === delivery.roomId);
+      if (room) return this.roomCenter(room);
+    }
+    if (delivery.kind === 'trap') {
+      const trap = this.traps.find((candidate) => candidate.id === delivery.trapId);
+      if (trap) return { x: trap.x, y: trap.y };
+    }
+    const storage = this.storageRooms()[0];
     return storage ? this.roomCenter(storage) : { x: 29, y: sy(24) };
+  }
+
+  private syncRoomInputVisual(room: Room): void {
+    this.roomInputVisuals.get(room.id)?.destroy(true);
+    this.roomInputVisuals.delete(room.id);
+    if (!room.inputStored || !(room.kind in RECIPES)) return;
+    const recipe = RECIPES[room.kind as keyof typeof RECIPES];
+    const x = this.wx(room.x + 0.32);
+    const y = this.wy(room.y + 0.35);
+    const sprite = this.add.sprite(0, 0, itemTexture[recipe.input]).setDisplaySize(18, 18);
+    const label = this.add.text(7, 5, `×${room.inputStored}`, {
+      fontFamily: 'Arial',
+      fontSize: '8px',
+      fontStyle: 'bold',
+      color: '#f4e5b8',
+      stroke: '#090a0d',
+      strokeThickness: 2,
+    }).setOrigin(0.5);
+    this.roomInputVisuals.set(room.id, this.add.container(x, y, [sprite, label]).setDepth(26));
   }
 
   private endGame(victory: boolean): void {
@@ -2700,7 +3413,12 @@ export class GameScene extends Phaser.Scene {
     const pole = this.add.rectangle(0, 0, 2, 25, 0xcbb372).setOrigin(0.5, 1);
     const flag = this.add.triangle(0, -24, 0, 0, 15, 6, 0, 12, kind === 'attack' ? 0xa7464e : 0x50779b);
     const glow = this.add.circle(0, -8, kind === 'attack' ? TILE * 6 : TILE * 2, kind === 'attack' ? 0xa7464e : 0x50779b, 0.035);
-    const container = this.add.container(this.wx(point.x), this.wy(point.y), [glow, pole, flag]).setDepth(29);
+    const overlapsHeart = kind === 'defend'
+      && Math.round(point.x) === HEART_TILE.x
+      && Math.round(point.y) === HEART_TILE.y;
+    const markerX = overlapsHeart ? point.x + 1.15 : point.x;
+    const markerY = overlapsHeart ? point.y + 0.7 : point.y;
+    const container = this.add.container(this.wx(markerX), this.wy(markerY), [glow, pole, flag]).setDepth(29);
     const tween = this.tweens.add({ targets: flag, scaleX: 0.78, yoyo: true, repeat: -1, duration: 620 });
     if (kind === 'attack') {
       this.bannerAttackSprite = container;
@@ -2799,7 +3517,7 @@ export class GameScene extends Phaser.Scene {
   private bedCapacity(): number {
     return this.rooms
       .filter((room) => room.kind === 'bedroom' && this.isRoomComplete(room))
-      .reduce((sum, room) => sum + Math.floor((room.w * room.h) / 4), 0);
+      .reduce((sum, room) => sum + bedroomCapacity(room.w * room.h), 0);
   }
 
   private hasFunctionalRoom(kind: RoomKind): boolean {

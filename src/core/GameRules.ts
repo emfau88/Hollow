@@ -1,4 +1,4 @@
-import { RECIPES, UNIT_DEFINITIONS, type ItemKind, type UnitKind } from '../data/definitions';
+import { RECIPES, UNIT_DEFINITIONS, type ItemKind, type RoomKind, type UnitKind } from '../data/definitions';
 
 export type Stock = Record<ItemKind, number>;
 
@@ -35,6 +35,25 @@ export function canRecruitUnit(kind: Exclude<UnitKind, 'inquisitor'>, context: R
   return true;
 }
 
+export function roomCost(kind: RoomKind, cells: number): number {
+  if (kind === 'storage') return 0;
+  if (kind === 'bedroom') return Math.ceil(cells / 2);
+  const base = kind === 'prison' ? 4 : kind === 'kitchen' ? 2 : 3;
+  return base + Math.ceil(cells / 3);
+}
+
+export function productionStations(cells: number): number {
+  return Math.max(1, Math.min(2, Math.floor(cells / 6)));
+}
+
+export function bedroomCapacity(cells: number): number {
+  return Math.floor(cells / 4);
+}
+
+export function prisonCapacity(cells: number): number {
+  return Math.floor(cells / 4);
+}
+
 export function prisonerConsequences(
   choice: 'release' | 'recruit' | 'sacrifice',
   current: { trust: number; fear: number; stock: Stock; finalWaveSize: number },
@@ -69,7 +88,7 @@ export function missionPhase(input: {
 }): number {
   if (input.phase === 1 && input.hasKitchen && input.biomassMined >= 4 && input.rationsProduced >= 2) return 2;
   if (input.phase === 2 && input.hasSmelter && input.metalProduced >= 2 && input.beds >= 2) return 3;
-  if (input.phase === 3 && input.hasWorkshop && input.armourProduced >= 2 && input.recruited >= 2) return 4;
+  if (input.phase === 3 && input.hasWorkshop && input.armourProduced >= 2 && input.recruited >= 1) return 4;
   if (input.phase === 4 && input.dwarfClaimed && input.dwarfOreMined >= 6) return 5;
   return input.phase;
 }
