@@ -18,6 +18,7 @@
 - Theme-Auswahl und Style-B-Aliase: bestanden
 - Style-B-Asset-Build: reproduzierbar ausgeführt
 - Style-B-V2-Asset-Build: reproduzierbar ausgeführt
+- Style-B-V3-Asset-Build: reproduzierbar ausgeführt
 - alle neuen transparenten Laufzeitassets: transparente Ecken und plausible Motivabdeckung bestanden
 
 ## Browserprüfung
@@ -74,6 +75,18 @@ Geprüft wurde die laufende Anwendung, nicht nur der Quellcode:
 - Breitbild-Abnahme bei 1920 × 1080: Herzraum und Pilzgrotte gemeinsam im
   Startbild sichtbar, keine Browserfehler oder Warnungen
 - Abnahmebild: `docs/screenshots/style-b-v2-gameplay.png`
+- V3-Breitbild-Abnahme im echten Spiel: plastische Materialböden und Wandstirnen,
+  vergrößerter Herzraum sowie geschichtete Herzfassung korrekt dargestellt
+- alle kleinen neutralen Style-B-Räume als vollständige Rechtecke geprüft;
+  vier Eckkacheln, L-Module sowie Drei- und Vierfachanschlüsse ohne fehlende
+  Quadrate
+- alle drei Arbeiter und die Startwache innerhalb der Herzraummauern; Dekor und
+  Figuren überdecken keine Wandsegmente
+- Grotto-Material durch cobaltfarbenen Puffer vom Herzraum getrennt; keine
+  grünen Bodenkacheln im Covenant-Raum
+- orange Style-B-Besitzkontur entfernt; Tutorialverbindung bleibt als eigene,
+  funktionale Zielmarkierung erhalten
+- aktuelles Abnahmebild: `docs/screenshots/style-b-v3-gameplay.png`
 - Standardtheme ohne URL-Parameter unverändert; Style B bleibt bis zur
   vollständigen Raum- und Fraktionsproduktion opt-in
 

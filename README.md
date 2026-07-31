@@ -24,8 +24,8 @@ vollständig ausgestattete Pilzgrotte. Der bisherige Stil bleibt vorerst Standar
 
 <p align="center">
   <strong><a href="https://emfau88.github.io/Hollow/?theme=style-b">▶ Style-B-Slice direkt im Browser ausprobieren</a></strong><br /><br />
-  <a href="https://emfau88.github.io/Hollow/?theme=style-b"><img src="docs/screenshots/style-b-v2-gameplay.png" width="82%" alt="Spielbarer Style-B-Startbereich mit Herz-Hauptquartier und Pilzgrotte"></a><br />
-  <small>Echter Spielscreen des umgebauten Herzraums und der sichtbaren Pilzgrotte.</small>
+  <a href="https://emfau88.github.io/Hollow/?theme=style-b"><img src="docs/screenshots/style-b-v3-gameplay.png" width="82%" alt="Spielbarer Style-B-Startbereich mit plastischen Wänden, Herz-Hauptquartier und Pilzgrotte"></a><br />
+  <small>Echter Spielscreen mit vergrößertem Herzraum, 2.5D-Wandbausatz, plastischen Böden und sichtbarer Pilzgrotte.</small>
 </p>
 
 ## Vision

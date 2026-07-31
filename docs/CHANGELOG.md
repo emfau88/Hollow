@@ -1,5 +1,23 @@
 # Changelog
 
+## Style B V3 – räumliche Kartenarchitektur – 31. Juli 2026
+
+- gerichteten 2.5D-Wandbausatz mit vier geraden Modulen, vier echten L-Ecken,
+  sichtbaren Stirnflächen und Kontaktschatten integriert
+- vertauschte ES-/SW-Eckquellen korrigiert und Drei-/Vierfachanschlüsse ohne
+  transparente Eckquadrate geschlossen
+- bekannte Style-B-Zielräume als vollständige Rechtecke einschließlich aller
+  vier Eckfelder aufgebaut
+- großformatige, plastische Fels-, Grabungs-, Covenant- und Pilzgrotto-Böden
+  sowie sechs niedrige Bodendecals ergänzt
+- Pilzmaterial räumlich vom Herzraum getrennt und orange Besitzkontur in Style B
+  entfernt
+- Herzraum auf 15 × 11 Felder erweitert, Dekoration an den Außenring verlegt und
+  Startfiguren auf sichere Innenpositionen gesetzt
+- Herz zwischen architektonischer Rückplatte und vorderer Fassung eingebettet
+- V3-Assetquellen, reproduzierbaren Build, Preview und echten Browser-Screenshot
+  dokumentiert
+
 ## Style B Vertical Slice – 31. Juli 2026
 
 - freundlich-humorvolle „Dungeon Administration“-Richtung als verbindliche Style Bible dokumentiert

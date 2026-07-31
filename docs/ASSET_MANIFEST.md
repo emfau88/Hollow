@@ -122,3 +122,20 @@ Zwischenstufe und Fallback vollständig erhalten.
 `wall-concept-unused.png` wurde bewusst nicht verwendet, weil die Perspektive
 nicht zur orthogonalen Spielkarte passt. Es bleibt ausschließlich als
 dokumentierte Imagegen-Quelle erhalten.
+
+## Style B V3 – räumliche Karte
+
+Der dritte Style-B-Pass liegt unter `public/assets/generated/style-b-v3/`:
+
+- `walls/`: vier gerichtete gerade Wandmodule und vier vollständige L-Ecken;
+- `terrain/`: cobaltfarbener Fels, Grabungs-, Covenant- und Grotto-Boden sowie
+  die weiterhin benötigten Fallback-Materialien;
+- `decals/`: Schutt, Grabungsspur, Covenant-Einlage, Moos, Sporen und Pfütze;
+- `heart/`: architektonische Rückplatte und vordere Klemmfassung;
+- `style-b-v3-preview.png`: kombinierte visuelle Assetabnahme.
+
+Die vier unveränderten Masterbilder und ihre freigestellten Zwischenstände
+liegen unter `style-b-v3/sources/`. `scripts/asset_tools/build_style_b_v3.py`
+schneidet sie reproduzierbar zu, erzeugt 32-Pixel-Terrainatlanten und ordnet
+die beiden mittleren Eckzellen des generierten Wandbogens explizit als SW und
+ES zu. Diese feste Zuordnung verhindert gespiegelte L-Ecken.

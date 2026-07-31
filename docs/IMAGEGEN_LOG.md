@@ -101,3 +101,20 @@ aus Lampen-, Verwaltungs-, Transport- und Pilzmotiven. Alle Master nutzen einen
 flachen `#ff00ff`-Hintergrund. Chroma-Key, manuelle Regionszuschnitte,
 Laufzeitskalierung und Preview sind über
 `scripts/asset_tools/build_style_b_v2.py` reproduzierbar.
+
+## Style B V3 – 31. Juli 2026
+
+Vier Imagegen-Aufrufe erzeugten die räumliche Kartenebene. Alle transparenten
+Motive wurden auf einem flachen `#ff00ff`-Hintergrund angefordert und lokal per
+Chroma-Key freigestellt.
+
+| Nr. | verwendeter Prompt (kompakt) | Masterdatei | Verwendung |
+|---:|---|---|---|
+| 1 | Exakter 4×2-Bogen aus N/E/S/W-Wandsegmenten und NE/ES/SW/WN-L-Ecken; orthogonale Draufsicht mit flacher 2.5D-Steinkappe, dunkler Stirn, Kontaktschatten und sparsamen Messingankern | `style-b-v3/sources/wall-kit-master.png` | acht gerichtete Wandmodule |
+| 2 | Exakter 2×2-Bogen aus cobaltfarbenem Fels, ausgegrabenem Boden, pflaumenfarbenem Covenant-Stein und mintfeuchtem Grotto-Boden; handgemalte große Formen, keine Objekte oder Schrift | `style-b-v3/sources/terrain-materials-master.png` | vier plastische Materialfamilien |
+| 3 | Exakter 3×2-Bogen aus Schutt, Werkzeug-/Grabungsspur, Covenant-Einlage, Moos, Sporen und Pfütze; orthogonal, niedrig, freigestellt und ohne Gebäude | `style-b-v3/sources/ground-decals-master.png` | sechs Bodendecals |
+| 4 | Exakter 2×1-Bogen aus symmetrischer leerer Herz-Rückplatte und vorderer Klemmfassung; Messing, Stein, keine Figur, kein Kern und keine Schrift | `style-b-v3/sources/heart-mount-master.png` | Kern zwischen zwei Architekturebenen eingebettet |
+
+Die Laufzeitassets und die kombinierte Vorschau erzeugt
+`scripts/asset_tools/build_style_b_v3.py`. Die unveränderten Masterdateien
+bleiben als Herkunftsnachweis erhalten.

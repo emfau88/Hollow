@@ -25,12 +25,21 @@ export interface TerrainAssetKeys {
   rockRoots: string;
   rockEarth: string;
   rawFloor: string;
+  dampFloor: string;
   claimedCorridor: string;
   claimedFloor: string;
   wallEdge: string;
   wallCorner: string;
   claimedBorder: string;
   enemyBorder: string;
+  wallNorth?: string;
+  wallEast?: string;
+  wallSouth?: string;
+  wallWest?: string;
+  wallNorthEast?: string;
+  wallEastSouth?: string;
+  wallSouthWest?: string;
+  wallWestNorth?: string;
 }
 
 const SURFACE_SHEET_TILES = 16;
@@ -94,6 +103,45 @@ export class TerrainRenderer {
     const s = this.isWall(q, x, y + 1);
     const w = this.isWall(q, x - 1, y);
     const count = Number(n) + Number(e) + Number(s) + Number(w);
+    const directional = this.assets.wallNorth
+      && this.assets.wallEast
+      && this.assets.wallSouth
+      && this.assets.wallWest
+      && this.assets.wallNorthEast
+      && this.assets.wallEastSouth
+      && this.assets.wallSouthWest
+      && this.assets.wallWestNorth;
+
+    if (directional) {
+      // Every adjacent pair gets a complete authored L. This also closes the
+      // two joints at dead ends (three walls) and all four joints of an
+      // isolated open tile instead of leaving a transparent square at them.
+      let cornerCount = 0;
+      if (n && e) {
+        this.drawOverlay(this.assets.wallNorthEast!, x, y, 0, alpha);
+        cornerCount += 1;
+      }
+      if (e && s) {
+        this.drawOverlay(this.assets.wallEastSouth!, x, y, 0, alpha);
+        cornerCount += 1;
+      }
+      if (s && w) {
+        this.drawOverlay(this.assets.wallSouthWest!, x, y, 0, alpha);
+        cornerCount += 1;
+      }
+      if (w && n) {
+        this.drawOverlay(this.assets.wallWestNorth!, x, y, 0, alpha);
+        cornerCount += 1;
+      }
+      if (cornerCount > 0) return;
+
+      // Single edges and opposing pairs have no corner joint.
+      if (n) this.drawOverlay(this.assets.wallNorth!, x, y, 0, alpha);
+      if (e) this.drawOverlay(this.assets.wallEast!, x, y, 0, alpha);
+      if (s) this.drawOverlay(this.assets.wallSouth!, x, y, 0, alpha);
+      if (w) this.drawOverlay(this.assets.wallWest!, x, y, 0, alpha);
+      return;
+    }
 
     // The authored L-piece prevents the darkest wall faces from doubling in
     // the most common two-edge corners.
@@ -132,6 +180,10 @@ export class TerrainRenderer {
   private drawControlEdges(q: TerrainQuery, x: number, y: number): void {
     const control = q.controlAt(x, y);
     if (control !== 'owned' && control !== 'enemy' && control !== 'claiming') return;
+    // Style B communicates ownership through its plum room floor. Keeping the
+    // old orange dashed perimeter on top of the architectural walls made the
+    // starting chamber look like a debug overlay; enemy borders stay visible.
+    if (control !== 'enemy' && this.assets.wallNorth) return;
     const key = control === 'enemy' ? this.assets.enemyBorder : this.assets.claimedBorder;
     const alpha = control === 'claiming' ? 0.55 : 1;
 
@@ -150,15 +202,18 @@ export class TerrainRenderer {
       return;
     }
 
+    const damp = q.materialAt(x, y) === 'damp';
     if (visibility === 'charted') {
       this.drawSurface(rock, x, y);
-      this.drawSurface(this.assets.rawFloor, x, y, 0.66);
+      this.drawSurface(damp ? this.assets.dampFloor : this.assets.rawFloor, x, y, damp ? 0.9 : 0.72);
       return;
     }
 
     const floor = q.floorAt(x, y);
     const floorKey = floor === 'room'
       ? this.assets.claimedFloor
+      : damp
+        ? this.assets.dampFloor
       : floor === 'claimed'
         ? this.assets.claimedCorridor
         : this.assets.rawFloor;
@@ -206,6 +261,12 @@ export class TerrainRenderer {
    * stamped. A single claim/build/dig update therefore touches at most 9 tiles.
    */
   renderTiles(q: TerrainQuery, changed: TerrainPoint[]): void {
+    if (this.assets.wallNorth) {
+      // The dimensional wall sprites overlap neighbouring cells. A full pass
+      // avoids clipped remnants during digging while changes remain infrequent.
+      this.render(q);
+      return;
+    }
     const dirty = new Set<number>();
     for (const point of changed) {
       for (let dy = -1; dy <= 1; dy++) {

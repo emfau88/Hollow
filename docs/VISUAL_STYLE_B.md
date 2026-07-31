@@ -116,8 +116,11 @@ bleibt der bisherige Stil aktiv, bis der neue Slice visuell freigegeben ist.
 - HUD-Theme und SVG-Icons: `src/styles.css`, `src/ui/HudController.ts`
 - Terrain-, Raum- und Ressourcenbasis: `public/assets/generated/style-b-v1/`
 - Herz-, Diener- und Startdekor-Slice: `public/assets/generated/style-b-v2/`
+- 2.5D-Wände, Materialböden, Bodendecals und Herzfassung:
+  `public/assets/generated/style-b-v3/`
 - reproduzierbare Builds: `scripts/asset_tools/build_style_b_v1.py` und
-  `scripts/asset_tools/build_style_b_v2.py`
+  `scripts/asset_tools/build_style_b_v2.py` sowie
+  `scripts/asset_tools/build_style_b_v3.py`
 - Imagegen-Master und freigestellte Quellen: jeweils unter `sources/`
 
 Der zweite Slice baut das Herz als Architektur aus vier Teilen auf: begehbarer
@@ -127,6 +130,26 @@ Banner, Regal, Karren, Vorräte und Planwand verdichten den Startbereich; mehrer
 Pilzgruppen und eine Sammelstation machen die bereits ausgegrabene Grotte vor
 dem Durchbruch verständlich. Noch nicht neu produzierte Räume, Gegner und Waren
 verwenden bewusst die bisherigen Assets als Fallback.
+
+### Style-B-V3: räumliche Kartenarchitektur
+
+Der dritte Pass ersetzt die flache Kartenwirkung durch ein gerichtetes
+Wandmodul-System. Vier gerade Kanten und vier separat gezeichnete L-Ecken
+besitzen eine helle Steinkappe, eine sichtbare dunkle Wandstirn und einen
+Kontaktschatten. Der Renderer setzt an Sackgassen zwei Ecken und an isolierten
+Feldern vier Ecken, sodass auch Drei- und Vierfachanschlüsse keine transparenten
+Quadrate hinterlassen. Bekannte Style-B-Zielräume verwenden vollständige
+rechteckige Grundrisse; ihre vier Eckfelder werden nicht mehr ausgespart.
+
+Großformatige Materialflächen liefern cobaltfarbenen Fels, Grabungsboden,
+pflaumenfarbenen Covenant-Stein und feuchten Grotto-Boden. Das Pilzbiom beginnt
+erst hinter einem blauen Puffer östlich des Herzraums. Bodendecals ergänzen
+Schutt, Werkzeugspuren, Covenant-Einlage, Moos, Sporen und Pfütze, ohne das
+Raster zu betonen. Der Herzraum ist 15 × 11 Felder groß, seine Dekoration folgt
+dem Rand, und Arbeiter starten auf sicheren Innenfeldern. Der rote Herzkern
+sitzt zwischen fester Rückplatte und Vorderfassung und liest sich dadurch als
+Teil eines Gebäudes statt als aufgesetzte Figur. Die alte orange Besitzkontur
+entfällt in Style B; Material und Architektur vermitteln Besitz bereits klar.
 
 ## Freigabekriterien für den nächsten Produktionsschritt
 

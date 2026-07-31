@@ -219,7 +219,8 @@ interface WorldTile {
 const NORTH_SHIFT = 8;
 const sy = (y: number) => y + NORTH_SHIFT;
 const HEART_TILE = { x: 32, y: sy(22) };
-const TUTORIAL_ROUTE_START: GridPoint = { x: 38, y: sy(26) };
+const STARTING_CHAMBER = { x: 25, y: sy(17), w: 15, h: 11 };
+const TUTORIAL_ROUTE_START: GridPoint = { x: 39, y: sy(26) };
 const TUTORIAL_ROUTE_END: GridPoint = { x: 42, y: sy(26) };
 const AUTOMATION_OPTIONS = parseAutomationOptions(window.location.search);
 // Heart floor: the 3×3 around the heart uses the dedicated heart floor frame.
@@ -260,6 +261,7 @@ export class GameScene extends Phaser.Scene {
   private roomProps: Phaser.GameObjects.Image[] = [];
   private heartSetpieceObjects: Phaser.GameObjects.GameObject[] = [];
   private grottoDecorObjects: Phaser.GameObjects.Image[] = [];
+  private tutorialRouteDecal?: Phaser.GameObjects.Image;
   private heartPathTree?: PathTree;
   private bannerAttackPath: GridPoint[] = [];
   private nextHudUpdateAt = 0;
@@ -347,6 +349,27 @@ export class GameScene extends Phaser.Scene {
       this.load.image('heart-building-backplate', themeAssets.heartBuilding.backplate);
       this.load.image('heart-building-core', themeAssets.heartBuilding.core);
       this.load.image('heart-building-pulpit', themeAssets.heartBuilding.pulpit);
+      if (themeAssets.heartBuilding.bezel) {
+        this.load.image('heart-building-bezel', themeAssets.heartBuilding.bezel);
+      }
+    }
+    if (themeAssets.wallKit) {
+      this.load.image('style-b-wall-north', themeAssets.wallKit.north);
+      this.load.image('style-b-wall-east', themeAssets.wallKit.east);
+      this.load.image('style-b-wall-south', themeAssets.wallKit.south);
+      this.load.image('style-b-wall-west', themeAssets.wallKit.west);
+      this.load.image('style-b-wall-north-east', themeAssets.wallKit.northEast);
+      this.load.image('style-b-wall-east-south', themeAssets.wallKit.eastSouth);
+      this.load.image('style-b-wall-south-west', themeAssets.wallKit.southWest);
+      this.load.image('style-b-wall-west-north', themeAssets.wallKit.westNorth);
+    }
+    if (themeAssets.groundDecals) {
+      this.load.image('style-b-ground-rubble', themeAssets.groundDecals.rubble);
+      this.load.image('style-b-ground-excavation', themeAssets.groundDecals.excavation);
+      this.load.image('style-b-ground-inlay', themeAssets.groundDecals.covenantInlay);
+      this.load.image('style-b-ground-moss', themeAssets.groundDecals.moss);
+      this.load.image('style-b-ground-spores', themeAssets.groundDecals.spores);
+      this.load.image('style-b-ground-puddle', themeAssets.groundDecals.puddle);
     }
     if (themeAssets.startDecor) {
       this.load.image('style-b-lamp', themeAssets.startDecor.lamp);
@@ -368,6 +391,10 @@ export class GameScene extends Phaser.Scene {
       frameHeight: TILE,
     });
     this.load.spritesheet('terrain-v3-raw-floor', `${themeAssets.terrain}/raw-floor.png?v=${ACTIVE_VISUAL_THEME.id}`, {
+      frameWidth: TILE,
+      frameHeight: TILE,
+    });
+    this.load.spritesheet('terrain-v5-damp-floor', `${themeAssets.dampFloor ?? `${themeAssets.terrain}/raw-floor.png`}?v=${ACTIVE_VISUAL_THEME.id}`, {
       frameWidth: TILE,
       frameHeight: TILE,
     });
@@ -439,6 +466,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   create(): void {
+    const themeAssets = ACTIVE_VISUAL_THEME.assets;
     this.createMap();
     this.detail = this.add.graphics().setDepth(4);
     this.preview = this.add.graphics().setDepth(60);
@@ -450,12 +478,21 @@ export class GameScene extends Phaser.Scene {
       rockRoots: 'terrain-v4-rock-roots',
       rockEarth: 'terrain-v4-rock-earth',
       rawFloor: 'terrain-v3-raw-floor',
+      dampFloor: 'terrain-v5-damp-floor',
       claimedCorridor: 'terrain-v4-claimed-corridor',
       claimedFloor: 'terrain-v3-claimed-floor',
       wallEdge: 'terrain-v3-wall-edge',
       wallCorner: 'terrain-v3-wall-corner',
       claimedBorder: 'terrain-v3-claimed-border',
       enemyBorder: 'terrain-v3-enemy-border',
+      wallNorth: themeAssets.wallKit ? 'style-b-wall-north' : undefined,
+      wallEast: themeAssets.wallKit ? 'style-b-wall-east' : undefined,
+      wallSouth: themeAssets.wallKit ? 'style-b-wall-south' : undefined,
+      wallWest: themeAssets.wallKit ? 'style-b-wall-west' : undefined,
+      wallNorthEast: themeAssets.wallKit ? 'style-b-wall-north-east' : undefined,
+      wallEastSouth: themeAssets.wallKit ? 'style-b-wall-east-south' : undefined,
+      wallSouthWest: themeAssets.wallKit ? 'style-b-wall-south-west' : undefined,
+      wallWestNorth: themeAssets.wallKit ? 'style-b-wall-west-north' : undefined,
     }, TILE, W, H);
     this.createNodes();
     this.drawWorld();
@@ -1264,11 +1301,13 @@ export class GameScene extends Phaser.Scene {
           const nearCorner = (lx <= 1 || lx >= w - 2) && (ly <= 1 || ly >= h - 2);
           const edge = lx === 0 || lx === w - 1 || ly === 0 || ly === h - 1;
           const stableNoise = Math.abs((tx * 37 + ty * 61 + w * 11) % 13);
-          const keep = shape === 'ritual'
-            ? !corner && !(nearCorner && (lx + ly) % 2 === 0)
-            : shape === 'fortified'
-              ? !corner
-              : !corner && !(edge && stableNoise === 0);
+          const keep = ACTIVE_VISUAL_THEME.id === 'style-b'
+            ? true
+            : shape === 'ritual'
+              ? !corner && !(nearCorner && (lx + ly) % 2 === 0)
+              : shape === 'fortified'
+                ? !corner
+                : !corner && !(edge && stableNoise === 0);
           if (!keep) continue;
           this.tiles[ty][tx].geology = 'excavated';
           this.tiles[ty][tx].visibility = 'charted';
@@ -1276,7 +1315,14 @@ export class GameScene extends Phaser.Scene {
       }
     };
 
-    carve(26, sy(18), 13, 9, 'revealed', 'owned');
+    carve(
+      STARTING_CHAMBER.x,
+      STARTING_CHAMBER.y,
+      STARTING_CHAMBER.w,
+      STARTING_CHAMBER.h,
+      'revealed',
+      'owned',
+    );
     carve(31, sy(3), 3, 15, 'revealed', 'neutral', false);
     carve(28, sy(0), 9, 4, 'revealed', 'neutral', false);
 
@@ -1435,14 +1481,15 @@ export class GameScene extends Phaser.Scene {
   private createStartingPopulation(): void {
     const comedy = ACTIVE_VISUAL_THEME.id === 'style-b';
     const workerPositions = comedy
-      ? [{ x: 27, y: sy(22) }, { x: 30, y: sy(26) }, { x: 37, y: sy(25) }]
+      ? [{ x: 27, y: sy(22) }, { x: 35, y: sy(26) }, { x: 37, y: sy(23) }]
       : [{ x: 29, y: sy(22) }, { x: 31, y: sy(23) }, { x: 34, y: sy(23) }];
     for (const pos of workerPositions) {
       this.createWorker(pos.x, pos.y);
     }
-    this.createUnit('guard', comedy ? 37 : 33, comedy ? sy(21) : sy(22), false);
+    this.createUnit('guard', comedy ? 37 : 33, comedy ? sy(20) : sy(22), false);
 
     if (comedy) {
+      this.createStyleBEnvironmentDressing();
       this.createStyleBHeartHeadquarters();
       this.createStyleBStartDecor();
       this.createStyleBGrottoDressing();
@@ -1488,27 +1535,46 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  private createStyleBEnvironmentDressing(): void {
+    const inlay = this.add.image(this.wx(HEART_TILE.x), this.wy(HEART_TILE.y + 0.2), 'style-b-ground-inlay')
+      .setDisplaySize(168, 136)
+      .setDepth(4.5)
+      .setAlpha(0.74);
+    const rubble = this.add.image(this.wx(27.1), this.wy(sy(26.1)), 'style-b-ground-rubble')
+      .setDisplaySize(84, 48)
+      .setDepth(4.5)
+      .setAlpha(0.72);
+    this.tutorialRouteDecal = this.add.image(this.wx(40), this.wy(TUTORIAL_ROUTE_START.y), 'style-b-ground-excavation')
+      .setDisplaySize(112, 78)
+      .setDepth(4.5)
+      .setAlpha(0.86)
+      .setVisible(false);
+    this.heartSetpieceObjects.push(inlay, rubble, this.tutorialRouteDecal);
+  }
+
   private createStyleBHeartHeadquarters(): void {
     const cx = this.wx(HEART_TILE.x);
     const cy = this.wy(HEART_TILE.y);
+    const mountY = cy - 14;
     const ambient = this.add.circle(cx, cy, 116, ACTIVE_VISUAL_THEME.palette.heartAmbient, 0.065)
       .setDepth(1)
       .setBlendMode(Phaser.BlendModes.ADD);
-    const glow = this.add.circle(cx, cy - 19, 38, ACTIVE_VISUAL_THEME.palette.heartGlow, 0.2)
+    const glow = this.add.circle(cx, mountY, 34, ACTIVE_VISUAL_THEME.palette.heartGlow, 0.2)
       .setDepth(7)
       .setBlendMode(Phaser.BlendModes.ADD);
     const base = this.add.image(cx, cy + 2, 'heart-building-base').setDisplaySize(220, 165).setDepth(5);
-    const backplate = this.add.image(cx, cy - 16, 'heart-building-backplate').setDisplaySize(156, 156).setDepth(6);
-    const core = this.add.image(cx, cy - 19, 'heart-building-core').setDisplaySize(76, 76).setDepth(8);
-    const pulpit = this.add.image(cx, cy + 51, 'heart-building-pulpit').setDisplaySize(120, 82).setDepth(9);
-    this.heartSetpieceObjects.push(ambient, glow, base, backplate, core, pulpit);
+    const backplate = this.add.image(cx, mountY, 'heart-building-backplate').setDisplaySize(170, 170).setDepth(6);
+    const core = this.add.image(cx, mountY, 'heart-building-core').setDisplaySize(68, 68).setDepth(8);
+    const bezel = this.add.image(cx, mountY, 'heart-building-bezel').setDisplaySize(90, 90).setDepth(9);
+    const pulpit = this.add.image(cx, cy + 53, 'heart-building-pulpit').setDisplaySize(120, 82).setDepth(10);
+    this.heartSetpieceObjects.push(ambient, glow, base, backplate, core, bezel, pulpit);
 
     const coreScaleX = core.scaleX;
     const coreScaleY = core.scaleY;
     this.tweens.add({
       targets: core,
-      scaleX: coreScaleX * 1.045,
-      scaleY: coreScaleY * 1.045,
+      scaleX: coreScaleX * 1.028,
+      scaleY: coreScaleY * 1.028,
       yoyo: true,
       repeat: -1,
       duration: 760,
@@ -1530,7 +1596,7 @@ export class GameScene extends Phaser.Scene {
       this.add.image(this.wx(x), this.wy(y), key).setDisplaySize(width, height).setDepth(depth)
     );
 
-    for (const lamp of [{ x: 27.1, y: sy(19.1) }, { x: 37.8, y: sy(19.1) }]) {
+    for (const lamp of [{ x: 26.2, y: sy(18.2) }, { x: 38.8, y: sy(18.2) }]) {
       const glow = this.add.circle(this.wx(lamp.x), this.wy(lamp.y), 35, ACTIVE_VISUAL_THEME.palette.torch, 0.1)
         .setDepth(3)
         .setBlendMode(Phaser.BlendModes.ADD);
@@ -1540,11 +1606,11 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.heartSetpieceObjects.push(
-      image('style-b-banner', 27.1, sy(21.2), 45, 56),
-      image('style-b-notice-board', 37.6, sy(21.1), 58, 58),
-      image('style-b-rack', 37.2, sy(23.5), 68, 55),
-      image('style-b-cart', 36.7, sy(25.8), 62, 52),
-      image('style-b-supplies', 27.2, sy(25.8), 60, 54),
+      image('style-b-banner', 26.2, sy(20.6), 45, 56),
+      image('style-b-notice-board', 38.6, sy(20.6), 58, 58),
+      image('style-b-rack', 38.2, sy(23.2), 68, 55),
+      image('style-b-cart', 37.8, sy(26.1), 62, 52),
+      image('style-b-supplies', 26.3, sy(26.1), 60, 54),
     );
   }
 
@@ -1552,10 +1618,18 @@ export class GameScene extends Phaser.Scene {
     const fungus = this.nodes.find((node) => node.id === 'fungus');
     if (!fungus) return;
     const previewAlpha = Math.min(0.68, ACTIVE_VISUAL_THEME.preDiscoveryResourceAlpha);
-    const add = (key: string, x: number, y: number, width: number, height: number, flipX = false) => {
+    const add = (
+      key: string,
+      x: number,
+      y: number,
+      width: number,
+      height: number,
+      flipX = false,
+      depth = 18,
+    ) => {
       const prop = this.add.image(this.wx(x), this.wy(y), key)
         .setDisplaySize(width, height)
-        .setDepth(18)
+        .setDepth(depth)
         .setAlpha(fungus.discovered ? 1 : previewAlpha)
         .setFlipX(flipX);
       this.grottoDecorObjects.push(prop);
@@ -1566,6 +1640,9 @@ export class GameScene extends Phaser.Scene {
       .setDepth(3)
       .setBlendMode(Phaser.BlendModes.ADD);
     this.tweens.add({ targets: glow, scale: 1.08, alpha: 0.11, yoyo: true, repeat: -1, duration: 1500 });
+    add('style-b-ground-moss', 43.5, sy(28.3), 110, 68, false, 4.5);
+    add('style-b-ground-puddle', 46.2, sy(30.1), 112, 84, false, 4.5);
+    add('style-b-ground-spores', 45.1, sy(27.1), 104, 52, false, 17);
     add('style-b-fungus-small', 43.1, sy(27.2), 50, 42);
     add('style-b-fungus-small', 47.2, sy(27.1), 44, 38, true);
     add('style-b-fungus-medium', 43.1, sy(30.2), 60, 60);
@@ -1723,6 +1800,7 @@ export class GameScene extends Phaser.Scene {
       if (node.id === 'fungus') {
         this.clearTutorialGuide();
         for (const prop of this.grottoDecorObjects) prop.setAlpha(1);
+        this.tutorialRouteDecal?.setVisible(true);
       }
       for (const enemy of this.enemies.filter((candidate) => candidate.origin === node.id)) {
         enemy.sprite.setVisible(true);
@@ -2991,6 +3069,11 @@ export class GameScene extends Phaser.Scene {
   private terrainFloorAt(x: number, y: number): TerrainFloor {
     const tile = this.tileAt(x, y);
     if (!tile) return 'raw';
+    const inStartingChamber = x >= STARTING_CHAMBER.x
+      && x < STARTING_CHAMBER.x + STARTING_CHAMBER.w
+      && y >= STARTING_CHAMBER.y
+      && y < STARTING_CHAMBER.y + STARTING_CHAMBER.h;
+    if (ACTIVE_VISUAL_THEME.id === 'style-b' && inStartingChamber) return 'room';
     if (tile.roomKind === 'heart') return 'room';
     if (tile.roomId !== undefined && tile.construction === 'complete') return 'room';
     return tile.control === 'owned' ? 'claimed' : 'raw';
@@ -3000,6 +3083,10 @@ export class GameScene extends Phaser.Scene {
     let material: TerrainMaterial = 'slate';
     let bestScore = Number.POSITIVE_INFINITY;
     for (const anchor of TERRAIN_MATERIAL_ANCHORS) {
+      // The fungal palette starts beyond a one-tile cobalt buffer east of the
+      // enlarged heart chamber. Its nearest-anchor field must not tint the
+      // player's walls or floor green before the grotto is reached.
+      if (anchor.material === 'damp' && (x < 41 || y < sy(23))) continue;
       const dx = x - anchor.x;
       const dy = y - anchor.y;
       const jitter = (((x * 41 + y * 67 + anchor.seed * 23) % 19) - 9) * 1.8;
@@ -3075,8 +3162,12 @@ export class GameScene extends Phaser.Scene {
           if (!chartedOpen(tx, ty)) continue;
           const left = tx * TILE;
           const top = ty * TILE;
-          const chartAlpha = node.id === 'fungus' ? (comedy ? 0.2 : 0.11) : 0.025;
-          this.detail.fillStyle(node.color, chartAlpha).fillRect(left + 3, top + 3, TILE - 6, TILE - 6);
+          const chartAlpha = node.id === 'fungus' ? (comedy ? 0.055 : 0.11) : 0.025;
+          if (comedy && node.id === 'fungus') {
+            this.detail.fillStyle(node.color, chartAlpha).fillRect(left, top, TILE, TILE);
+          } else {
+            this.detail.fillStyle(node.color, chartAlpha).fillRect(left + 3, top + 3, TILE - 6, TILE - 6);
+          }
           if (!chartedOpen(tx, ty - 1)) this.detail.lineBetween(left + 4, top + 3, left + TILE - 4, top + 3);
           if (!chartedOpen(tx + 1, ty)) this.detail.lineBetween(left + TILE - 3, top + 4, left + TILE - 3, top + TILE - 4);
           if (!chartedOpen(tx, ty + 1)) this.detail.lineBetween(left + 4, top + TILE - 3, left + TILE - 4, top + TILE - 3);

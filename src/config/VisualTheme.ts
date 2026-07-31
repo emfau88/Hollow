@@ -2,6 +2,7 @@ export type VisualThemeId = 'legacy' | 'style-b';
 
 interface ThemeAssetPaths {
   terrain: string;
+  dampFloor?: string;
   heart: string;
   worker: string;
   guard: string;
@@ -11,6 +12,25 @@ interface ThemeAssetPaths {
     backplate: string;
     core: string;
     pulpit: string;
+    bezel?: string;
+  };
+  wallKit?: {
+    north: string;
+    east: string;
+    south: string;
+    west: string;
+    northEast: string;
+    eastSouth: string;
+    southWest: string;
+    westNorth: string;
+  };
+  groundDecals?: {
+    rubble: string;
+    excavation: string;
+    covenantInlay: string;
+    moss: string;
+    spores: string;
+    puddle: string;
   };
   startDecor?: {
     lamp: string;
@@ -92,16 +112,36 @@ const STYLE_B_THEME: VisualTheme = {
   id: 'style-b',
   label: 'Dungeon Administration',
   assets: {
-    terrain: 'assets/generated/style-b-v1/terrain',
+    terrain: 'assets/generated/style-b-v3/terrain',
+    dampFloor: 'assets/generated/style-b-v3/terrain/damp-floor.png',
     heart: 'assets/generated/style-b-v2/heart/core.png',
     worker: 'assets/generated/style-b-v2/characters/worker.png',
     guard: 'assets/generated/style-b-v2/characters/guard.png',
     archer: 'assets/generated/style-b-v2/characters/archer.png',
     heartBuilding: {
       base: 'assets/generated/style-b-v2/heart/base.png',
-      backplate: 'assets/generated/style-b-v2/heart/backplate.png',
+      backplate: 'assets/generated/style-b-v3/heart/backplate.png',
       core: 'assets/generated/style-b-v2/heart/core.png',
       pulpit: 'assets/generated/style-b-v2/heart/pulpit.png',
+      bezel: 'assets/generated/style-b-v3/heart/bezel.png',
+    },
+    wallKit: {
+      north: 'assets/generated/style-b-v3/walls/north.png',
+      east: 'assets/generated/style-b-v3/walls/east.png',
+      south: 'assets/generated/style-b-v3/walls/south.png',
+      west: 'assets/generated/style-b-v3/walls/west.png',
+      northEast: 'assets/generated/style-b-v3/walls/north-east.png',
+      eastSouth: 'assets/generated/style-b-v3/walls/east-south.png',
+      southWest: 'assets/generated/style-b-v3/walls/south-west.png',
+      westNorth: 'assets/generated/style-b-v3/walls/west-north.png',
+    },
+    groundDecals: {
+      rubble: 'assets/generated/style-b-v3/decals/rubble.png',
+      excavation: 'assets/generated/style-b-v3/decals/excavation.png',
+      covenantInlay: 'assets/generated/style-b-v3/decals/covenant-inlay.png',
+      moss: 'assets/generated/style-b-v3/decals/moss.png',
+      spores: 'assets/generated/style-b-v3/decals/spores.png',
+      puddle: 'assets/generated/style-b-v3/decals/puddle.png',
     },
     startDecor: {
       lamp: 'assets/generated/style-b-v2/decor/lamp.png',
