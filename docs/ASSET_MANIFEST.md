@@ -99,6 +99,24 @@ deterministisch alle Laufzeitgrößen und graduiert die vorhandenen 32-Pixel-
 Terrain-Sheets in die neue Palette. Noch nicht produzierte Einheiten, Räume und
 Waren greifen im Style-B-Slice auf ihre bisherigen Assets zurück.
 
+## Style B V2 – Herzraum und Pilzgrotte
+
+Der zweite Style-B-Pass liegt getrennt unter
+`public/assets/generated/style-b-v2/` und ersetzt im Style-B-Modus gezielt die
+kritischen Startbereichsmotive:
+
+- Herz-Hauptquartier aus `base`, `backplate`, `core` und `pulpit`;
+- gemeinsame nichtmenschliche Covenant-Silhouette für Arbeiter, Wächter und
+  Fernkämpfer;
+- Lampen, Banner, Ressourcenregal, Karren, Vorräte und Planwand;
+- kleine und mittlere Pilzgruppen sowie eine Grotto-Sammelstation;
+- kombinierte visuelle Abnahme unter `style-b-v2-preview.png`.
+
+Die drei unveränderten Masterbilder und ihre freigestellten Zwischenstände
+liegen unter `style-b-v2/sources/`. Der reproduzierbare Zuschnitt erfolgt über
+`scripts/asset_tools/build_style_b_v2.py`. V1 bleibt als nachvollziehbare
+Zwischenstufe und Fallback vollständig erhalten.
+
 ## Nicht integriert
 
 `wall-concept-unused.png` wurde bewusst nicht verwendet, weil die Perspektive

@@ -258,6 +258,8 @@ export class GameScene extends Phaser.Scene {
   private nextId = 1;
   private roomGlows: Phaser.GameObjects.GameObject[] = [];
   private roomProps: Phaser.GameObjects.Image[] = [];
+  private heartSetpieceObjects: Phaser.GameObjects.GameObject[] = [];
+  private grottoDecorObjects: Phaser.GameObjects.Image[] = [];
   private heartPathTree?: PathTree;
   private bannerAttackPath: GridPoint[] = [];
   private nextHudUpdateAt = 0;
@@ -340,6 +342,23 @@ export class GameScene extends Phaser.Scene {
     // external pebble sheet here made the entire world shimmer while panning.
     const themeAssets = ACTIVE_VISUAL_THEME.assets;
     this.load.image('generated-covenant-heart', themeAssets.heart);
+    if (themeAssets.heartBuilding) {
+      this.load.image('heart-building-base', themeAssets.heartBuilding.base);
+      this.load.image('heart-building-backplate', themeAssets.heartBuilding.backplate);
+      this.load.image('heart-building-core', themeAssets.heartBuilding.core);
+      this.load.image('heart-building-pulpit', themeAssets.heartBuilding.pulpit);
+    }
+    if (themeAssets.startDecor) {
+      this.load.image('style-b-lamp', themeAssets.startDecor.lamp);
+      this.load.image('style-b-banner', themeAssets.startDecor.banner);
+      this.load.image('style-b-rack', themeAssets.startDecor.rack);
+      this.load.image('style-b-cart', themeAssets.startDecor.cart);
+      this.load.image('style-b-supplies', themeAssets.startDecor.supplies);
+      this.load.image('style-b-notice-board', themeAssets.startDecor.noticeBoard);
+      this.load.image('style-b-fungus-small', themeAssets.startDecor.fungusSmall);
+      this.load.image('style-b-fungus-medium', themeAssets.startDecor.fungusMedium);
+      this.load.image('style-b-grotto-station', themeAssets.startDecor.grottoStation);
+    }
     this.load.image('resource-iron-vein', themeAssets.resources.iron);
     this.load.image('resource-iron-depleted', themeAssets.resources.ironDepleted);
     this.load.image('resource-fungus-cluster', themeAssets.resources.fungus);
@@ -412,6 +431,8 @@ export class GameScene extends Phaser.Scene {
         ? themeAssets.worker
         : key === 'guard'
           ? themeAssets.guard
+          : key === 'archer'
+            ? themeAssets.archer
           : `assets/generated/units-v1/${key}.png`;
       this.load.image(textureKey, themedPath);
     }
@@ -447,8 +468,7 @@ export class GameScene extends Phaser.Scene {
     this.setupAutomation();
 
     this.cameras.main.setBounds(0, 0, W * TILE, H * TILE);
-    this.cameras.main.setZoom(1);
-    this.cameras.main.centerOn(HEART_TILE.x * TILE, HEART_TILE.y * TILE);
+    this.applyOpeningCamera();
     this.cameras.main.setBackgroundColor(ACTIVE_VISUAL_THEME.palette.void);
 
     this.time.addEvent({
@@ -458,9 +478,29 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.scale.on('resize', () => {
-      if (window.innerWidth < 950) this.cameras.main.setZoom(0.8);
+      this.cameras.main.setZoom(this.openingCameraZoom());
     });
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.automationCleanup?.());
+  }
+
+  private openingCameraZoom(): number {
+    const width = this.scale.width || window.innerWidth;
+    if (ACTIVE_VISUAL_THEME.id !== 'style-b') return width < 950 ? 0.8 : 1;
+    if (width < 950) return 0.72;
+    if (width < 1500) return 0.88;
+    return 1.06;
+  }
+
+  private applyOpeningCamera(): void {
+    const camera = this.cameras.main;
+    camera.setZoom(this.openingCameraZoom());
+    if (ACTIVE_VISUAL_THEME.id === 'style-b') {
+      // Frame the headquarters, the short tutorial route and the already
+      // excavated grotto as one readable opening composition.
+      camera.centerOn(this.wx(35.4), this.wy(sy(24.7)));
+    } else {
+      camera.centerOn(this.wx(HEART_TILE.x), this.wy(HEART_TILE.y));
+    }
   }
 
   private setupHud(): void {
@@ -958,7 +998,10 @@ export class GameScene extends Phaser.Scene {
         Phaser.Math.Linear(worker.sprite.x, this.wx(worker.x), blend),
         Phaser.Math.Linear(worker.sprite.y, this.wy(worker.y), blend),
       );
-      worker.carryText.setPosition(worker.sprite.x, worker.sprite.y - 13);
+      worker.carryText.setPosition(
+        worker.sprite.x,
+        worker.sprite.y - (ACTIVE_VISUAL_THEME.id === 'style-b' ? 18 : 13),
+      );
     }
     for (const actor of this.units) {
       actor.sprite.setPosition(
@@ -1390,10 +1433,21 @@ export class GameScene extends Phaser.Scene {
   }
 
   private createStartingPopulation(): void {
-    for (const pos of [{ x: 29, y: sy(22) }, { x: 31, y: sy(23) }, { x: 34, y: sy(23) }]) {
+    const comedy = ACTIVE_VISUAL_THEME.id === 'style-b';
+    const workerPositions = comedy
+      ? [{ x: 27, y: sy(22) }, { x: 30, y: sy(26) }, { x: 37, y: sy(25) }]
+      : [{ x: 29, y: sy(22) }, { x: 31, y: sy(23) }, { x: 34, y: sy(23) }];
+    for (const pos of workerPositions) {
       this.createWorker(pos.x, pos.y);
     }
-    this.createUnit('guard', 33, sy(22), false);
+    this.createUnit('guard', comedy ? 37 : 33, comedy ? sy(21) : sy(22), false);
+
+    if (comedy) {
+      this.createStyleBHeartHeadquarters();
+      this.createStyleBStartDecor();
+      this.createStyleBGrottoDressing();
+      return;
+    }
 
     const heartAmbient = this.add.circle(
       this.wx(HEART_TILE.x),
@@ -1434,6 +1488,91 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  private createStyleBHeartHeadquarters(): void {
+    const cx = this.wx(HEART_TILE.x);
+    const cy = this.wy(HEART_TILE.y);
+    const ambient = this.add.circle(cx, cy, 116, ACTIVE_VISUAL_THEME.palette.heartAmbient, 0.065)
+      .setDepth(1)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    const glow = this.add.circle(cx, cy - 19, 38, ACTIVE_VISUAL_THEME.palette.heartGlow, 0.2)
+      .setDepth(7)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    const base = this.add.image(cx, cy + 2, 'heart-building-base').setDisplaySize(220, 165).setDepth(5);
+    const backplate = this.add.image(cx, cy - 16, 'heart-building-backplate').setDisplaySize(156, 156).setDepth(6);
+    const core = this.add.image(cx, cy - 19, 'heart-building-core').setDisplaySize(76, 76).setDepth(8);
+    const pulpit = this.add.image(cx, cy + 51, 'heart-building-pulpit').setDisplaySize(120, 82).setDepth(9);
+    this.heartSetpieceObjects.push(ambient, glow, base, backplate, core, pulpit);
+
+    const coreScaleX = core.scaleX;
+    const coreScaleY = core.scaleY;
+    this.tweens.add({
+      targets: core,
+      scaleX: coreScaleX * 1.045,
+      scaleY: coreScaleY * 1.045,
+      yoyo: true,
+      repeat: -1,
+      duration: 760,
+      ease: 'Sine.easeInOut',
+    });
+    this.tweens.add({
+      targets: [ambient, glow],
+      scale: 1.1,
+      alpha: '-=0.035',
+      yoyo: true,
+      repeat: -1,
+      duration: 1180,
+      ease: 'Sine.easeInOut',
+    });
+  }
+
+  private createStyleBStartDecor(): void {
+    const image = (key: string, x: number, y: number, width: number, height: number, depth = 7) => (
+      this.add.image(this.wx(x), this.wy(y), key).setDisplaySize(width, height).setDepth(depth)
+    );
+
+    for (const lamp of [{ x: 27.1, y: sy(19.1) }, { x: 37.8, y: sy(19.1) }]) {
+      const glow = this.add.circle(this.wx(lamp.x), this.wy(lamp.y), 35, ACTIVE_VISUAL_THEME.palette.torch, 0.1)
+        .setDepth(3)
+        .setBlendMode(Phaser.BlendModes.ADD);
+      const fixture = image('style-b-lamp', lamp.x, lamp.y, 42, 42, 7);
+      this.heartSetpieceObjects.push(glow, fixture);
+      this.tweens.add({ targets: glow, alpha: 0.15, scale: 1.12, yoyo: true, repeat: -1, duration: 820 });
+    }
+
+    this.heartSetpieceObjects.push(
+      image('style-b-banner', 27.1, sy(21.2), 45, 56),
+      image('style-b-notice-board', 37.6, sy(21.1), 58, 58),
+      image('style-b-rack', 37.2, sy(23.5), 68, 55),
+      image('style-b-cart', 36.7, sy(25.8), 62, 52),
+      image('style-b-supplies', 27.2, sy(25.8), 60, 54),
+    );
+  }
+
+  private createStyleBGrottoDressing(): void {
+    const fungus = this.nodes.find((node) => node.id === 'fungus');
+    if (!fungus) return;
+    const previewAlpha = Math.min(0.68, ACTIVE_VISUAL_THEME.preDiscoveryResourceAlpha);
+    const add = (key: string, x: number, y: number, width: number, height: number, flipX = false) => {
+      const prop = this.add.image(this.wx(x), this.wy(y), key)
+        .setDisplaySize(width, height)
+        .setDepth(18)
+        .setAlpha(fungus.discovered ? 1 : previewAlpha)
+        .setFlipX(flipX);
+      this.grottoDecorObjects.push(prop);
+      return prop;
+    };
+
+    const glow = this.add.circle(this.wx(45), this.wy(sy(29)), 108, 0x55c9a2, 0.075)
+      .setDepth(3)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({ targets: glow, scale: 1.08, alpha: 0.11, yoyo: true, repeat: -1, duration: 1500 });
+    add('style-b-fungus-small', 43.1, sy(27.2), 50, 42);
+    add('style-b-fungus-small', 47.2, sy(27.1), 44, 38, true);
+    add('style-b-fungus-medium', 43.1, sy(30.2), 60, 60);
+    add('style-b-fungus-medium', 47.4, sy(30.4), 66, 66, true);
+    add('style-b-grotto-station', 47.2, sy(31.7), 58, 58);
+  }
+
   private createWorker(x: number, y: number): Worker {
     const workerSize = ACTIVE_VISUAL_THEME.display.worker;
     const sprite = this.add.sprite(this.wx(x), this.wy(y), 'worker').setDisplaySize(workerSize, workerSize).setDepth(31);
@@ -1472,7 +1611,7 @@ export class GameScene extends Phaser.Scene {
     const def = UNIT_DEFINITIONS[kind];
     const displaySize: Record<UnitKind, number> = {
       guard: ACTIVE_VISUAL_THEME.display.guard,
-      archer: 31,
+      archer: ACTIVE_VISUAL_THEME.display.archer,
       hexbinder: 33,
       inquisitor: 34,
     };
@@ -1581,7 +1720,10 @@ export class GameScene extends Phaser.Scene {
         }
       }
       node.sprite?.setVisible(true).setAlpha(1);
-      if (node.id === 'fungus') this.clearTutorialGuide();
+      if (node.id === 'fungus') {
+        this.clearTutorialGuide();
+        for (const prop of this.grottoDecorObjects) prop.setAlpha(1);
+      }
       for (const enemy of this.enemies.filter((candidate) => candidate.origin === node.id)) {
         enemy.sprite.setVisible(true);
         enemy.active = node.id === 'fungus';
@@ -2913,7 +3055,7 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    this.drawHeartSanctum();
+    if (ACTIVE_VISUAL_THEME.id !== 'style-b') this.drawHeartSanctum();
     this.drawRoomDecor(rebuildRoomAssets);
     if (rebuildRoomAssets) this.rebuildRoomGlows();
   }
@@ -3835,8 +3977,8 @@ export class GameScene extends Phaser.Scene {
     const overlapsHeart = kind === 'defend'
       && Math.round(point.x) === HEART_TILE.x
       && Math.round(point.y) === HEART_TILE.y;
-    const markerX = overlapsHeart ? point.x + 1.15 : point.x;
-    const markerY = overlapsHeart ? point.y + 0.7 : point.y;
+    const markerX = overlapsHeart ? point.x + (ACTIVE_VISUAL_THEME.id === 'style-b' ? 3.7 : 1.15) : point.x;
+    const markerY = overlapsHeart ? point.y + (ACTIVE_VISUAL_THEME.id === 'style-b' ? 2.5 : 0.7) : point.y;
     const container = this.add.container(this.wx(markerX), this.wy(markerY), [glow, pole, flag]).setDepth(29);
     const tween = this.tweens.add({ targets: flag, scaleX: 0.78, yoyo: true, repeat: -1, duration: 620 });
     if (kind === 'attack') {

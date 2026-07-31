@@ -28,6 +28,11 @@ des echten Spiels.
 
 - Figuren haben große Köpfe und Hände sowie leicht überdimensionierte Werkzeuge.
 - Jede Einheit muss bei 36–44 Bildschirmpixeln ohne Beschriftung erkennbar sein.
+- Covenant-Diener sind eine eigene Homunkulus-Spezies: gedrungen, 2,5–3 Köpfe
+  hoch, mit dunklem Maskengesicht und ausschließlich zwei mintfarbenen Augen.
+- Menschliche Hautgesichter, Nasen, Zähne, Bärte und Schnurrbärte sind bei
+  Covenant-Dienern ausgeschlossen. Rolle und Charakter entstehen über Werkzeug,
+  Haltung und Ausrüstung.
 - Covenant-Formen sind rund, improvisiert und warm; gegnerische Formen bleiben
   später kantiger und disziplinierter.
 - Props bestehen aus wenigen großen Formen. Kleine Dekoration darf die Funktion
@@ -56,11 +61,12 @@ eingesetzt, damit Herz und Gefahr auffallen.
 
 | Element | Zielgröße im Spiel |
 |---|---:|
-| Arbeiter | 38 px |
-| normale Kampfeinheit | 40–44 px |
+| Arbeiter | 43 px |
+| normale Kampfeinheit | 45–46 px |
 | getragenes Item | 22–26 px |
 | Ressourcenknoten | 58–66 px |
-| Covenant-Herz | 154 px |
+| Herz-Hauptquartier: Sockel | 220 × 165 px |
+| Herz-Hauptquartier: Kern | 76 px |
 | interaktive HUD-Fläche | mindestens 44 px |
 
 Figuren dürfen ihre Kachel visuell überragen. Bewegung, Zielwahl und Kollision
@@ -108,18 +114,24 @@ bleibt der bisherige Stil aktiv, bis der neue Slice visuell freigegeben ist.
 
 - zentrale Theme-Auswahl: `src/config/VisualTheme.ts`
 - HUD-Theme und SVG-Icons: `src/styles.css`, `src/ui/HudController.ts`
-- Laufzeitassets: `public/assets/generated/style-b-v1/`
-- reproduzierbarer Build: `scripts/asset_tools/build_style_b_v1.py`
-- Imagegen-Master und freigestellte Quellen: `style-b-v1/sources/`
+- Terrain-, Raum- und Ressourcenbasis: `public/assets/generated/style-b-v1/`
+- Herz-, Diener- und Startdekor-Slice: `public/assets/generated/style-b-v2/`
+- reproduzierbare Builds: `scripts/asset_tools/build_style_b_v1.py` und
+  `scripts/asset_tools/build_style_b_v2.py`
+- Imagegen-Master und freigestellte Quellen: jeweils unter `sources/`
 
-Der erste Slice ersetzt Terrainabstimmung, Herz, Arbeiter, Startwache,
-Pilzcluster, Erz, Essenz sowie Lager, Pilzkessel und Werkbank. Noch nicht neu
-produzierte Räume, Gegner und Gegenstände verwenden bewusst die bisherigen
-Assets als Fallback.
+Der zweite Slice baut das Herz als Architektur aus vier Teilen auf: begehbarer
+Sockel, fest montierte Rückwand, kleiner lebender Kern und Leitpult. Arbeiter,
+Wächter und Fernkämpfer teilen eine verbindliche Covenant-Silhouette. Lampen,
+Banner, Regal, Karren, Vorräte und Planwand verdichten den Startbereich; mehrere
+Pilzgruppen und eine Sammelstation machen die bereits ausgegrabene Grotte vor
+dem Durchbruch verständlich. Noch nicht neu produzierte Räume, Gegner und Waren
+verwenden bewusst die bisherigen Assets als Fallback.
 
 ## Freigabekriterien für den nächsten Produktionsschritt
 
-1. Herz, Arbeiter und Pilzgrotte sind innerhalb von fünf Sekunden erkennbar.
+1. Herz-Hauptquartier, Dienerrollen und Pilzgrotte sind innerhalb von fünf
+   Sekunden erkennbar.
 2. Das Zielpanel konkurriert nicht mit dem Herzraum.
 3. Die Pilzgrotte wirkt erreichbar und attraktiv, ohne bereits als Eigentum zu
    erscheinen.
@@ -131,6 +143,7 @@ Assets als Fallback.
 
 ## Danach
 
-Nach Freigabe folgen in dieser Reihenfolge: Figurenanimationen für Arbeiter,
-Wächter und Herz; alle sechs Räume; Waren und Produktionsfeedback; restliche
-Covenant-Einheiten; Untergrundfraktion; Inquisition; Kampf- und Schadenseffekte.
+Nach Freigabe folgen in dieser Reihenfolge: Bewegungs- und Arbeitsanimationen
+für die drei Covenant-Silhouetten und den Herzkern; alle sechs Räume; Waren und
+Produktionsfeedback; Hexbinder und Inquisitor-Rekrut; Untergrundfraktion;
+Inquisition; Kampf- und Schadenseffekte.

@@ -17,6 +17,7 @@
 - Phase 3 mit einem zusätzlichen Rekruten: bestanden
 - Theme-Auswahl und Style-B-Aliase: bestanden
 - Style-B-Asset-Build: reproduzierbar ausgeführt
+- Style-B-V2-Asset-Build: reproduzierbar ausgeführt
 - alle neuen transparenten Laufzeitassets: transparente Ecken und plausible Motivabdeckung bestanden
 
 ## Browserprüfung
@@ -68,10 +69,13 @@ Geprüft wurde die laufende Anwendung, nicht nur der Quellcode:
 - kombinierte Assetvorschau visuell auf Silhouetten, Fremdpixel und Skalierung geprüft
 - alle referenzierten Style-B-Dateien im Produktionsbuild enthalten
 - bisheriges Theme ohne URL-Parameter weiterhin Standard
-- direkte Chromium-Abnahme der lokalen URL war in dieser Sitzung durch die
-  Browser-Sicherheitsrichtlinie für `127.0.0.1` blockiert; die finale Prüfung
-  der drei Zielauflösungen bleibt deshalb der Freigabeschritt vor dem Umschalten
-  des Standardthemes
+- mehrteiliges Herz-Hauptquartier, Diener-Silhouetten und Grotto-Dekor im echten
+  laufenden Spiel geprüft
+- Breitbild-Abnahme bei 1920 × 1080: Herzraum und Pilzgrotte gemeinsam im
+  Startbild sichtbar, keine Browserfehler oder Warnungen
+- Abnahmebild: `docs/screenshots/style-b-v2-gameplay.png`
+- Standardtheme ohne URL-Parameter unverändert; Style B bleibt bis zur
+  vollständigen Raum- und Fraktionsproduktion opt-in
 
 ## Bekannte technische Eigenschaft
 

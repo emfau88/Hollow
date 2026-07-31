@@ -80,3 +80,24 @@ dunkelblaue Konturen, Creme/Messing/Koralle/Mint sowie einen vollständig flache
 Magenta-Hintergrund ohne Schatten. Die Freistellung erfolgte mit dem lokalen
 Chroma-Key-Helfer. Zuschnitt, Skalierung, Schärfung, Terrain-Grading und Preview
 sind über `scripts/asset_tools/build_style_b_v1.py` reproduzierbar.
+
+## Style B V2 – 31. Juli 2026
+
+Drei weitere Imagegen-Aufrufe wurden für den echten Neuaufbau von Herzraum und
+Pilzgrotte verwendet:
+
+| Nr. | Zweck | Masterdatei | Verwendung |
+|---:|---|---|---|
+| 1 | mehrteiliger Herz-Architekturbausatz | `style-b-v2/sources/heart-building-master.png` | Sockel, Rückwand, Kern und Leitpult |
+| 2 | Covenant-Diener-Silhouetten | `style-b-v2/sources/servants-master.png` | Arbeiter, Wächter und Fernkämpfer |
+| 3 | Startbereich- und Pilzgrotte-Dekor | `style-b-v2/sources/start-decor-master.png` | neun aktive Dekorassets |
+
+Der Herz-Prompt verlangte vier strikt getrennte Architekturteile, einen kleinen
+gliedmaßenlosen Kern und eine fest montierte Rückwand mit leerer Fassung. Der
+Diener-Prompt schloss menschliche Gesichter, Haut, Nasen, Münder und Bärte aus
+und definierte kurze Masken-Homunkuli, deren Rollen allein an Werkzeug, Schild
+oder Armbrust erkennbar sind. Der Dekor-Prompt definierte ein exaktes 3×3-Sheet
+aus Lampen-, Verwaltungs-, Transport- und Pilzmotiven. Alle Master nutzen einen
+flachen `#ff00ff`-Hintergrund. Chroma-Key, manuelle Regionszuschnitte,
+Laufzeitskalierung und Preview sind über
+`scripts/asset_tools/build_style_b_v2.py` reproduzierbar.

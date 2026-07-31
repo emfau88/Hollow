@@ -5,6 +5,24 @@ interface ThemeAssetPaths {
   heart: string;
   worker: string;
   guard: string;
+  archer: string;
+  heartBuilding?: {
+    base: string;
+    backplate: string;
+    core: string;
+    pulpit: string;
+  };
+  startDecor?: {
+    lamp: string;
+    banner: string;
+    rack: string;
+    cart: string;
+    supplies: string;
+    noticeBoard: string;
+    fungusSmall: string;
+    fungusMedium: string;
+    grottoStation: string;
+  };
   resources: {
     iron: string;
     ironDepleted: string;
@@ -26,6 +44,7 @@ export interface VisualTheme {
     heart: number;
     worker: number;
     guard: number;
+    archer: number;
   };
   palette: {
     void: number;
@@ -45,6 +64,7 @@ const LEGACY_THEME: VisualTheme = {
     heart: 'assets/generated/covenant-heart-gameplay-256.png',
     worker: 'assets/generated/units-v1/worker.png',
     guard: 'assets/generated/units-v1/guard.png',
+    archer: 'assets/generated/units-v1/archer.png',
     resources: {
       iron: 'assets/generated/resources-v2/iron-vein.png',
       ironDepleted: 'assets/generated/resources-v2/iron-vein-depleted.png',
@@ -57,7 +77,7 @@ const LEGACY_THEME: VisualTheme = {
       workbench: 'assets/generated/room-props-v3/workbench.png',
     },
   },
-  display: { heart: 140, worker: 29, guard: 34 },
+  display: { heart: 140, worker: 29, guard: 34, archer: 31 },
   palette: {
     void: 0x090a0e,
     heartAmbient: 0x7d3343,
@@ -73,9 +93,27 @@ const STYLE_B_THEME: VisualTheme = {
   label: 'Dungeon Administration',
   assets: {
     terrain: 'assets/generated/style-b-v1/terrain',
-    heart: 'assets/generated/style-b-v1/characters/heart.png',
-    worker: 'assets/generated/style-b-v1/characters/worker.png',
-    guard: 'assets/generated/style-b-v1/characters/guard.png',
+    heart: 'assets/generated/style-b-v2/heart/core.png',
+    worker: 'assets/generated/style-b-v2/characters/worker.png',
+    guard: 'assets/generated/style-b-v2/characters/guard.png',
+    archer: 'assets/generated/style-b-v2/characters/archer.png',
+    heartBuilding: {
+      base: 'assets/generated/style-b-v2/heart/base.png',
+      backplate: 'assets/generated/style-b-v2/heart/backplate.png',
+      core: 'assets/generated/style-b-v2/heart/core.png',
+      pulpit: 'assets/generated/style-b-v2/heart/pulpit.png',
+    },
+    startDecor: {
+      lamp: 'assets/generated/style-b-v2/decor/lamp.png',
+      banner: 'assets/generated/style-b-v2/decor/banner.png',
+      rack: 'assets/generated/style-b-v2/decor/rack.png',
+      cart: 'assets/generated/style-b-v2/decor/cart.png',
+      supplies: 'assets/generated/style-b-v2/decor/supplies.png',
+      noticeBoard: 'assets/generated/style-b-v2/decor/notice-board.png',
+      fungusSmall: 'assets/generated/style-b-v2/decor/fungus-small.png',
+      fungusMedium: 'assets/generated/style-b-v2/decor/fungus-medium.png',
+      grottoStation: 'assets/generated/style-b-v2/decor/grotto-station.png',
+    },
     resources: {
       iron: 'assets/generated/style-b-v1/resources/iron-vein.png',
       ironDepleted: 'assets/generated/style-b-v1/resources/iron-vein-depleted.png',
@@ -88,7 +126,7 @@ const STYLE_B_THEME: VisualTheme = {
       workbench: 'assets/generated/style-b-v1/props/workbench.png',
     },
   },
-  display: { heart: 154, worker: 38, guard: 42 },
+  display: { heart: 76, worker: 43, guard: 46, archer: 45 },
   palette: {
     void: 0x071427,
     heartAmbient: 0xe75a52,

@@ -18,13 +18,14 @@
 ### Experimentelle visuelle Richtung: Dungeon Administration
 
 Style B überträgt das Spiel auf eine hellere, freundlichere und stärker
-charakterbasierte Bildsprache. Der erste spielbare Vergleich ist separat
-aktivierbar; der bisherige Stil bleibt vorerst Standard.
+charakterbasierte Bildsprache. Der spielbare Startbereich verwendet bereits ein
+mehrteiliges Herz-Hauptquartier, nichtmenschliche Covenant-Diener und eine
+vollständig ausgestattete Pilzgrotte. Der bisherige Stil bleibt vorerst Standard.
 
 <p align="center">
   <strong><a href="https://emfau88.github.io/Hollow/?theme=style-b">▶ Style-B-Slice direkt im Browser ausprobieren</a></strong><br /><br />
-  <a href="https://emfau88.github.io/Hollow/?theme=style-b"><img src="docs/mockups/HOLLOW_COVENANT_STYLE_B_PRODUCTION_FRAME.png" width="82%" alt="Produktions-Styleframe der helleren Dungeon-Administration-Richtung"></a><br />
-  <small>Zielbild auf realer Karten- und HUD-Dichte; der spielbare Slice setzt zunächst den Startbereich um.</small>
+  <a href="https://emfau88.github.io/Hollow/?theme=style-b"><img src="docs/screenshots/style-b-v2-gameplay.png" width="82%" alt="Spielbarer Style-B-Startbereich mit Herz-Hauptquartier und Pilzgrotte"></a><br />
+  <small>Echter Spielscreen des umgebauten Herzraums und der sichtbaren Pilzgrotte.</small>
 </p>
 
 ## Vision

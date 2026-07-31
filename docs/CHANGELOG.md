@@ -11,6 +11,16 @@
 - HUD mit navyfarbenem Paneltheme, warmen Messingkanten und einheitlichen SVG-Kernicons überarbeitet
 - bisherige Grafik als Standard und Fallback beibehalten, bis der Slice visuell freigegeben ist
 - README um Style-B-Zielbild, Direktspiel-Link und aktualisierte humorvolle Projektbeschreibung ergänzt
+- übergroßes Figuren-Herz durch ein vierteiliges Hauptquartier aus Sockel,
+  Rückwand, kleinem Kern und Leitpult ersetzt
+- Arbeiter, Wächter und Fernkämpfer als gemeinsame nichtmenschliche
+  Masken-Homunkulus-Spezies neu produziert
+- Herzraum mit Lampen, Banner, Regal, Karren, Vorräten und Planwand ausgestattet
+- Pilzgrotte schon vor dem Durchbruch mit mehreren Pilzgruppen, Mintlicht und
+  Sammelstation als eigener Ort lesbar gemacht
+- Startkamera auf Herzraum, kurzen Verbindungsgang und Pilzgrotte komponiert
+- Style-B-V2-Master, Chroma-Zwischenstände, reproduzierbarer Asset-Build,
+  Preview und echter Browser-Abnahmescreen dokumentiert
 
 ## Progression, Versorgung und Kartenherz – 26. Juli 2026
 
