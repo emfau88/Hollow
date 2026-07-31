@@ -1,6 +1,14 @@
 import type { ToolKind, UnitKind } from '../data/definitions';
 import type { RoutineWorkerTask, WorkPriorities } from '../core/WorkerPriorities';
 
+export type HudMenu = 'worker' | 'build' | 'work' | 'command' | 'recruit';
+
+export interface HudWorldTarget {
+  id: string;
+  label: string;
+  status: string;
+}
+
 export interface HudCallbacks {
   setTool(tool: ToolKind): void;
   recruit(kind: UnitKind): void;
@@ -10,6 +18,7 @@ export interface HudCallbacks {
   fitCamera(): void;
   pulse(): void;
   toggleAudio(): boolean;
+  focusTarget(id: string): void;
   begin(): void;
   decide(choice: 'release' | 'recruit' | 'sacrifice'): void;
   restart(): void;
@@ -44,6 +53,9 @@ export interface HudState {
   canRecruit: Record<'guard' | 'archer' | 'hexbinder', boolean>;
   recruitReasons: Record<'guard' | 'archer' | 'hexbinder', string | undefined>;
   toolLocks: Partial<Record<ToolKind, string>>;
+  menuLocks: Partial<Record<HudMenu, string>>;
+  tutorialFocus?: 'dig' | 'worker';
+  worldTargets: HudWorldTarget[];
   objectiveChecklist: Array<{ label: string; done: boolean }>;
   workerJobs: Record<RoutineWorkerTask, number>;
   workPriorities: WorkPriorities;
@@ -51,7 +63,7 @@ export interface HudState {
 }
 
 const resource = (key: string, icon: string, label: string) => `
-  <div class="resource">
+  <div class="resource" data-testid="resource-${key}">
     <span class="resource-icon">${icon}</span>
     <span><strong data-value="${key}">0</strong><small>${label}</small></span>
   </div>`;
@@ -77,9 +89,12 @@ export class HudController {
   private summonWorkerButton?: HTMLButtonElement;
   private objectiveChecklist?: HTMLElement;
   private contextPanel?: HTMLElement;
+  private worldTargets?: HTMLElement;
+  private automationMode: boolean;
 
-  constructor(callbacks: HudCallbacks) {
+  constructor(callbacks: HudCallbacks, options: { automationMode?: boolean } = {}) {
     this.callbacks = callbacks;
+    this.automationMode = Boolean(options.automationMode);
     const root = document.querySelector<HTMLElement>('#hud');
     if (!root) throw new Error('HUD root missing');
     this.root = root;
@@ -101,14 +116,14 @@ export class HudController {
           ${resource('essence', '✦', 'Essenz')}
           ${resource('armour', '⬟', 'Rüstung')}
           <div class="resource"><span class="resource-icon">⌂</span><span><strong data-value="beds">0/0</strong><small>Betten</small></span></div>
-          <div class="resource"><span class="resource-icon">⚒</span><span><strong data-value="workers">3/5</strong><small>Arbeiter</small></span></div>
+          <button class="resource resource-action" data-action="open-workers" data-menu="worker" data-testid="worker-count" aria-expanded="false" title="Arbeiter beschwören"><span class="resource-icon">⚒</span><span><strong data-value="workers">3/5</strong><small>Arbeiter</small></span></button>
           <div class="resource need-resource"><span class="resource-icon">!</span><span><strong data-value="hungry">0</strong><small>Hungrig</small></span></div>
           <div class="resource"><span class="resource-icon">⚔</span><span><strong data-value="wave">Ruhe</strong><small>Bedrohung</small></span></div>
         </div>
         <div class="time-controls">
-          <button class="icon-btn" data-speed="0" title="Pause">Ⅱ</button>
-          <button class="icon-btn active" data-speed="1" title="Normale Geschwindigkeit">▶</button>
-          <button class="icon-btn" data-speed="2" title="Doppelte Geschwindigkeit">▶▶</button>
+          <button class="icon-btn" data-speed="0" data-testid="speed-pause" title="Pause">Ⅱ</button>
+          <button class="icon-btn active" data-speed="1" data-testid="speed-normal" title="Normale Geschwindigkeit">▶</button>
+          <button class="icon-btn" data-speed="2" data-testid="speed-fast" title="Doppelte Geschwindigkeit">▶▶</button>
           <button class="icon-btn pulse-btn" data-action="pulse" title="Covenant-Puls · 5 Essenz">◉</button>
           <button class="icon-btn" data-action="fit" title="Karte einpassen">⌖</button>
           <button class="icon-btn" data-action="audio" title="Audio umschalten">♪</button>
@@ -130,8 +145,15 @@ export class HudController {
       </div>
       <div class="toast-stack"></div>
       <div class="selection-hint"></div>
+      <section class="semantic-world-targets" data-testid="world-targets" aria-label="Sichtbare Weltziele"></section>
       <div class="bottom-area">
         <div class="tool-popovers">
+          <section class="tool-popover" data-popover="worker" hidden>
+            <div class="popover-heading"><strong>Arbeiter</strong><span>Mehr Hände für Graben, Bauen und Transport</span></div>
+            <div class="popover-grid compact">
+              <button class="recruit-btn worker-summon-btn" data-action="summon-worker" data-testid="summon-worker"><b>⚒</b>Arbeiter rufen<small>2 Essenz · max. 5 · benötigt Pilzküche</small></button>
+            </div>
+          </section>
           <section class="tool-popover" data-popover="build" hidden>
             <div class="popover-heading"><strong>Raum bauen</strong><span>Auf beanspruchtem Boden aufziehen</span></div>
             <div class="popover-grid">
@@ -162,9 +184,8 @@ export class HudController {
             </div>
           </section>
           <section class="tool-popover" data-popover="recruit" hidden>
-            <div class="popover-heading"><strong>Gefolge rufen</strong><span>Das Herz beschwört Arbeiter und Kämpfer</span></div>
+            <div class="popover-heading"><strong>Kämpfer rufen</strong><span>Das Herz beschwört ausgerüstetes Gefolge</span></div>
             <div class="popover-grid compact">
-              <button class="recruit-btn worker-summon-btn" data-action="summon-worker"><b>⚒</b>Arbeiter<small>2 Essenz · max. 5</small></button>
               <button class="recruit-btn" data-recruit="guard" title="Benötigt Küche, Werkstatt, 1 Ration und 1 Rüstung"><b>⬟</b>Guard<small>Phase 3 · 1R · 1⚙</small></button>
               <button class="recruit-btn" data-recruit="archer" title="Benötigt Küche, Werkstatt, 1 Ration und 1 Rüstung"><b>➶</b>Archer<small>Phase 3 · 1R · 1⚙</small></button>
               <button class="recruit-btn" data-recruit="hexbinder" title="Benötigt Küche, Essenzschrein, 1 Ration und 3 Essenz"><b>✦</b>Hexbinder<small>Phase 5 · 1R · 3E</small></button>
@@ -172,13 +193,13 @@ export class HudController {
           </section>
         </div>
         <nav class="toolbar" aria-label="Werkzeugleiste">
-          <button class="tool-btn active" data-tool="pan"><b>✥</b>Ansicht<small>Verschieben</small></button>
-          <button class="tool-btn" data-tool="dig"><b>⌁</b>Gang<small>Route ziehen</small></button>
-          <button class="tool-btn" data-tool="chamber"><b>▧</b>Kammer<small>Fläche ziehen</small></button>
-          <button class="tool-btn menu-btn" data-menu="build" aria-expanded="false"><b>▦</b>Bauen<small>6 Räume</small></button>
-          <button class="tool-btn menu-btn" data-menu="work" aria-expanded="false"><b>≡</b>Arbeit<small>Prioritäten</small></button>
-          <button class="tool-btn menu-btn" data-menu="command" aria-expanded="false"><b>⚑</b>Befehle<small>Kampf & Falle</small></button>
-          <button class="tool-btn menu-btn" data-menu="recruit" aria-expanded="false"><b>⬟</b>Gefolge<small>Rufen</small></button>
+          <button class="tool-btn active" data-tool="pan" data-testid="tool-pan"><b>✥</b>Ansicht<small>Verschieben</small></button>
+          <button class="tool-btn" data-tool="dig" data-testid="tool-dig"><b>⌁</b>Gang<small>Route ziehen</small></button>
+          <button class="tool-btn" data-tool="chamber" data-testid="tool-chamber"><b>▧</b>Kammer<small>Fläche ziehen</small></button>
+          <button class="tool-btn menu-btn" data-menu="build" data-testid="menu-build" aria-expanded="false"><b>▦</b>Bauen<small>6 Räume</small></button>
+          <button class="tool-btn menu-btn" data-menu="work" data-testid="menu-work" aria-expanded="false"><b>≡</b>Arbeit<small>Prioritäten</small></button>
+          <button class="tool-btn menu-btn" data-menu="command" data-testid="menu-command" aria-expanded="false"><b>⚑</b>Befehle<small>Kampf & Falle</small></button>
+          <button class="tool-btn menu-btn" data-menu="recruit" data-testid="menu-recruit" aria-expanded="false"><b>⬟</b>Gefolge<small>Rufen</small></button>
         </nav>
       </div>
       <div class="modal-shell">
@@ -191,7 +212,7 @@ export class HudController {
             Grabe zu Rohstoffen, errichte sichtbare Produktionsketten, führe eine kleine Armee und entscheide
             über das Schicksal eines besiegten Inquisitors.
           </p>
-          <button class="primary-btn" data-action="begin">Das Herz erwecken</button>
+          <button class="primary-btn" data-action="begin" data-testid="begin-game">Das Herz erwecken</button>
           <div class="controls-note">Maus: Ziehen &amp; Mausrad · Touch: Ziehen &amp; Pinch · WASD: Kamera · F: Karte · P: Pause</div>
         </section>
       </div>`;
@@ -222,6 +243,7 @@ export class HudController {
     this.summonWorkerButton = root.querySelector<HTMLButtonElement>('[data-action="summon-worker"]') ?? undefined;
     this.objectiveChecklist = root.querySelector<HTMLElement>('[data-objective-checklist]') ?? undefined;
     this.contextPanel = root.querySelector<HTMLElement>('.context-panel') ?? undefined;
+    this.worldTargets = root.querySelector<HTMLElement>('[data-testid="world-targets"]') ?? undefined;
     this.bind();
   }
 
@@ -263,11 +285,16 @@ export class HudController {
       this.toggleFullscreen();
     });
     this.root.querySelector('[data-action="begin"]')?.addEventListener('click', () => {
-      this.modal.classList.add('hidden');
-      this.started = true;
-      if (window.matchMedia('(max-width: 900px)').matches) this.enterFullscreen();
-      this.callbacks.begin();
+      this.start();
     });
+  }
+
+  start(): void {
+    if (this.started) return;
+    this.modal.classList.add('hidden');
+    this.started = true;
+    if (!this.automationMode && window.matchMedia('(max-width: 900px)').matches) this.enterFullscreen();
+    this.callbacks.begin();
   }
 
   private toggleToolMenu(name: string): void {
@@ -337,6 +364,17 @@ export class HudController {
       if (reason) node.setAttribute('title', reason);
       else if (node.hasAttribute('data-tool')) node.removeAttribute('title');
     });
+    this.root.querySelectorAll<HTMLButtonElement>('[data-menu]').forEach((button) => {
+      const menu = button.dataset.menu as HudMenu;
+      const reason = state.menuLocks[menu];
+      button.disabled = Boolean(reason);
+      button.classList.toggle('locked', Boolean(reason));
+      button.classList.toggle('tutorial-focus', state.tutorialFocus === 'worker' && menu === 'worker');
+      if (reason) button.title = reason;
+      else if (menu === 'worker') button.title = 'Arbeiter beschwören';
+      else button.removeAttribute('title');
+    });
+    this.root.querySelector<HTMLElement>('[data-tool="dig"]')?.classList.toggle('tutorial-focus', state.tutorialFocus === 'dig');
     this.buildMenu?.classList.toggle('active', state.tool.startsWith('room-'));
     this.commandMenu?.classList.toggle(
       'active',
@@ -355,6 +393,17 @@ export class HudController {
     if (this.summonWorkerButton) {
       this.summonWorkerButton.disabled = !state.canSummonWorker;
       this.summonWorkerButton.title = state.workerSummonReason ?? 'Zusätzlichen Arbeiter am Herz beschwören';
+    }
+    if (this.worldTargets) {
+      this.worldTargets.replaceChildren(...state.worldTargets.map((target) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.dataset.worldTarget = target.id;
+        button.dataset.testid = `world-target-${target.id}`;
+        button.textContent = `${target.label}: ${target.status}`;
+        button.addEventListener('click', () => this.callbacks.focusTarget(target.id));
+        return button;
+      }));
     }
     if (this.objectiveChecklist) {
       this.objectiveChecklist.replaceChildren(...state.objectiveChecklist.map((item) => {

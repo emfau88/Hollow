@@ -20,7 +20,7 @@ import {
   type ToolKind,
   type UnitKind,
 } from '../data/definitions';
-import { HudController, type HudState } from '../ui/HudController';
+import { HudController, type HudMenu, type HudState } from '../ui/HudController';
 import {
   TerrainRenderer,
   type TerrainFloor,
@@ -46,6 +46,14 @@ import {
   productionStations,
   roomCost,
 } from '../core/GameRules';
+import {
+  installAutomationBridge,
+  parseAutomationOptions,
+  type AutomationActionResult,
+  type AutomationState,
+  type AutomationWorldTarget,
+  type HollowAgentApi,
+} from '../core/AutomationBridge';
 
 const TILE = BALANCE.tileSize;
 const W = BALANCE.mapWidth;
@@ -210,6 +218,9 @@ interface WorldTile {
 const NORTH_SHIFT = 8;
 const sy = (y: number) => y + NORTH_SHIFT;
 const HEART_TILE = { x: 32, y: sy(22) };
+const TUTORIAL_ROUTE_START: GridPoint = { x: 38, y: sy(26) };
+const TUTORIAL_ROUTE_END: GridPoint = { x: 42, y: sy(26) };
+const AUTOMATION_OPTIONS = parseAutomationOptions(window.location.search);
 // Heart floor: the 3×3 around the heart uses the dedicated heart floor frame.
 const HEART_FLOOR = { x: 31, y: sy(21), w: 3, h: 3 };
 const TERRAIN_MATERIAL_ANCHORS: ReadonlyArray<{
@@ -299,6 +310,12 @@ export class GameScene extends Phaser.Scene {
   private pinchMid?: { x: number; y: number };
   private cameraKeys?: Record<string, Phaser.Input.Keyboard.Key>;
   private workPriorities: WorkPriorities = { ...DEFAULT_WORK_PRIORITIES };
+  private readonly automationOptions = AUTOMATION_OPTIONS;
+  private readonly random = new Phaser.Math.RandomDataGenerator([String(AUTOMATION_OPTIONS.seed)]);
+  private tutorialRoutePlanned = false;
+  private tutorialGuideObjects: Phaser.GameObjects.GameObject[] = [];
+  private automationCleanup?: () => void;
+  private lastObjectiveSignature = '';
 
   private stats = {
     biomassMined: 0,
@@ -420,6 +437,7 @@ export class GameScene extends Phaser.Scene {
     this.setupHud();
     this.setupDebug();
     this.setupInput();
+    this.setupAutomation();
 
     this.cameras.main.setBounds(0, 0, W * TILE, H * TILE);
     this.cameras.main.setZoom(1);
@@ -435,6 +453,7 @@ export class GameScene extends Phaser.Scene {
     this.scale.on('resize', () => {
       if (window.innerWidth < 950) this.cameras.main.setZoom(0.8);
     });
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.automationCleanup?.());
   }
 
   private setupHud(): void {
@@ -447,15 +466,73 @@ export class GameScene extends Phaser.Scene {
       fitCamera: () => this.fitKnownMap(),
       pulse: () => this.covenantPulse(),
       toggleAudio: () => this.audio.toggle(),
+      focusTarget: (id) => this.focusWorldTarget(id),
       begin: () => {
         this.setSpeed(1);
         this.heartSpeak(HEART_LINES.start);
-        this.hud.toast('Erstes Ziel', 'Die Pilzgrotte liegt östlich. Ziehe mit „Gang“ eine Route durch den Fels.');
+        this.startOpeningTutorial();
       },
       decide: (choice) => this.prisonerDecision(choice),
       restart: () => window.location.reload(),
-    });
+    }, { automationMode: this.automationOptions.enabled });
     this.updateHud();
+  }
+
+  private startOpeningTutorial(): void {
+    const fungus = this.nodes.find((node) => node.id === 'fungus');
+    if (!fungus?.discovered) {
+      this.setTool('dig');
+      this.showTutorialGuide();
+      this.cameras.main.pan(this.wx(39), this.wy(TUTORIAL_ROUTE_START.y), 850, 'Sine.easeInOut');
+      this.hud.toast(
+        '1. Verbindung öffnen',
+        'Die Pilzgrotte ist bereits ausgegraben und grün markiert. Ziehe mit „Gang“ vom goldenen Ring bis in die Grotte.',
+        false,
+        8500,
+      );
+    }
+    this.emitObjectiveChanged();
+  }
+
+  private showTutorialGuide(): void {
+    this.clearTutorialGuide();
+    const guide = this.add.graphics().setDepth(58);
+    guide.lineStyle(5, COLORS.gold, 0.34).lineBetween(
+      this.wx(TUTORIAL_ROUTE_START.x),
+      this.wy(TUTORIAL_ROUTE_START.y),
+      this.wx(TUTORIAL_ROUTE_END.x),
+      this.wy(TUTORIAL_ROUTE_END.y),
+    );
+    const start = this.add.circle(
+      this.wx(TUTORIAL_ROUTE_START.x),
+      this.wy(TUTORIAL_ROUTE_START.y),
+      15,
+    ).setStrokeStyle(3, COLORS.gold, 0.95).setDepth(59);
+    const end = this.add.circle(
+      this.wx(TUTORIAL_ROUTE_END.x),
+      this.wy(TUTORIAL_ROUTE_END.y),
+      15,
+    ).setStrokeStyle(3, COLORS.fungus, 0.95).setDepth(59);
+    const label = this.add.text(this.wx(45), this.wy(sy(25)), 'PILZGROTTE\nAUSGEGRABEN · GANG ÖFFNEN', {
+      fontFamily: 'Barlow Condensed, Arial',
+      fontSize: '15px',
+      fontStyle: 'bold',
+      color: '#b9d38b',
+      align: 'center',
+      stroke: '#090a0d',
+      strokeThickness: 5,
+    }).setOrigin(0.5).setDepth(59);
+    this.tweens.add({ targets: [start, end], scale: 1.28, alpha: 0.48, yoyo: true, repeat: -1, duration: 820 });
+    this.tweens.add({ targets: label, alpha: 0.72, yoyo: true, repeat: -1, duration: 1100 });
+    this.tutorialGuideObjects = [guide, start, end, label];
+  }
+
+  private clearTutorialGuide(): void {
+    for (const object of this.tutorialGuideObjects) {
+      this.tweens.killTweensOf(object);
+      object.destroy();
+    }
+    this.tutorialGuideObjects = [];
   }
 
   private setupDebug(): void {
@@ -583,6 +660,206 @@ export class GameScene extends Phaser.Scene {
         }
       },
     });
+  }
+
+  private setupAutomation(): void {
+    if (!this.automationOptions.enabled) return;
+    const api: HollowAgentApi = {
+      version: 1,
+      seed: this.automationOptions.seed,
+      start: () => {
+        this.hud.start();
+        return this.automationResult('start', true);
+      },
+      getState: () => this.automationState(),
+      selectTool: (tool) => {
+        const tools: ToolKind[] = [
+          'pan', 'dig', 'chamber', 'room-storage', 'room-bedroom', 'room-kitchen',
+          'room-smelter', 'room-workshop', 'room-prison', 'banner-attack', 'banner-defend', 'trap',
+        ];
+        if (!tools.includes(tool)) return this.automationResult('selectTool', false, `Unbekanntes Werkzeug: ${String(tool)}`);
+        const reason = this.toolLockReason(tool);
+        if (reason) return this.automationResult('selectTool', false, reason);
+        this.setTool(tool);
+        return this.automationResult('selectTool', true);
+      },
+      planDig: (start, end, horizontalFirst = true) => {
+        const invalid = this.validateGridAction(start, end);
+        if (invalid) return this.automationResult('planDig', false, invalid);
+        const before = this.digMarks.size;
+        this.horizontalFirst = horizontalFirst;
+        this.setTool('dig');
+        this.commitTool(start, end);
+        return this.automationResult(
+          'planDig',
+          this.digMarks.size > before,
+          this.digMarks.size > before ? undefined : 'Die Route enthält keine grabbaren Felsfelder.',
+        );
+      },
+      placeRoom: (kind, start, end) => {
+        const invalid = this.validateGridAction(start, end);
+        if (invalid) return this.automationResult('placeRoom', false, invalid);
+        const tool = `room-${kind}` as ToolKind;
+        const reason = this.toolLockReason(tool);
+        if (reason) return this.automationResult('placeRoom', false, reason);
+        const before = this.rooms.length;
+        this.placeRoom(kind, start, end);
+        return this.automationResult(
+          'placeRoom',
+          this.rooms.length > before,
+          this.rooms.length > before ? undefined : 'Der Raum konnte an dieser Position nicht geplant werden.',
+        );
+      },
+      summonWorker: () => {
+        const reason = this.workerSummonBlockReason();
+        if (reason) return this.automationResult('summonWorker', false, reason);
+        this.summonWorker();
+        return this.automationResult('summonWorker', true);
+      },
+      recruit: (kind) => {
+        if (!['guard', 'archer', 'hexbinder'].includes(kind)) {
+          return this.automationResult('recruit', false, `Unbekannte Einheit: ${String(kind)}`);
+        }
+        const reason = this.recruitBlockReason(kind);
+        if (reason) return this.automationResult('recruit', false, reason);
+        this.recruit(kind);
+        return this.automationResult('recruit', true);
+      },
+      setSpeed: (speed) => {
+        if (![0, 1, 2].includes(speed)) return this.automationResult('setSpeed', false, 'Erlaubt sind 0, 1 oder 2.');
+        this.setSpeed(speed);
+        return this.automationResult('setSpeed', true);
+      },
+      step: (ticks = 1) => {
+        if (!this.hud.isStarted) return this.automationResult('step', false, 'Das Spiel wurde noch nicht gestartet.');
+        const count = Phaser.Math.Clamp(Math.floor(ticks), 1, 600);
+        for (let index = 0; index < count; index++) this.simulationStep(0.1, 1);
+        this.updateHud();
+        return this.automationResult('step', true);
+      },
+      focusTarget: (id) => {
+        if (!this.worldTargets().some((target) => target.id === id)) {
+          return this.automationResult('focusTarget', false, `Weltziel nicht sichtbar: ${id}`);
+        }
+        this.focusWorldTarget(id);
+        return this.automationResult('focusTarget', true);
+      },
+      reset: (options = {}) => {
+        const url = new URL(window.location.href);
+        url.searchParams.set('automation', '1');
+        url.searchParams.set('seed', String(options.seed ?? this.automationOptions.seed));
+        window.location.assign(url.toString());
+      },
+    };
+    this.automationCleanup = installAutomationBridge(api);
+  }
+
+  private validateGridAction(start: GridPoint, end: GridPoint): string | undefined {
+    for (const point of [start, end]) {
+      if (!Number.isInteger(point.x) || !Number.isInteger(point.y)) return 'Koordinaten müssen ganzzahlig sein.';
+      if (!this.tileAt(point.x, point.y)) return `Koordinate außerhalb der Karte: ${point.x},${point.y}`;
+    }
+    return undefined;
+  }
+
+  private automationResult(action: string, ok: boolean, reason?: string): AutomationActionResult {
+    const result: AutomationActionResult = { ok, action, reason, state: this.automationState() };
+    window.dispatchEvent(new CustomEvent('hollow:action-complete', { detail: result }));
+    return result;
+  }
+
+  private automationState(): AutomationState {
+    const objective = MISSION_PHASES[Math.min(this.phase - 1, MISSION_PHASES.length - 1)];
+    const toolLocks: Partial<Record<ToolKind, string>> = {};
+    const tools: ToolKind[] = [
+      'pan', 'dig', 'chamber', 'room-storage', 'room-bedroom', 'room-kitchen',
+      'room-smelter', 'room-workshop', 'room-prison', 'banner-attack', 'banner-defend', 'trap',
+    ];
+    for (const tool of tools) {
+      const reason = this.toolLockReason(tool);
+      if (reason) toolLocks[tool] = reason;
+    }
+    const knownTiles: AutomationState['knownTiles'] = [];
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const tile = this.tiles[y][x];
+        if (tile.visibility === 'hidden') continue;
+        knownTiles.push({
+          x,
+          y,
+          geology: tile.geology,
+          visibility: tile.visibility,
+          control: tile.control,
+          construction: tile.construction,
+        });
+      }
+    }
+    return {
+      version: 1,
+      seed: this.automationOptions.seed,
+      started: this.hud.isStarted,
+      outcome: !this.hud.isStarted
+        ? 'not-started'
+        : this.ended
+          ? this.heartHp > 0 ? 'victory' : 'defeat'
+          : 'playing',
+      elapsed: Number(this.elapsed.toFixed(2)),
+      speed: this.speed,
+      phase: this.phase,
+      tool: this.tool,
+      objective: { title: objective.title, body: objective.body, checklist: this.missionChecklist() },
+      heart: { hp: this.heartHp, maxHp: BALANCE.heartHp },
+      stock: { ...this.stock },
+      workers: this.workers.map((worker) => ({
+        id: worker.id,
+        x: Number(worker.x.toFixed(2)),
+        y: Number(worker.y.toFixed(2)),
+        state: worker.state,
+        jobId: worker.jobId,
+        idleReason: worker.idleReason,
+        carry: worker.carry ? { ...worker.carry } : undefined,
+      })),
+      units: this.units.map((unit) => ({
+        id: unit.id, kind: unit.kind, x: Number(unit.x.toFixed(2)), y: Number(unit.y.toFixed(2)), hp: unit.hp, hungry: unit.hungry,
+      })),
+      enemies: this.enemies.map((enemy) => ({
+        id: enemy.id, kind: enemy.kind, x: Number(enemy.x.toFixed(2)), y: Number(enemy.y.toFixed(2)), hp: enemy.hp, active: enemy.active,
+      })),
+      rooms: this.rooms.map((room) => ({
+        id: room.id, kind: room.kind, x: room.x, y: room.y, w: room.w, h: room.h,
+        complete: this.isRoomComplete(room), inputStored: room.inputStored,
+      })),
+      items: this.items.map((item) => ({
+        id: item.id, kind: item.kind, amount: item.amount, x: Number(item.x.toFixed(2)), y: Number(item.y.toFixed(2)), location: item.location,
+      })),
+      targets: this.worldTargets(),
+      knownTiles,
+      camera: {
+        scrollX: Number(this.cameras.main.scrollX.toFixed(2)),
+        scrollY: Number(this.cameras.main.scrollY.toFixed(2)),
+        zoom: this.cameras.main.zoom,
+      },
+      available: {
+        summonWorker: this.workerSummonBlockReason(),
+        recruit: {
+          guard: this.recruitBlockReason('guard'),
+          archer: this.recruitBlockReason('archer'),
+          hexbinder: this.recruitBlockReason('hexbinder'),
+        },
+        tools: toolLocks,
+      },
+    };
+  }
+
+  private emitObjectiveChanged(): void {
+    if (!this.automationOptions.enabled) return;
+    const checklist = this.missionChecklist();
+    const signature = JSON.stringify([this.phase, checklist]);
+    if (signature === this.lastObjectiveSignature) return;
+    this.lastObjectiveSignature = signature;
+    window.dispatchEvent(new CustomEvent('hollow:objective-changed', {
+      detail: { phase: this.phase, checklist },
+    }));
   }
 
   private setupInput(): void {
@@ -1059,7 +1336,7 @@ export class GameScene extends Phaser.Scene {
     for (const node of this.nodes) {
       this.setChamberControl(node, node.owner === 'natural' ? 'neutral' : 'enemy');
       node.sprite = this.createNodeVisual(node);
-      node.sprite.setVisible(false);
+      node.sprite.setVisible(node.id === 'fungus').setAlpha(node.id === 'fungus' ? 0.38 : 1);
     }
 
     // The first economic objective is intentionally safe. Combat begins only
@@ -1216,9 +1493,9 @@ export class GameScene extends Phaser.Scene {
     return enemy;
   }
 
-  private simulationStep(baseDt: number): void {
+  private simulationStep(baseDt: number, forcedSpeed?: 0 | 1 | 2): void {
     if (!this.hud?.isStarted || this.ended) return;
-    const dt = baseDt * this.speed;
+    const dt = baseDt * (forcedSpeed ?? this.speed);
     if (!dt) {
       this.updateHud(false);
       return;
@@ -1237,6 +1514,7 @@ export class GameScene extends Phaser.Scene {
     this.updateCombat(dt);
     this.updateTraps(dt);
     this.updateMission();
+    this.emitObjectiveChanged();
     this.updateHud(false);
   }
 
@@ -1260,7 +1538,8 @@ export class GameScene extends Phaser.Scene {
           this.tiles[y][x].visibility = 'revealed';
         }
       }
-      node.sprite?.setVisible(true);
+      node.sprite?.setVisible(true).setAlpha(1);
+      if (node.id === 'fungus') this.clearTutorialGuide();
       for (const enemy of this.enemies.filter((candidate) => candidate.origin === node.id)) {
         enemy.sprite.setVisible(true);
         enemy.active = node.id === 'fungus';
@@ -1272,6 +1551,7 @@ export class GameScene extends Phaser.Scene {
         { x: node.chamber.x + node.chamber.w - 1, y: node.chamber.y + node.chamber.h - 1 },
       ));
       this.redrawWorldDetails(false);
+      this.emitObjectiveChanged();
     }
   }
 
@@ -1402,7 +1682,7 @@ export class GameScene extends Phaser.Scene {
         const amount = Math.min(2, node.amount >= 1 ? 2 : 1);
         if (amount === 2) node.amount--;
         this.updateNodeVisual(node);
-        this.createLooseItem(node.kind, amount, node.x + Phaser.Math.FloatBetween(-0.25, 0.25), node.y + Phaser.Math.FloatBetween(-0.25, 0.25));
+        this.createLooseItem(node.kind, amount, node.x + this.random.realInRange(-0.25, 0.25), node.y + this.random.realInRange(-0.25, 0.25));
         if (node.id === 'fungus') this.stats.biomassMined += amount;
         if (node.id === 'dwarf') this.stats.dwarfOreMined += amount;
         this.finishWorkerJob(worker, false);
@@ -2137,6 +2417,7 @@ export class GameScene extends Phaser.Scene {
     const phase = MISSION_PHASES[next - 1];
     this.hud.toast(`Phase ${next}: ${phase.title}`, phase.body, false, 7000);
     this.setSpeed(1);
+    this.emitObjectiveChanged();
   }
 
   private spawnWave(number: number): void {
@@ -2217,6 +2498,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   private workerSummonBlockReason(): string | undefined {
+    if (!this.hasFunctionalRoom('kitchen')) {
+      return 'Zusätzliche Arbeiter werden nach einer fertigen Pilzküche freigeschaltet.';
+    }
     if (this.workerSummoning) return 'Das Herz beschwört bereits einen Arbeiter.';
     if (this.workers.length >= BALANCE.maxWorkers) return `Arbeiterlimit erreicht (${BALANCE.maxWorkers}).`;
     if (this.stock.essence < BALANCE.workerSummonCost) {
@@ -2238,8 +2522,8 @@ export class GameScene extends Phaser.Scene {
       if (this.ended) return;
       this.createUnit(
         kind,
-        HEART_TILE.x + Phaser.Math.Between(-1, 1),
-        HEART_TILE.y + Phaser.Math.Between(-1, 1),
+        HEART_TILE.x + this.random.integerInRange(-1, 1),
+        HEART_TILE.y + this.random.integerInRange(-1, 1),
         true,
       );
       this.stats.recruited++;
@@ -2291,6 +2575,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   private toolLockReason(tool: ToolKind): string | undefined {
+    const fungusDiscovered = Boolean(this.nodes.find((node) => node.id === 'fungus')?.discovered);
+    if (!fungusDiscovered && (tool === 'chamber' || tool.startsWith('room-'))) {
+      return 'Öffne zuerst den markierten Gang zur Pilzgrotte.';
+    }
     if (tool === 'room-bedroom' || tool === 'room-smelter') {
       return this.phase < 2 ? 'Wird nach der ersten Nahrungskette in Phase 2 freigeschaltet.' : undefined;
     }
@@ -2300,8 +2588,26 @@ export class GameScene extends Phaser.Scene {
     if (tool === 'banner-attack') {
       return this.phase < 4 ? 'Das Angriffsbanner wird nach dem ersten zusätzlichen Kämpfer freigeschaltet.' : undefined;
     }
+    if (tool === 'banner-defend') {
+      return this.phase < 3 ? 'Kampfbefehle werden mit der Rüstungsproduktion in Phase 3 freigeschaltet.' : undefined;
+    }
     if (tool === 'room-prison') {
       return this.phase < 5 ? 'Das Gefängnis wird für die Schreinmission in Phase 5 freigeschaltet.' : undefined;
+    }
+    return undefined;
+  }
+
+  private menuLockReason(menu: HudMenu): string | undefined {
+    const fungusDiscovered = Boolean(this.nodes.find((node) => node.id === 'fungus')?.discovered);
+    if (menu === 'build' && !fungusDiscovered) return 'Öffne zuerst den Gang zur Pilzgrotte.';
+    if (menu === 'worker' && !this.hasFunctionalRoom('kitchen')) {
+      return 'Zusätzliche Arbeiter werden nach einer fertigen Pilzküche freigeschaltet.';
+    }
+    if (menu === 'work' && !this.hasFunctionalRoom('kitchen')) {
+      return 'Arbeitsprioritäten werden nach der ersten fertigen Pilzküche freigeschaltet.';
+    }
+    if ((menu === 'command' || menu === 'recruit') && this.phase < 3) {
+      return 'Kampfsteuerung und Rekrutierung werden in Phase 3 freigeschaltet.';
     }
     return undefined;
   }
@@ -2338,7 +2644,17 @@ export class GameScene extends Phaser.Scene {
         this.digMarks.add(this.key(point.x, point.y));
         marked++;
       }
-      this.hud.toast('Grabung markiert', `${marked} Felsfelder · ${Math.min(3, this.workers.length)} Arbeiter verfügbar`);
+      const plannedTutorialRoute = this.tool === 'dig'
+        && points.some((point) => manhattan(point, TUTORIAL_ROUTE_START) <= 1)
+        && points.some((point) => manhattan(point, TUTORIAL_ROUTE_END) <= 1);
+      if (plannedTutorialRoute && !this.tutorialRoutePlanned) {
+        this.tutorialRoutePlanned = true;
+        this.clearTutorialGuide();
+        this.hud.toast('Route steht', 'Die Arbeiter öffnen den Gang automatisch. Danach wird die Pilzgrotte sichtbar und beanspruchbar.');
+        this.emitObjectiveChanged();
+      } else {
+        this.hud.toast('Grabung markiert', `${marked} Felsfelder · ${Math.min(3, this.workers.length)} Arbeiter verfügbar`);
+      }
       this.markJobsDirty();
       this.wakeIdleWorkers();
       this.redrawWorldDetails(false);
@@ -2568,13 +2884,13 @@ export class GameScene extends Phaser.Scene {
         const tile = this.tileAt(x, y);
         return tile?.geology === 'excavated' && tile.visibility === 'charted';
       };
-      this.detail.lineStyle(2, node.color, 0.66);
+      this.detail.lineStyle(node.id === 'fungus' ? 3 : 2, node.color, node.id === 'fungus' ? 0.92 : 0.66);
       for (let ty = node.chamber.y; ty < node.chamber.y + node.chamber.h; ty++) {
         for (let tx = node.chamber.x; tx < node.chamber.x + node.chamber.w; tx++) {
           if (!chartedOpen(tx, ty)) continue;
           const left = tx * TILE;
           const top = ty * TILE;
-          this.detail.fillStyle(node.color, 0.025).fillRect(left + 3, top + 3, TILE - 6, TILE - 6);
+          this.detail.fillStyle(node.color, node.id === 'fungus' ? 0.11 : 0.025).fillRect(left + 3, top + 3, TILE - 6, TILE - 6);
           if (!chartedOpen(tx, ty - 1)) this.detail.lineBetween(left + 4, top + 3, left + TILE - 4, top + 3);
           if (!chartedOpen(tx + 1, ty)) this.detail.lineBetween(left + TILE - 3, top + 4, left + TILE - 3, top + TILE - 4);
           if (!chartedOpen(tx, ty + 1)) this.detail.lineBetween(left + 4, top + TILE - 3, left + TILE - 4, top + TILE - 3);
@@ -2924,8 +3240,15 @@ export class GameScene extends Phaser.Scene {
   }
 
   private inspectAt(point: GridPoint): void {
-    const node = this.nodes.find((candidate) => candidate.discovered && Phaser.Math.Distance.Between(point.x, point.y, candidate.x, candidate.y) < 2);
+    const node = this.nodes.find((candidate) => (candidate.discovered || candidate.id === 'fungus') && Phaser.Math.Distance.Between(point.x, point.y, candidate.x, candidate.y) < 2);
     if (node) {
+      if (!node.discovered) {
+        this.selectedContext = {
+          title: node.label,
+          body: 'Kartierte, bereits ausgegrabene Biomassequelle · Ziehe mit „Gang“ eine Verbindung vom östlichen Rand deiner Höhle bis zum grünen Ring.',
+        };
+        return;
+      }
       const enemies = this.enemies.filter((enemy) => enemy.origin === node.id).length;
       const control = node.claimed
         ? 'beansprucht'
@@ -3014,6 +3337,32 @@ export class GameScene extends Phaser.Scene {
     this.selectedContext = undefined;
   }
 
+  private worldTargets(): AutomationWorldTarget[] {
+    return this.nodes
+      .filter((node) => node.id === 'fungus' || node.discovered)
+      .map((node) => ({
+        id: node.id,
+        label: node.label,
+        status: node.claimed
+          ? 'beansprucht'
+          : node.discovered
+            ? node.owner === 'natural' ? 'entdeckt · noch beanspruchen' : 'feindlich kontrolliert'
+            : 'kartiert · Gang öffnen',
+        x: node.x,
+        y: node.y,
+        discovered: node.discovered,
+        claimed: node.claimed,
+      }));
+  }
+
+  private focusWorldTarget(id: string): void {
+    const target = this.worldTargets().find((candidate) => candidate.id === id);
+    if (!target) return;
+    this.cameras.main.pan(this.wx(target.x), this.wy(target.y), 500, 'Sine.easeInOut');
+    this.inspectAt({ x: target.x, y: target.y });
+    this.updateHud();
+  }
+
   private updateHud(force = true): void {
     if (!this.hud) return;
     if (!force && this.elapsed < this.nextHudUpdateAt) return;
@@ -3056,13 +3405,30 @@ export class GameScene extends Phaser.Scene {
         hexbinder: this.recruitBlockReason('hexbinder'),
       },
       toolLocks: {
+        chamber: this.toolLockReason('chamber'),
+        'room-storage': this.toolLockReason('room-storage'),
+        'room-kitchen': this.toolLockReason('room-kitchen'),
         'room-bedroom': this.toolLockReason('room-bedroom'),
         'room-smelter': this.toolLockReason('room-smelter'),
         'room-workshop': this.toolLockReason('room-workshop'),
         'room-prison': this.toolLockReason('room-prison'),
         'banner-attack': this.toolLockReason('banner-attack'),
+        'banner-defend': this.toolLockReason('banner-defend'),
         trap: this.toolLockReason('trap'),
       },
+      menuLocks: {
+        worker: this.menuLockReason('worker'),
+        build: this.menuLockReason('build'),
+        work: this.menuLockReason('work'),
+        command: this.menuLockReason('command'),
+        recruit: this.menuLockReason('recruit'),
+      },
+      tutorialFocus: !this.nodes.find((node) => node.id === 'fungus')?.discovered && !this.tutorialRoutePlanned
+        ? 'dig'
+        : this.hasFunctionalRoom('kitchen') && this.workers.length < BALANCE.maxWorkers
+          ? 'worker'
+          : undefined,
+      worldTargets: this.worldTargets(),
       objectiveChecklist: this.missionChecklist(),
       workerJobs: {
         haul: this.workers.filter((worker) => worker.state === 'pickup' || worker.state === 'deliver').length,
@@ -3082,7 +3448,9 @@ export class GameScene extends Phaser.Scene {
     if (this.phase === 1) {
       const fungus = this.nodes.find((node) => node.id === 'fungus');
       return [
-        { label: 'Pilzgrotte erreichen', done: Boolean(fungus?.discovered) },
+        { label: 'Gang-Werkzeug wählen', done: this.tool === 'dig' || this.tutorialRoutePlanned || Boolean(fungus?.discovered) },
+        { label: 'Verbindung zur grünen Pilzgrotte markieren', done: this.tutorialRoutePlanned || Boolean(fungus?.discovered) },
+        { label: 'Durchbruch zur Pilzgrotte', done: Boolean(fungus?.discovered) },
         { label: 'Pilzgrotte beanspruchen', done: Boolean(fungus?.claimed) },
         { label: `4 Biomasse bergen (${Math.min(4, this.stats.biomassMined)}/4)`, done: this.stats.biomassMined >= 4 },
         { label: 'Pilzküche fertigstellen', done: hasRoom('kitchen') },

@@ -44,6 +44,7 @@ Die vollständige Produktvision, Zielerfahrung und Definition of Done stehen im 
 - Angriffsbanner, Haltebanner, Bolzenfallen, Covenant-Puls, Hunger und Heilung in Betten;
 - natürliche Ressourcen, Zwergen-Claim, Essenzschrein und drei Inquisitionswellen;
 - fünfteilige Missionsführung mit Checklisten, Freischaltungen, Sieg und Niederlage;
+- geführter Ersteinstieg mit sichtbar ausgegrabener Pilzgrotte, markierter Tunnelverbindung und schrittweise freigeschaltetem HUD;
 - Gefangenenablauf mit Eskorte, Zelle und den Entscheidungen Freilassen, Rekrutieren oder Opfern;
 - Vertrauen und Furcht mit Auswirkungen auf Armee, Ressourcen und Finalwelle;
 - responsives HUD, Querformat-Sperre, Vollbildmodus, Touch-Steuerung sowie Pause, 1× und 2× Geschwindigkeit.
@@ -103,6 +104,12 @@ Die Vorschau läuft standardmäßig unter `http://localhost:4188/`.
 
 Weitere Aktionen wie Geschwindigkeit, Vollbild, Audio, Covenant-Puls, Arbeitsprioritäten, Bau, Rekrutierung und Kampfsteuerung sind direkt über das HUD erreichbar.
 
+### Erste Schritte und Arbeiter
+
+Nach dem Erwecken des Herzens ist die **Pilzgrotte östlich der Starthöhle bereits ausgegraben und grün markiert**. Wähle „Gang“ und ziehe die kurze Verbindung vom goldenen Ring bis zum grünen Ring. Die Arbeiter graben und beanspruchen den neuen Boden automatisch. Baue danach eine Pilzküche und versorge sie mit Biomasse.
+
+Zusätzliche Arbeiter werden nach einer **fertigen Pilzküche** freigeschaltet. Klicke oben im HUD direkt auf den Arbeiterzähler (`3/5`); ein Arbeiter kostet 2 Essenz, benötigt 4 Sekunden und das aktuelle Limit liegt bei 5. Kämpfer erscheinen später separat unter „Gefolge“.
+
 ### Touch
 
 - im Querformat spielen;
@@ -122,6 +129,22 @@ Weitere Aktionen wie Geschwindigkeit, Vollbild, Audio, Covenant-Puls, Arbeitspri
 | `npm run preview` | Produktionsbuild lokal auf Port 4188 starten |
 
 Der optionale Diagnosemodus ist unter `http://localhost:5188/?debug=1` verfügbar. Er zeigt Simulations- und Arbeiterdaten und bietet Abkürzungen für wiederholbare QA-Szenarien.
+
+### Browser-Automation und Chromium-Agenten
+
+Der explizite Automationsmodus läuft unter `http://localhost:5188/?automation=1&seed=42`. Er deaktiviert automatische Vollbildwechsel, verwendet einen reproduzierbaren Zufallsseed und installiert nach dem Laden `window.hollowAgent`. Die API steuert dieselben Spielaktionen und Sperrregeln wie das sichtbare HUD:
+
+```js
+const agent = window.hollowAgent;
+agent.start();
+agent.getState();
+agent.planDig({ x: 38, y: 34 }, { x: 42, y: 34 });
+agent.setSpeed(2);
+agent.step(100);
+agent.focusTarget('fungus');
+```
+
+Verfügbare Methoden: `start`, `getState`, `selectTool`, `planDig`, `placeRoom`, `summonWorker`, `recruit`, `setSpeed`, `step`, `focusTarget` und `reset`. `getState()` liefert Mission, Checkliste, Ressourcen, Arbeiter, Einheiten, Gegner, Räume, Gegenstände, bekannte Felder, Weltziele, Kamera und blockierte Aktionen als serialisierbares Objekt. Für ereignisgesteuerte Runner stehen `hollow:agent-ready`, `hollow:action-complete` und `hollow:objective-changed` bereit. Wichtige HUD-Elemente besitzen zusätzlich stabile `data-testid`-Selektoren; zugängliche Weltziel-Schaltflächen spiegeln die sichtbaren strategischen Ziele.
 
 ## Technik und Projektstruktur
 

@@ -170,6 +170,27 @@ button {
   border-right: 1px solid rgba(255, 255, 255, 0.055);
 }
 
+.resource-action {
+  height: 100%;
+  color: inherit;
+  border: 0;
+  border-right: 1px solid rgba(255, 255, 255, 0.055);
+  border-radius: 0;
+  background: transparent;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.resource-action:hover,
+.resource-action.menu-open {
+  background: rgba(211, 168, 74, 0.11);
+}
+
+.resource-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
 .resource:last-child {
   border-right: 0;
 }
@@ -497,6 +518,27 @@ button {
 
 .tool-btn.locked small {
   color: #8f6e6e;
+}
+
+.tutorial-focus {
+  position: relative;
+  animation: tutorial-focus 1.15s ease-in-out infinite;
+}
+
+@keyframes tutorial-focus {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(229, 196, 110, 0.14); }
+  50% { box-shadow: 0 0 0 4px rgba(229, 196, 110, 0.26), 0 0 20px rgba(211, 168, 74, 0.28); }
+}
+
+.semantic-world-targets {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  pointer-events: auto;
 }
 
 .selection-hint {

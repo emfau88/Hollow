@@ -1,7 +1,7 @@
 export const MISSION_PHASES = [
   {
     title: 'Etwas Essbares',
-    body: 'Erschließe die sichere Pilzgrotte und bringe deine erste Nahrungskette in Gang.',
+    body: 'Die grün markierte Pilzgrotte ist bereits ausgegraben. Öffne nur noch den kurzen Gang nach Osten und starte deine Nahrungskette.',
   },
   {
     title: 'Metall ist überzeugender',
