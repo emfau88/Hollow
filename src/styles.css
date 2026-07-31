@@ -1105,11 +1105,61 @@ button {
 }
 
 :root[data-theme="style-b"] .objective-panel {
+  padding: 10px 11px;
   border-left: 3px solid #d8a532;
   background:
     linear-gradient(100deg, rgba(216, 165, 50, 0.09), transparent 40%),
     linear-gradient(180deg, rgba(38, 68, 99, 0.24), rgba(2, 12, 28, 0.14)),
     var(--panel);
+}
+
+:root[data-theme="style-b"] .left-column {
+  top: 62px;
+  bottom: 88px;
+  width: min(228px, 23vw);
+}
+
+:root[data-theme="style-b"] .phase {
+  font-size: 10px;
+}
+
+:root[data-theme="style-b"] .objective-panel h2 {
+  margin: 4px 0 5px;
+  font-size: clamp(16px, 1.55vw, 20px);
+}
+
+:root[data-theme="style-b"] .objective-panel p {
+  font-size: 10px;
+  line-height: 1.32;
+}
+
+:root[data-theme="style-b"] .objective-checklist {
+  gap: 2px;
+  margin-top: 6px;
+  font-size: 9px;
+  line-height: 1.18;
+}
+
+:root[data-theme="style-b"] .objective-progress {
+  margin-top: 8px;
+}
+
+@media (max-width: 900px), (max-height: 520px) {
+  :root[data-theme="style-b"] .left-column {
+    top: 55px;
+    bottom: 64px;
+    width: min(190px, 27vw);
+  }
+
+  :root[data-theme="style-b"] .objective-panel {
+    padding: 7px 8px;
+  }
+
+  :root[data-theme="style-b"] .objective-checklist {
+    margin-top: 4px;
+    font-size: 8px;
+    line-height: 1.12;
+  }
 }
 
 :root[data-theme="style-b"] .objective-panel h2,

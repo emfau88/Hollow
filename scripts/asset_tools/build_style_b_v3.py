@@ -67,26 +67,47 @@ def normalise(
 
 def build_walls() -> dict[str, Image.Image]:
     sheet = Image.open(SOURCE / "wall-kit-master-alpha.png").convert("RGBA")
-    names = ("north", "east", "south", "west")
     built: dict[str, Image.Image] = {}
-    for column, name in enumerate(names):
-        straight = crop_cell(sheet, 4, 2, column, 0, gutter=6)
-        if name in {"north", "south"}:
-            left = round(straight.width * 0.31)
-            right = round(straight.width * 0.69)
-            straight = visible_crop(straight.crop((left, 0, right, straight.height)))
-        else:
-            top = round(straight.height * 0.25)
-            bottom = round(straight.height * 0.75)
-            straight = visible_crop(straight.crop((0, top, straight.width, bottom)))
-        built[name] = normalise(straight, (48, 48), OUTPUT / "walls" / f"{name}.png", align_bottom=True)
 
-    # The generated lower row is NE, SW, ES, WN. Keep this explicit: swapping
-    # the two middle cells produces mirrored/missing-looking L corners in the
-    # small neutral caverns.
-    for column, name in ((0, "north-east"), (1, "south-west"), (2, "east-south"), (3, "west-north")):
-        corner = crop_cell(sheet, 4, 2, column, 1, gutter=6)
-        built[name] = normalise(corner, (64, 64), OUTPUT / "walls" / f"{name}.png", align_bottom=True)
+    # One strong authored north wall is the canonical module. Rotating that
+    # exact bitmap guarantees identical thickness and eliminates the generated
+    # right-wall variant that contained mostly brass ticks instead of masonry.
+    straight = crop_cell(sheet, 4, 2, 0, 0, gutter=6)
+    left = round(straight.width * 0.31)
+    right = round(straight.width * 0.69)
+    straight = visible_crop(straight.crop((left, 0, right, straight.height)))
+    # Runtime walls stay inside their 32px terrain cell. The previous 48/64px
+    # exports overlapped neighbouring cells, so two valid sides could visually
+    # cover a one-tile corridor and every dig forced a full-map redraw.
+    band = straight.resize((32, 14), Image.Resampling.LANCZOS)
+    band = band.filter(ImageFilter.UnsharpMask(radius=0.38, percent=108, threshold=2))
+    north = Image.new("RGBA", (32, 32))
+    north.alpha_composite(band, (0, 0))
+    north.save(OUTPUT / "walls" / "north.png", optimize=True)
+    built["north"] = north
+    for name, transpose in (
+        ("east", Image.Transpose.ROTATE_270),
+        ("south", Image.Transpose.ROTATE_180),
+        ("west", Image.Transpose.ROTATE_90),
+    ):
+        rotated = north.transpose(transpose)
+        rotated.save(OUTPUT / "walls" / f"{name}.png", optimize=True)
+        built[name] = rotated
+
+    # Corners are deterministic composites of those exact side modules. This
+    # produces closed square joints without a second oversized sprite crossing
+    # the passage.
+    for name, first, second in (
+        ("north-east", "north", "east"),
+        ("east-south", "east", "south"),
+        ("south-west", "south", "west"),
+        ("west-north", "west", "north"),
+    ):
+        corner = Image.new("RGBA", (32, 32))
+        corner.alpha_composite(built[first])
+        corner.alpha_composite(built[second])
+        corner.save(OUTPUT / "walls" / f"{name}.png", optimize=True)
+        built[name] = corner
     return built
 
 
@@ -205,10 +226,10 @@ def make_preview(
     room = terrain["claimed-floor"].crop((80, 80, 432, 432)).resize((290, 250), Image.Resampling.LANCZOS)
     preview.alpha_composite(room.convert("RGBA"), (40, 268))
     for x in range(72, 330, 32):
-        preview.alpha_composite(walls["north"], (x, 250))
-    for y in range(282, 485, 32):
-        preview.alpha_composite(walls["west"], (24, y))
-    preview.alpha_composite(walls["west-north"], (18, 244))
+        preview.alpha_composite(walls["north"], (x, 268))
+    for y in range(300, 485, 32):
+        preview.alpha_composite(walls["west"], (40, y))
+    preview.alpha_composite(walls["west-north"], (40, 268))
     preview.alpha_composite(decals["covenant-inlay"].resize((150, 122), Image.Resampling.LANCZOS), (110, 330))
 
     preview.alpha_composite(heart["backplate"].resize((190, 190), Image.Resampling.LANCZOS), (402, 274))

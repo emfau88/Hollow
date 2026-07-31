@@ -5,6 +5,7 @@ interface ThemeAssetPaths {
   dampFloor?: string;
   heart: string;
   worker: string;
+  workerAnimation?: string;
   guard: string;
   archer: string;
   heartBuilding?: {
@@ -116,6 +117,7 @@ const STYLE_B_THEME: VisualTheme = {
     dampFloor: 'assets/generated/style-b-v3/terrain/damp-floor.png',
     heart: 'assets/generated/style-b-v2/heart/core.png',
     worker: 'assets/generated/style-b-v2/characters/worker.png',
+    workerAnimation: 'assets/generated/style-b-worker-v1/worker-animation.png',
     guard: 'assets/generated/style-b-v2/characters/guard.png',
     archer: 'assets/generated/style-b-v2/characters/archer.png',
     heartBuilding: {
@@ -166,7 +168,7 @@ const STYLE_B_THEME: VisualTheme = {
       workbench: 'assets/generated/style-b-v1/props/workbench.png',
     },
   },
-  display: { heart: 76, worker: 43, guard: 46, archer: 45 },
+  display: { heart: 76, worker: 58, guard: 46, archer: 45 },
   palette: {
     void: 0x071427,
     heartAmbient: 0xe75a52,

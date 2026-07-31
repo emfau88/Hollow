@@ -59,9 +59,12 @@ import {
 const TILE = BALANCE.tileSize;
 const W = BALANCE.mapWidth;
 const H = BALANCE.mapHeight;
+const MIN_CAMERA_ZOOM = 0.34;
+const MAX_CAMERA_ZOOM = 2;
 
 type JobKind = 'idle' | 'dig' | 'build' | 'claim' | 'mine' | 'pickup' | 'deliver' | 'prisoner-pick' | 'prisoner-deliver';
 type EnemyKind = 'crawler' | 'dwarf' | 'crossbow' | 'adept' | 'captain' | 'scout' | 'warden';
+type WorkerFacing = 'down' | 'up' | 'left' | 'right';
 
 interface Worker {
   id: number;
@@ -70,6 +73,7 @@ interface Worker {
   sprite: Phaser.GameObjects.Sprite;
   carryText: Phaser.GameObjects.Text;
   state: JobKind;
+  facing: WorkerFacing;
   path: GridPoint[];
   timer: number;
   assignmentCooldown: number;
@@ -463,10 +467,17 @@ export class GameScene extends Phaser.Scene {
           : `assets/generated/units-v1/${key}.png`;
       this.load.image(textureKey, themedPath);
     }
+    if (themeAssets.workerAnimation) {
+      this.load.spritesheet('worker-style-b-animated', themeAssets.workerAnimation, {
+        frameWidth: 96,
+        frameHeight: 96,
+      });
+    }
   }
 
   create(): void {
     const themeAssets = ACTIVE_VISUAL_THEME.assets;
+    this.configureStyleBTextureSampling();
     this.createMap();
     this.detail = this.add.graphics().setDepth(4);
     this.preview = this.add.graphics().setDepth(60);
@@ -497,6 +508,7 @@ export class GameScene extends Phaser.Scene {
     this.createNodes();
     this.drawWorld();
     this.seedStartingStorage();
+    this.createWorkerAnimations();
     this.createStartingPopulation();
     this.createBanner('defend', this.bannerDefend);
     this.setupHud();
@@ -505,6 +517,7 @@ export class GameScene extends Phaser.Scene {
     this.setupAutomation();
 
     this.cameras.main.setBounds(0, 0, W * TILE, H * TILE);
+    this.cameras.main.roundPixels = ACTIVE_VISUAL_THEME.id === 'style-b';
     this.applyOpeningCamera();
     this.cameras.main.setBackgroundColor(ACTIVE_VISUAL_THEME.palette.void);
 
@@ -526,6 +539,16 @@ export class GameScene extends Phaser.Scene {
     if (width < 950) return 0.72;
     if (width < 1500) return 0.88;
     return 1.06;
+  }
+
+  /** Keep the illustrated world crisp when the player zooms below 1:1. */
+  private configureStyleBTextureSampling(): void {
+    if (ACTIVE_VISUAL_THEME.id !== 'style-b') return;
+    for (const key of this.textures.getTextureKeys()) {
+      if (key !== '__DEFAULT' && key !== '__MISSING') {
+        this.textures.get(key).setFilter(Phaser.Textures.FilterMode.NEAREST);
+      }
+    }
   }
 
   private applyOpeningCamera(): void {
@@ -995,7 +1018,11 @@ export class GameScene extends Phaser.Scene {
 
     this.input.on('wheel', (_pointer: Phaser.Input.Pointer, _objects: unknown, _dx: number, dy: number) => {
       const camera = this.cameras.main;
-      const next = Phaser.Math.Clamp(camera.zoom * (dy > 0 ? 0.88 : 1.12), 0.48, 2);
+      const next = Phaser.Math.Clamp(
+        camera.zoom * (dy > 0 ? 0.88 : 1.12),
+        MIN_CAMERA_ZOOM,
+        MAX_CAMERA_ZOOM,
+      );
       camera.setZoom(next);
     });
 
@@ -1023,7 +1050,9 @@ export class GameScene extends Phaser.Scene {
     this.handlePinch();
     this.interpolateActors(delta);
     if (time >= this.nextStatusDrawAt) {
-      this.nextStatusDrawAt = time + 33;
+      // Rings and bars do not need simulation-frame cadence. Rebuilding this
+      // Graphics layer at 30 fps was a large steady mobile cost after loading.
+      this.nextStatusDrawAt = time + (window.innerWidth < 900 ? 80 : 50);
       this.drawStatus();
     }
   }
@@ -1037,8 +1066,9 @@ export class GameScene extends Phaser.Scene {
       );
       worker.carryText.setPosition(
         worker.sprite.x,
-        worker.sprite.y - (ACTIVE_VISUAL_THEME.id === 'style-b' ? 18 : 13),
+        worker.sprite.y - (ACTIVE_VISUAL_THEME.id === 'style-b' ? 34 : 13),
       );
+      this.updateWorkerVisualState(worker);
     }
     for (const actor of this.units) {
       actor.sprite.setPosition(
@@ -1066,7 +1096,11 @@ export class GameScene extends Phaser.Scene {
     const mid = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
     if (this.pointerDistance && this.pinchMid) {
       const factor = distance / this.pointerDistance;
-      this.cameras.main.setZoom(Phaser.Math.Clamp(this.cameras.main.zoom * factor, 0.48, 2));
+      this.cameras.main.setZoom(Phaser.Math.Clamp(
+        this.cameras.main.zoom * factor,
+        MIN_CAMERA_ZOOM,
+        MAX_CAMERA_ZOOM,
+      ));
       this.cameras.main.scrollX -= (mid.x - this.pinchMid.x) / this.cameras.main.zoom;
       this.cameras.main.scrollY -= (mid.y - this.pinchMid.y) / this.cameras.main.zoom;
     }
@@ -1652,10 +1686,17 @@ export class GameScene extends Phaser.Scene {
 
   private createWorker(x: number, y: number): Worker {
     const workerSize = ACTIVE_VISUAL_THEME.display.worker;
-    const sprite = this.add.sprite(this.wx(x), this.wy(y), 'worker').setDisplaySize(workerSize, workerSize).setDepth(31);
+    const animated = Boolean(ACTIVE_VISUAL_THEME.assets.workerAnimation);
+    const sprite = this.add.sprite(
+      this.wx(x),
+      this.wy(y),
+      animated ? 'worker-style-b-animated' : 'worker',
+      animated ? 1 : undefined,
+    ).setDisplaySize(workerSize, workerSize).setDepth(31);
+    if (animated) sprite.setOrigin(0.5, 76 / 96);
     const carryText = this.add.text(
       this.wx(x),
-      this.wy(y) - (ACTIVE_VISUAL_THEME.id === 'style-b' ? 18 : 13),
+      this.wy(y) - (ACTIVE_VISUAL_THEME.id === 'style-b' ? 34 : 13),
       '',
       {
       fontFamily: 'Arial',
@@ -1672,6 +1713,7 @@ export class GameScene extends Phaser.Scene {
       sprite,
       carryText,
       state: 'idle',
+      facing: 'down',
       path: [],
       timer: 0,
       assignmentCooldown: 0,
@@ -1682,6 +1724,54 @@ export class GameScene extends Phaser.Scene {
     };
     this.workers.push(worker);
     return worker;
+  }
+
+  private createWorkerAnimations(): void {
+    if (!ACTIVE_VISUAL_THEME.assets.workerAnimation) return;
+    for (const [action, startRow, frameRate] of [
+      ['walk', 0, 8],
+      ['dig', 3, 9],
+    ] as const) {
+      for (const [direction, rowOffset] of [['down', 0], ['up', 1], ['side', 2]] as const) {
+        const key = `worker-${action}-${direction}`;
+        if (this.anims.exists(key)) continue;
+        const start = (startRow + rowOffset) * 4;
+        this.anims.create({
+          key,
+          frames: this.anims.generateFrameNumbers('worker-style-b-animated', { start, end: start + 3 }),
+          frameRate,
+          repeat: -1,
+        });
+      }
+    }
+  }
+
+  private setWorkerFacing(worker: Worker, dx: number, dy: number): void {
+    if (Math.abs(dx) > Math.abs(dy)) worker.facing = dx < 0 ? 'left' : 'right';
+    else if (Math.abs(dy) > 0.001) worker.facing = dy < 0 ? 'up' : 'down';
+  }
+
+  private updateWorkerVisualState(worker: Worker): void {
+    if (!ACTIVE_VISUAL_THEME.assets.workerAnimation) return;
+    const targetX = this.wx(worker.x);
+    const targetY = this.wy(worker.y);
+    const stillInterpolating = Phaser.Math.Distance.Between(worker.sprite.x, worker.sprite.y, targetX, targetY) > 0.55;
+    const moving = worker.path.length > 0 || stillInterpolating;
+    const working = !moving && ['dig', 'build', 'claim', 'mine'].includes(worker.state);
+    const direction = worker.facing === 'up' ? 'up' : worker.facing === 'down' ? 'down' : 'side';
+    worker.sprite.setFlipX(worker.facing === 'left');
+
+    if (!moving && !working) {
+      worker.sprite.anims.stop();
+      const idleFrame = direction === 'down' ? 1 : direction === 'up' ? 5 : 9;
+      if (Number(worker.sprite.frame.name) !== idleFrame) worker.sprite.setFrame(idleFrame);
+      return;
+    }
+
+    const animation = `worker-${working ? 'dig' : 'walk'}-${direction}`;
+    if (worker.sprite.anims.currentAnim?.key !== animation || !worker.sprite.anims.isPlaying) {
+      worker.sprite.play(animation, true);
+    }
   }
 
   private createUnit(kind: UnitKind, x: number, y: number, recruited: boolean): Actor {
@@ -1844,8 +1934,9 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (worker.state === 'dig' && worker.target) {
+      this.setWorkerFacing(worker, worker.target.x - worker.x, worker.target.y - worker.y);
       worker.timer += dt;
-      worker.sprite.angle = Math.sin(worker.timer * 18) * 10;
+      if (!ACTIVE_VISUAL_THEME.assets.workerAnimation) worker.sprite.angle = Math.sin(worker.timer * 18) * 10;
       if (worker.timer >= BALANCE.digSeconds) {
         const { x, y } = worker.target;
         const tile = this.tiles[y][x];
@@ -1866,6 +1957,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (worker.state === 'build' && worker.target) {
+      this.setWorkerFacing(worker, worker.target.x - worker.x, worker.target.y - worker.y);
       const tile = this.tileAt(worker.target.x, worker.target.y);
       if (!tile || tile.construction !== 'building') {
         this.releaseWorkerJob(worker);
@@ -1875,7 +1967,7 @@ export class GameScene extends Phaser.Scene {
         return;
       }
       worker.timer += dt;
-      worker.sprite.angle = Math.sin(worker.timer * 16) * 8;
+      if (!ACTIVE_VISUAL_THEME.assets.workerAnimation) worker.sprite.angle = Math.sin(worker.timer * 16) * 8;
       if (worker.timer >= BALANCE.buildSeconds) {
         const completedTarget = { ...worker.target };
         tile.construction = 'complete';
@@ -1903,6 +1995,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (worker.state === 'claim' && worker.target) {
+      this.setWorkerFacing(worker, worker.target.x - worker.x, worker.target.y - worker.y);
       const tile = this.tileAt(worker.target.x, worker.target.y);
       if (!tile || tile.control !== 'claiming') {
         this.releaseWorkerJob(worker);
@@ -1912,7 +2005,7 @@ export class GameScene extends Phaser.Scene {
         return;
       }
       worker.timer += dt;
-      worker.sprite.angle = Math.sin(worker.timer * 13) * 7;
+      if (!ACTIVE_VISUAL_THEME.assets.workerAnimation) worker.sprite.angle = Math.sin(worker.timer * 13) * 7;
       if (worker.timer >= BALANCE.claimSeconds) {
         const completedTarget = { ...worker.target };
         tile.control = 'owned';
@@ -1937,8 +2030,9 @@ export class GameScene extends Phaser.Scene {
         worker.state = 'idle';
         return;
       }
+      this.setWorkerFacing(worker, node.x - worker.x, node.y - worker.y);
       worker.timer += dt;
-      worker.sprite.angle = Math.sin(worker.timer * 15) * 8;
+      if (!ACTIVE_VISUAL_THEME.assets.workerAnimation) worker.sprite.angle = Math.sin(worker.timer * 15) * 8;
       if (worker.timer >= BALANCE.mineSeconds) {
         node.amount--;
         const amount = Math.min(2, node.amount >= 1 ? 2 : 1);
@@ -2329,7 +2423,8 @@ export class GameScene extends Phaser.Scene {
       entity.x += (dx / distance) * step;
       entity.y += (dy / distance) * step;
     }
-    if (Math.abs(dx) > 0.02) entity.sprite.setFlipX(dx < 0);
+    if ('carryText' in entity) this.setWorkerFacing(entity, dx, dy);
+    else if (Math.abs(dx) > 0.02) entity.sprite.setFlipX(dx < 0);
   }
 
   private updateProduction(dt: number): void {
@@ -4084,10 +4179,10 @@ export class GameScene extends Phaser.Scene {
   private fitKnownMap(): void {
     const camera = this.cameras.main;
     if (window.innerWidth < 900) {
-      camera.setZoom(0.58);
+      camera.setZoom(0.44);
       camera.centerOn(HEART_TILE.x * TILE, HEART_TILE.y * TILE);
     } else {
-      camera.setZoom(0.7);
+      camera.setZoom(0.56);
       camera.centerOn(HEART_TILE.x * TILE, HEART_TILE.y * TILE);
     }
   }

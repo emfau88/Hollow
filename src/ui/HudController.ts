@@ -118,6 +118,9 @@ export class HudController {
   private objectiveChecklist?: HTMLElement;
   private contextPanel?: HTMLElement;
   private worldTargets?: HTMLElement;
+  private menuButtons: HTMLButtonElement[] = [];
+  private lastWorldTargetsSignature = '';
+  private lastObjectiveChecklistSignature = '';
   private automationMode: boolean;
 
   constructor(callbacks: HudCallbacks, options: { automationMode?: boolean } = {}) {
@@ -272,6 +275,7 @@ export class HudController {
     this.objectiveChecklist = root.querySelector<HTMLElement>('[data-objective-checklist]') ?? undefined;
     this.contextPanel = root.querySelector<HTMLElement>('.context-panel') ?? undefined;
     this.worldTargets = root.querySelector<HTMLElement>('[data-testid="world-targets"]') ?? undefined;
+    this.menuButtons = [...root.querySelectorAll<HTMLButtonElement>('[data-menu]')];
     this.bind();
   }
 
@@ -392,7 +396,7 @@ export class HudController {
       if (reason) node.setAttribute('title', reason);
       else if (node.hasAttribute('data-tool')) node.removeAttribute('title');
     });
-    this.root.querySelectorAll<HTMLButtonElement>('[data-menu]').forEach((button) => {
+    this.menuButtons.forEach((button) => {
       const menu = button.dataset.menu as HudMenu;
       const reason = state.menuLocks[menu];
       button.disabled = Boolean(reason);
@@ -423,23 +427,31 @@ export class HudController {
       this.summonWorkerButton.title = state.workerSummonReason ?? 'Zusätzlichen Arbeiter am Herz beschwören';
     }
     if (this.worldTargets) {
-      this.worldTargets.replaceChildren(...state.worldTargets.map((target) => {
-        const button = document.createElement('button');
-        button.type = 'button';
-        button.dataset.worldTarget = target.id;
-        button.dataset.testid = `world-target-${target.id}`;
-        button.textContent = `${target.label}: ${target.status}`;
-        button.addEventListener('click', () => this.callbacks.focusTarget(target.id));
-        return button;
-      }));
+      const signature = state.worldTargets.map((target) => `${target.id}\u0000${target.label}\u0000${target.status}`).join('\u0001');
+      if (signature !== this.lastWorldTargetsSignature) {
+        this.lastWorldTargetsSignature = signature;
+        this.worldTargets.replaceChildren(...state.worldTargets.map((target) => {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.dataset.worldTarget = target.id;
+          button.dataset.testid = `world-target-${target.id}`;
+          button.textContent = `${target.label}: ${target.status}`;
+          button.addEventListener('click', () => this.callbacks.focusTarget(target.id));
+          return button;
+        }));
+      }
     }
     if (this.objectiveChecklist) {
-      this.objectiveChecklist.replaceChildren(...state.objectiveChecklist.map((item) => {
-        const entry = document.createElement('li');
-        entry.className = item.done ? 'done' : '';
-        entry.textContent = `${item.done ? '✓' : '○'} ${item.label}`;
-        return entry;
-      }));
+      const signature = state.objectiveChecklist.map((item) => `${Number(item.done)}\u0000${item.label}`).join('\u0001');
+      if (signature !== this.lastObjectiveChecklistSignature) {
+        this.lastObjectiveChecklistSignature = signature;
+        this.objectiveChecklist.replaceChildren(...state.objectiveChecklist.map((item) => {
+          const entry = document.createElement('li');
+          entry.className = item.done ? 'done' : '';
+          entry.textContent = `${item.done ? '✓' : '○'} ${item.label}`;
+          return entry;
+        }));
+      }
     }
     const priorityLabel = ['Niedrig', 'Normal', 'Hoch'] as const;
     for (const task of ['haul', 'dig', 'build', 'claim', 'mine'] as const) {

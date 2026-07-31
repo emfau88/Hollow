@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { wallParts, type WallPart } from './WallLayout';
 
 export type TerrainControl = 'neutral' | 'claiming' | 'owned' | 'enemy';
 export type TerrainVisibility = 'hidden' | 'charted' | 'revealed';
@@ -64,6 +65,7 @@ export class TerrainRenderer {
       .renderTexture(0, 0, width * tile, height * tile)
       .setOrigin(0, 0)
       .setDepth(0);
+    if (assets.wallNorth) this.rt.texture.setFilter(Phaser.Textures.FilterMode.NEAREST);
     this.stamp = scene.make.image({ key: assets.rock }, false).setOrigin(0, 0);
     this.overlayStamp = scene.make.image({ key: assets.wallEdge }, false).setOrigin(0.5, 0.5);
   }
@@ -102,7 +104,6 @@ export class TerrainRenderer {
     const e = this.isWall(q, x + 1, y);
     const s = this.isWall(q, x, y + 1);
     const w = this.isWall(q, x - 1, y);
-    const count = Number(n) + Number(e) + Number(s) + Number(w);
     const directional = this.assets.wallNorth
       && this.assets.wallEast
       && this.assets.wallSouth
@@ -113,35 +114,23 @@ export class TerrainRenderer {
       && this.assets.wallWestNorth;
 
     if (directional) {
-      // Every adjacent pair gets a complete authored L. This also closes the
-      // two joints at dead ends (three walls) and all four joints of an
-      // isolated open tile instead of leaving a transparent square at them.
-      let cornerCount = 0;
-      if (n && e) {
-        this.drawOverlay(this.assets.wallNorthEast!, x, y, 0, alpha);
-        cornerCount += 1;
+      const keys: Record<WallPart, string> = {
+        north: this.assets.wallNorth!,
+        east: this.assets.wallEast!,
+        south: this.assets.wallSouth!,
+        west: this.assets.wallWest!,
+        'north-east': this.assets.wallNorthEast!,
+        'east-south': this.assets.wallEastSouth!,
+        'south-west': this.assets.wallSouthWest!,
+        'west-north': this.assets.wallWestNorth!,
+      };
+      for (const part of wallParts({ north: n, east: e, south: s, west: w })) {
+        this.drawOverlay(keys[part], x, y, 0, alpha);
       }
-      if (e && s) {
-        this.drawOverlay(this.assets.wallEastSouth!, x, y, 0, alpha);
-        cornerCount += 1;
-      }
-      if (s && w) {
-        this.drawOverlay(this.assets.wallSouthWest!, x, y, 0, alpha);
-        cornerCount += 1;
-      }
-      if (w && n) {
-        this.drawOverlay(this.assets.wallWestNorth!, x, y, 0, alpha);
-        cornerCount += 1;
-      }
-      if (cornerCount > 0) return;
-
-      // Single edges and opposing pairs have no corner joint.
-      if (n) this.drawOverlay(this.assets.wallNorth!, x, y, 0, alpha);
-      if (e) this.drawOverlay(this.assets.wallEast!, x, y, 0, alpha);
-      if (s) this.drawOverlay(this.assets.wallSouth!, x, y, 0, alpha);
-      if (w) this.drawOverlay(this.assets.wallWest!, x, y, 0, alpha);
       return;
     }
+
+    const count = Number(n) + Number(e) + Number(s) + Number(w);
 
     // The authored L-piece prevents the darkest wall faces from doubling in
     // the most common two-edge corners.
@@ -261,12 +250,6 @@ export class TerrainRenderer {
    * stamped. A single claim/build/dig update therefore touches at most 9 tiles.
    */
   renderTiles(q: TerrainQuery, changed: TerrainPoint[]): void {
-    if (this.assets.wallNorth) {
-      // The dimensional wall sprites overlap neighbouring cells. A full pass
-      // avoids clipped remnants during digging while changes remain infrequent.
-      this.render(q);
-      return;
-    }
     const dirty = new Set<number>();
     for (const point of changed) {
       for (let dy = -1; dy <= 1; dy++) {
