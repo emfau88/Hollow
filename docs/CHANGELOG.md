@@ -1,5 +1,17 @@
 # Changelog
 
+## Style B Vertical Slice – 31. Juli 2026
+
+- freundlich-humorvolle „Dungeon Administration“-Richtung als verbindliche Style Bible dokumentiert
+- produktionsnahes Styleframe auf realer Karten-, Kamera- und HUD-Dichte erstellt
+- Style B parallel unter `?theme=style-b` und `?theme=comedy` schaltbar gemacht
+- blaues Terrain-Grading, wärmere Covenant-Flächen und deutlichere Mint-Pilzgrotte ergänzt
+- neues Bürokraten-Herz, Arbeiter, Wächter, Startprops und Ressourcenknoten integriert
+- Laufzeitgrößen, Freistellung und Terrainableitungen über ein reproduzierbares Build-Skript vereinheitlicht
+- HUD mit navyfarbenem Paneltheme, warmen Messingkanten und einheitlichen SVG-Kernicons überarbeitet
+- bisherige Grafik als Standard und Fallback beibehalten, bis der Slice visuell freigegeben ist
+- README um Style-B-Zielbild, Direktspiel-Link und aktualisierte humorvolle Projektbeschreibung ergänzt
+
 ## Progression, Versorgung und Kartenherz – 26. Juli 2026
 
 - nördlichen Invasionskorridor dauerhaft von automatischem Beanspruchen und Bebauung ausgenommen

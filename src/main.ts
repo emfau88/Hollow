@@ -1,11 +1,14 @@
 import Phaser from 'phaser';
 import { GameScene } from './scenes/GameScene';
+import { ACTIVE_VISUAL_THEME } from './config/VisualTheme';
 import './styles.css';
+
+document.documentElement.dataset.theme = ACTIVE_VISUAL_THEME.id;
 
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
   parent: 'game',
-  backgroundColor: '#0b0c11',
+  backgroundColor: `#${ACTIVE_VISUAL_THEME.palette.void.toString(16).padStart(6, '0')}`,
   pixelArt: false,
   roundPixels: false,
   antialias: true,

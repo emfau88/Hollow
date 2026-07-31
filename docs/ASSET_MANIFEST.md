@@ -1,6 +1,6 @@
 # Asset-Manifest
 
-**Stand:** 26. Juli 2026
+**Stand:** 31. Juli 2026
 
 | Quelle | Rolle | Status |
 |---|---|---|
@@ -76,6 +76,28 @@ kaum lesbare Motiv. `covenant-heart.png` bleibt als Detailmotiv für spätere
 Dialog- oder Porträtansichten erhalten.
 Die unveränderte Grün-Key-Quelle liegt unter
 `public/assets/generated/heart-v2/sources/`.
+
+## Style B V1 – Dungeon Administration
+
+Der optionale Vertical Slice unter `?theme=style-b` verwendet einen getrennten
+Asset-Namespace unter `public/assets/generated/style-b-v1/`. Dadurch bleiben
+die bisherigen Produktionsassets vollständig als Vergleich und Fallback
+erhalten.
+
+Neu integriert sind:
+
+- blau abgestimmte Terrain-Sheets für Fels, Rohboden, Covenant-Boden, Kanten
+  und Besitzränder;
+- ein humorvolles Bürokraten-Herz, Arbeiter und Startwache;
+- Lager, Pilzkessel und Werkbank;
+- Pilzcluster, Erzader, erschöpfte Erzader und Essenzsiegel;
+- eine kombinierte Vorschau unter `style-b-v1-preview.png`.
+
+Die Imagegen-Master und Chroma-Key-Zwischenstände liegen unter
+`style-b-v1/sources/`. `scripts/asset_tools/build_style_b_v1.py` erzeugt daraus
+deterministisch alle Laufzeitgrößen und graduiert die vorhandenen 32-Pixel-
+Terrain-Sheets in die neue Palette. Noch nicht produzierte Einheiten, Räume und
+Waren greifen im Style-B-Slice auf ihre bisherigen Assets zurück.
 
 ## Nicht integriert
 

@@ -62,9 +62,37 @@ export interface HudState {
   context?: { title: string; body: string };
 }
 
-const resource = (key: string, icon: string, label: string) => `
+type HudIconName =
+  | 'heart' | 'ore' | 'biomass' | 'metal' | 'rations' | 'essence' | 'armour'
+  | 'beds' | 'workers' | 'threat' | 'pan' | 'dig' | 'chamber' | 'build'
+  | 'work' | 'command' | 'recruit';
+
+const HUD_ICON_PATHS: Record<HudIconName, string> = {
+  heart: '<path d="M12 20.2 4.4 13A5 5 0 0 1 11.5 6l.5.6.5-.6a5 5 0 0 1 7.1 7Z" fill="currentColor" stroke="none"/>',
+  ore: '<path d="m12 3 7 6-3 9H8L5 9Z"/><path d="m5 9 7 3 7-3M12 3v9m-4 6 4-6 4 6"/>',
+  biomass: '<path d="M5 11c.5-4 3.2-6 7-6s6.5 2 7 6Z"/><path d="M10 11c.3 3-.4 5.4-2 7h8c-1.6-1.6-2.3-4-2-7"/><circle cx="9" cy="8.5" r=".8" fill="currentColor" stroke="none"/><circle cx="14.8" cy="8" r=".8" fill="currentColor" stroke="none"/>',
+  metal: '<path d="m6 8 12-2 3 9-13 3-5-6Z"/><path d="m6 8 2 10m10-12 3 9"/>',
+  rations: '<path d="M8 9c-3 1-3 8 1 10 2 1 2-1 3-1s1 2 3 1c4-2 4-9 1-10-2-1-3 0-4 1-1-1-2-2-4-1Z"/><path d="M12 9c0-3 2-4 4-4M12 6c-1-2-3-2-4-2"/>',
+  essence: '<path d="m12 2 2.2 6.8L21 11l-6.8 2.2L12 20l-2.2-6.8L3 11l6.8-2.2Z"/><circle cx="12" cy="11" r="2"/>',
+  armour: '<path d="M12 3 19 6v5c0 4.5-2.8 7.6-7 10-4.2-2.4-7-5.5-7-10V6Z"/><path d="M9 8h6v7H9z"/>',
+  beds: '<path d="M4 17V7m0 7h16v3H4Zm3-4V8h5a3 3 0 0 1 3 3v3M4 19v-2m16 2v-2"/>',
+  workers: '<path d="m5 19 9-9m-1-4 2-2 5 5-2 2-2-2-2 2M8 8 5 5m-2 2 4-4"/><path d="m13 14 6 6"/>',
+  threat: '<path d="m5 4 14 15m0-15L5 19M4 3l4 1-3 3m15-4-4 1 3 3M4 20l4-1-3-3m15 4-4-1 3-3"/>',
+  pan: '<path d="M12 3v18M3 12h18m-9-9-3 3m3-3 3 3M3 12l3-3m-3 3 3 3m6 6-3-3m3 3 3-3m6-6-3-3m3 3-3 3"/>',
+  dig: '<path d="M4 18c4-7 7-2 10-8 1.5-3 3-4 6-4"/><path d="m17 3 3 3-3 3"/><circle cx="4" cy="18" r="1.5" fill="currentColor" stroke="none"/>',
+  chamber: '<path d="M4 5h16v14H4z"/><path d="M8 9h8v6H8z"/>',
+  build: '<path d="M5 20V9h14v11M8 9V5h8v4M9 20v-5h6v5"/><path d="M4 20h16M10 5V3h4v2"/>',
+  work: '<path d="M8 5h8v3H8zM6 7h12v14H6z"/><path d="M9 12h6m-6 4h6"/>',
+  command: '<path d="M6 21V3m1 2h11l-3 4 3 4H7"/>',
+  recruit: '<path d="M6 12a6 6 0 0 1 12 0v2H6Z"/><path d="M8 14v4m8-4v4M5 18h14M12 6V3"/>',
+};
+
+const hudIcon = (name: HudIconName) => `
+  <svg class="hud-icon hud-icon-${name}" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${HUD_ICON_PATHS[name]}</svg>`;
+
+const resource = (key: string, icon: HudIconName, label: string) => `
   <div class="resource" data-testid="resource-${key}">
-    <span class="resource-icon">${icon}</span>
+    <span class="resource-icon">${hudIcon(icon)}</span>
     <span><strong data-value="${key}">0</strong><small>${label}</small></span>
   </div>`;
 
@@ -101,7 +129,7 @@ export class HudController {
     root.innerHTML = `
       <div class="topbar">
         <div class="heart-chip">
-          <span class="heart-icon">♥</span>
+          <span class="heart-icon">${hudIcon('heart')}</span>
           <div class="heart-copy">
             <div class="eyebrow">Covenant-Herz</div>
             <div class="heart-value"><span data-value="hp">300</span><small>/ 300</small></div>
@@ -109,16 +137,16 @@ export class HudController {
           <div class="heart-bar"><i></i></div>
         </div>
         <div class="resource-strip">
-          ${resource('ore', '◆', 'Roherz')}
-          ${resource('biomass', '♣', 'Biomasse')}
-          ${resource('metal', '▰', 'Metall')}
-          ${resource('rations', '●', 'Rationen')}
-          ${resource('essence', '✦', 'Essenz')}
-          ${resource('armour', '⬟', 'Rüstung')}
-          <div class="resource"><span class="resource-icon">⌂</span><span><strong data-value="beds">0/0</strong><small>Betten</small></span></div>
-          <button class="resource resource-action" data-action="open-workers" data-menu="worker" data-testid="worker-count" aria-expanded="false" title="Arbeiter beschwören"><span class="resource-icon">⚒</span><span><strong data-value="workers">3/5</strong><small>Arbeiter</small></span></button>
+          ${resource('ore', 'ore', 'Roherz')}
+          ${resource('biomass', 'biomass', 'Biomasse')}
+          ${resource('metal', 'metal', 'Metall')}
+          ${resource('rations', 'rations', 'Rationen')}
+          ${resource('essence', 'essence', 'Essenz')}
+          ${resource('armour', 'armour', 'Rüstung')}
+          <div class="resource"><span class="resource-icon">${hudIcon('beds')}</span><span><strong data-value="beds">0/0</strong><small>Betten</small></span></div>
+          <button class="resource resource-action" data-action="open-workers" data-menu="worker" data-testid="worker-count" aria-expanded="false" title="Arbeiter beschwören"><span class="resource-icon">${hudIcon('workers')}</span><span><strong data-value="workers">3/5</strong><small>Arbeiter</small></span></button>
           <div class="resource need-resource"><span class="resource-icon">!</span><span><strong data-value="hungry">0</strong><small>Hungrig</small></span></div>
-          <div class="resource"><span class="resource-icon">⚔</span><span><strong data-value="wave">Ruhe</strong><small>Bedrohung</small></span></div>
+          <div class="resource"><span class="resource-icon">${hudIcon('threat')}</span><span><strong data-value="wave">Ruhe</strong><small>Bedrohung</small></span></div>
         </div>
         <div class="time-controls">
           <button class="icon-btn" data-speed="0" data-testid="speed-pause" title="Pause">Ⅱ</button>
@@ -193,13 +221,13 @@ export class HudController {
           </section>
         </div>
         <nav class="toolbar" aria-label="Werkzeugleiste">
-          <button class="tool-btn active" data-tool="pan" data-testid="tool-pan"><b>✥</b>Ansicht<small>Verschieben</small></button>
-          <button class="tool-btn" data-tool="dig" data-testid="tool-dig"><b>⌁</b>Gang<small>Route ziehen</small></button>
-          <button class="tool-btn" data-tool="chamber" data-testid="tool-chamber"><b>▧</b>Kammer<small>Fläche ziehen</small></button>
-          <button class="tool-btn menu-btn" data-menu="build" data-testid="menu-build" aria-expanded="false"><b>▦</b>Bauen<small>6 Räume</small></button>
-          <button class="tool-btn menu-btn" data-menu="work" data-testid="menu-work" aria-expanded="false"><b>≡</b>Arbeit<small>Prioritäten</small></button>
-          <button class="tool-btn menu-btn" data-menu="command" data-testid="menu-command" aria-expanded="false"><b>⚑</b>Befehle<small>Kampf & Falle</small></button>
-          <button class="tool-btn menu-btn" data-menu="recruit" data-testid="menu-recruit" aria-expanded="false"><b>⬟</b>Gefolge<small>Rufen</small></button>
+          <button class="tool-btn active" data-tool="pan" data-testid="tool-pan"><b>${hudIcon('pan')}</b>Ansicht<small>Verschieben</small></button>
+          <button class="tool-btn" data-tool="dig" data-testid="tool-dig"><b>${hudIcon('dig')}</b>Gang<small>Route ziehen</small></button>
+          <button class="tool-btn" data-tool="chamber" data-testid="tool-chamber"><b>${hudIcon('chamber')}</b>Kammer<small>Fläche ziehen</small></button>
+          <button class="tool-btn menu-btn" data-menu="build" data-testid="menu-build" aria-expanded="false"><b>${hudIcon('build')}</b>Bauen<small>6 Räume</small></button>
+          <button class="tool-btn menu-btn" data-menu="work" data-testid="menu-work" aria-expanded="false"><b>${hudIcon('work')}</b>Arbeit<small>Prioritäten</small></button>
+          <button class="tool-btn menu-btn" data-menu="command" data-testid="menu-command" aria-expanded="false"><b>${hudIcon('command')}</b>Befehle<small>Kampf & Falle</small></button>
+          <button class="tool-btn menu-btn" data-menu="recruit" data-testid="menu-recruit" aria-expanded="false"><b>${hudIcon('recruit')}</b>Gefolge<small>Rufen</small></button>
         </nav>
       </div>
       <div class="modal-shell">

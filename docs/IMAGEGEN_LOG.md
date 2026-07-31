@@ -1,6 +1,6 @@
 # Imagegen-Log
 
-**Stand:** 26. Juli 2026
+**Stand:** 31. Juli 2026
 **Ursprünglicher Terrain-/Raum-Pass:** 6 von maximal 6 Generierungen
 **Aktueller Gameplay-Herz-Pass:** 1 Generierung
 
@@ -61,3 +61,22 @@ Der vollständige Prompt verlangte ausdrücklich Lesbarkeit bei 64–96 Pixeln,
 keine Ketten, keine kleinen Spitzen, keine Umgebung und keine Schrift. Verwendet
 wurde das integrierte Imagegen-Werkzeug; die lokale Aufbereitung erfolgte mit
 dem Chroma-Key-Helfer des Imagegen-Workflows.
+
+## Style B V1 – 31. Juli 2026
+
+Für den kontrollierten Style-B-Slice wurden drei zusätzliche integrierte
+Imagegen-Aufrufe verwendet:
+
+| Nr. | Zweck | Masterdatei | Verwendung |
+|---:|---|---|---|
+| 1 | Produktionsnahes Styleframe auf realer Karten- und HUD-Dichte | `docs/mockups/HOLLOW_COVENANT_STYLE_B_PRODUCTION_FRAME.png` | Zielbild und Reviewreferenz |
+| 2 | Herz, Arbeiter und Wächter auf Magenta-Key | `style-b-v1/sources/characters-master.png` | drei aktive Laufzeitassets |
+| 3 | Lager, Kessel, Werkbank, Pilze, Erz und Essenz auf Magenta-Key | `style-b-v1/sources/props-resources-master.png` | sechs aktive Laufzeitassets plus erschöpfte Erzvariante |
+
+Das Styleframe verwendet den aktuellen Gameplay-Screenshot als verbindliche
+Layoutreferenz und Mockup B ausschließlich als Stilreferenz. Die beiden
+Asset-Sheets verlangen eine einheitliche Draufsicht, große Silhouetten,
+dunkelblaue Konturen, Creme/Messing/Koralle/Mint sowie einen vollständig flachen
+Magenta-Hintergrund ohne Schatten. Die Freistellung erfolgte mit dem lokalen
+Chroma-Key-Helfer. Zuschnitt, Skalierung, Schärfung, Terrain-Grading und Preview
+sind über `scripts/asset_tools/build_style_b_v1.py` reproduzierbar.

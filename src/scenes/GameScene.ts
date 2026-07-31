@@ -28,6 +28,7 @@ import {
   type TerrainQuery,
 } from '../core/TerrainRenderer';
 import { HOLLOW_TERRAIN as TF, HOLLOW_TERRAIN_TILE } from '../config/HollowTerrainFrames';
+import { ACTIVE_VISUAL_THEME } from '../config/VisualTheme';
 import {
   DEFAULT_WORK_PRIORITIES,
   workerTaskOrder,
@@ -337,24 +338,25 @@ export class GameScene extends Phaser.Scene {
   preload(): void {
     // Terrain is built as a calm in-engine atlas in makeTextures(). Loading an
     // external pebble sheet here made the entire world shimmer while panning.
-    this.load.image('generated-covenant-heart', 'assets/generated/covenant-heart-gameplay-256.png');
-    this.load.image('resource-iron-vein', 'assets/generated/resources-v2/iron-vein.png');
-    this.load.image('resource-iron-depleted', 'assets/generated/resources-v2/iron-vein-depleted.png');
-    this.load.image('resource-fungus-cluster', 'assets/generated/resources-v2/fungus-cluster.png');
-    this.load.image('resource-essence-seal', 'assets/generated/resources-v2/essence-seal.png');
-    this.load.spritesheet('terrain-v3-rock', 'assets/generated/terrain-v3/rock-top.png?v=3-16c', {
+    const themeAssets = ACTIVE_VISUAL_THEME.assets;
+    this.load.image('generated-covenant-heart', themeAssets.heart);
+    this.load.image('resource-iron-vein', themeAssets.resources.iron);
+    this.load.image('resource-iron-depleted', themeAssets.resources.ironDepleted);
+    this.load.image('resource-fungus-cluster', themeAssets.resources.fungus);
+    this.load.image('resource-essence-seal', themeAssets.resources.essence);
+    this.load.spritesheet('terrain-v3-rock', `${themeAssets.terrain}/rock-top.png?v=${ACTIVE_VISUAL_THEME.id}`, {
       frameWidth: TILE,
       frameHeight: TILE,
     });
-    this.load.spritesheet('terrain-v3-raw-floor', 'assets/generated/terrain-v3/raw-floor.png?v=3-16c', {
+    this.load.spritesheet('terrain-v3-raw-floor', `${themeAssets.terrain}/raw-floor.png?v=${ACTIVE_VISUAL_THEME.id}`, {
       frameWidth: TILE,
       frameHeight: TILE,
     });
-    this.load.spritesheet('terrain-v3-claimed-floor', 'assets/generated/terrain-v3/claimed-floor.png?v=3-16c', {
+    this.load.spritesheet('terrain-v3-claimed-floor', `${themeAssets.terrain}/claimed-floor.png?v=${ACTIVE_VISUAL_THEME.id}`, {
       frameWidth: TILE,
       frameHeight: TILE,
     });
-    this.load.spritesheet('terrain-v4-claimed-corridor', 'assets/generated/terrain-v3/claimed-corridor.png?v=4', {
+    this.load.spritesheet('terrain-v4-claimed-corridor', `${themeAssets.terrain}/claimed-corridor.png?v=${ACTIVE_VISUAL_THEME.id}`, {
       frameWidth: TILE,
       frameHeight: TILE,
     });
@@ -364,21 +366,21 @@ export class GameScene extends Phaser.Scene {
       ['terrain-v4-rock-roots', 'rock-roots.png'],
       ['terrain-v4-rock-earth', 'rock-earth.png'],
     ] as const) {
-      this.load.spritesheet(key, `assets/generated/terrain-v3/${file}?v=4`, {
+      this.load.spritesheet(key, `${themeAssets.terrain}/${file}?v=${ACTIVE_VISUAL_THEME.id}`, {
         frameWidth: TILE,
         frameHeight: TILE,
       });
     }
-    this.load.image('terrain-v3-wall-edge', 'assets/generated/terrain-v3/wall-edge.png');
-    this.load.image('terrain-v3-wall-corner', 'assets/generated/terrain-v3/wall-corner.png');
-    this.load.image('terrain-v3-claimed-border', 'assets/generated/terrain-v3/claimed-border.png');
-    this.load.image('terrain-v3-enemy-border', 'assets/generated/terrain-v3/enemy-border.png');
+    this.load.image('terrain-v3-wall-edge', `${themeAssets.terrain}/wall-edge.png`);
+    this.load.image('terrain-v3-wall-corner', `${themeAssets.terrain}/wall-corner.png`);
+    this.load.image('terrain-v3-claimed-border', `${themeAssets.terrain}/claimed-border.png`);
+    this.load.image('terrain-v3-enemy-border', `${themeAssets.terrain}/enemy-border.png`);
     this.load.image('room-prop-bed', 'assets/generated/room-props-v3/bed.png');
-    this.load.image('room-prop-cauldron', 'assets/generated/room-props-v3/cauldron.png');
+    this.load.image('room-prop-cauldron', themeAssets.props.cauldron);
     this.load.image('room-prop-furnace', 'assets/generated/room-props-v3/furnace.png');
-    this.load.image('room-prop-workbench', 'assets/generated/room-props-v3/workbench.png');
+    this.load.image('room-prop-workbench', themeAssets.props.workbench);
     this.load.image('room-prop-prison', 'assets/generated/room-props-v3/prison-gate.png');
-    this.load.image('room-prop-storage', 'assets/generated/room-props-v3/storage.png');
+    this.load.image('room-prop-storage', themeAssets.props.storage);
     for (const key of [
       'worker',
       'guard',
@@ -406,7 +408,12 @@ export class GameScene extends Phaser.Scene {
         : ['crawler', 'dwarf', 'crossbow', 'adept', 'captain', 'scout', 'warden'].includes(key)
           ? `enemy-${key}`
           : key;
-      this.load.image(textureKey, `assets/generated/units-v1/${key}.png`);
+      const themedPath = key === 'worker'
+        ? themeAssets.worker
+        : key === 'guard'
+          ? themeAssets.guard
+          : `assets/generated/units-v1/${key}.png`;
+      this.load.image(textureKey, themedPath);
     }
   }
 
@@ -442,7 +449,7 @@ export class GameScene extends Phaser.Scene {
     this.cameras.main.setBounds(0, 0, W * TILE, H * TILE);
     this.cameras.main.setZoom(1);
     this.cameras.main.centerOn(HEART_TILE.x * TILE, HEART_TILE.y * TILE);
-    this.cameras.main.setBackgroundColor(COLORS.void);
+    this.cameras.main.setBackgroundColor(ACTIVE_VISUAL_THEME.palette.void);
 
     this.time.addEvent({
       delay: 100,
@@ -1266,6 +1273,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   private createNodes(): void {
+    const nodePalette = ACTIVE_VISUAL_THEME.id === 'style-b'
+      ? { iron: 0xd8a532, fungus: 0x55c9a2, essence: 0x38b8bd }
+      : { iron: COLORS.iron, fungus: COLORS.fungus, essence: COLORS.essence };
     this.nodes = [
       {
         id: 'iron',
@@ -1279,7 +1289,7 @@ export class GameScene extends Phaser.Scene {
         discovered: false,
         claimed: false,
         chamber: { x: 18, y: sy(28), w: 5, h: 6 },
-        color: COLORS.iron,
+        color: nodePalette.iron,
         symbol: '◆',
         mineTimer: 0,
       },
@@ -1295,7 +1305,7 @@ export class GameScene extends Phaser.Scene {
         discovered: false,
         claimed: false,
         chamber: { x: 42, y: sy(26), w: 7, h: 7 },
-        color: COLORS.fungus,
+        color: nodePalette.fungus,
         symbol: '♣',
         mineTimer: 0,
       },
@@ -1311,7 +1321,7 @@ export class GameScene extends Phaser.Scene {
         discovered: false,
         claimed: false,
         chamber: { x: 13, y: sy(14), w: 8, h: 7 },
-        color: COLORS.iron,
+        color: nodePalette.iron,
         symbol: '⚒',
         mineTimer: 0,
       },
@@ -1327,7 +1337,7 @@ export class GameScene extends Phaser.Scene {
         discovered: false,
         claimed: false,
         chamber: { x: 40, y: sy(8), w: 8, h: 7 },
-        color: COLORS.essence,
+        color: nodePalette.essence,
         symbol: '✦',
         mineTimer: 0,
       },
@@ -1336,7 +1346,9 @@ export class GameScene extends Phaser.Scene {
     for (const node of this.nodes) {
       this.setChamberControl(node, node.owner === 'natural' ? 'neutral' : 'enemy');
       node.sprite = this.createNodeVisual(node);
-      node.sprite.setVisible(node.id === 'fungus').setAlpha(node.id === 'fungus' ? 0.38 : 1);
+      node.sprite
+        .setVisible(node.id === 'fungus')
+        .setAlpha(node.id === 'fungus' ? ACTIVE_VISUAL_THEME.preDiscoveryResourceAlpha : 1);
     }
 
     // The first economic objective is intentionally safe. Combat begins only
@@ -1383,30 +1395,60 @@ export class GameScene extends Phaser.Scene {
     }
     this.createUnit('guard', 33, sy(22), false);
 
-    const heartAmbient = this.add.circle(this.wx(HEART_TILE.x), this.wy(HEART_TILE.y), 104, 0x7d3343, 0.045).setDepth(1);
+    const heartAmbient = this.add.circle(
+      this.wx(HEART_TILE.x),
+      this.wy(HEART_TILE.y),
+      104,
+      ACTIVE_VISUAL_THEME.palette.heartAmbient,
+      ACTIVE_VISUAL_THEME.id === 'style-b' ? 0.075 : 0.045,
+    ).setDepth(1);
     heartAmbient.setBlendMode(Phaser.BlendModes.ADD);
-    const heartGlow = this.add.circle(this.wx(HEART_TILE.x), this.wy(HEART_TILE.y), 46, 0xa5414e, 0.12).setDepth(7);
+    const heartGlow = this.add.circle(
+      this.wx(HEART_TILE.x),
+      this.wy(HEART_TILE.y),
+      46,
+      ACTIVE_VISUAL_THEME.palette.heartGlow,
+      ACTIVE_VISUAL_THEME.id === 'style-b' ? 0.17 : 0.12,
+    ).setDepth(7);
     this.add.image(this.wx(HEART_TILE.x), this.wy(HEART_TILE.y), 'generated-covenant-heart')
-      .setDisplaySize(140, 140)
+      .setDisplaySize(ACTIVE_VISUAL_THEME.display.heart, ACTIVE_VISUAL_THEME.display.heart)
       .setDepth(8);
     this.tweens.add({ targets: [heartAmbient, heartGlow], scale: 1.16, alpha: '-=0.045', yoyo: true, repeat: -1, duration: 1250 });
 
     for (const torch of [{ x: 27, y: sy(19) }, { x: 38, y: sy(19) }, { x: 30, y: sy(26) }, { x: 36, y: sy(26) }]) {
-      const glow = this.add.circle(this.wx(torch.x), this.wy(torch.y), 34, 0xd59b48, 0.075).setDepth(3);
-      const flame = this.add.circle(this.wx(torch.x), this.wy(torch.y), 3, 0xe3b35d, 0.9).setDepth(5);
+      const glow = this.add.circle(
+        this.wx(torch.x),
+        this.wy(torch.y),
+        34,
+        ACTIVE_VISUAL_THEME.palette.torch,
+        ACTIVE_VISUAL_THEME.id === 'style-b' ? 0.11 : 0.075,
+      ).setDepth(3);
+      const flame = this.add.circle(
+        this.wx(torch.x),
+        this.wy(torch.y),
+        3,
+        ACTIVE_VISUAL_THEME.palette.torchCore,
+        0.9,
+      ).setDepth(5);
       this.tweens.add({ targets: [glow, flame], scale: 1.25, alpha: '+=0.08', yoyo: true, repeat: -1, duration: 550 + torch.x * 7 });
     }
   }
 
   private createWorker(x: number, y: number): Worker {
-    const sprite = this.add.sprite(this.wx(x), this.wy(y), 'worker').setDisplaySize(29, 29).setDepth(31);
-    const carryText = this.add.text(this.wx(x), this.wy(y) - 13, '', {
+    const workerSize = ACTIVE_VISUAL_THEME.display.worker;
+    const sprite = this.add.sprite(this.wx(x), this.wy(y), 'worker').setDisplaySize(workerSize, workerSize).setDepth(31);
+    const carryText = this.add.text(
+      this.wx(x),
+      this.wy(y) - (ACTIVE_VISUAL_THEME.id === 'style-b' ? 18 : 13),
+      '',
+      {
       fontFamily: 'Arial',
       fontSize: '10px',
       color: '#f1dfb4',
       stroke: '#090a0d',
       strokeThickness: 3,
-    }).setOrigin(0.5).setDepth(33);
+      },
+    ).setOrigin(0.5).setDepth(33);
     const worker: Worker = {
       id: this.nextId++,
       x,
@@ -1429,7 +1471,7 @@ export class GameScene extends Phaser.Scene {
   private createUnit(kind: UnitKind, x: number, y: number, recruited: boolean): Actor {
     const def = UNIT_DEFINITIONS[kind];
     const displaySize: Record<UnitKind, number> = {
-      guard: 34,
+      guard: ACTIVE_VISUAL_THEME.display.guard,
       archer: 31,
       hexbinder: 33,
       inquisitor: 34,
@@ -2878,6 +2920,7 @@ export class GameScene extends Phaser.Scene {
 
   /** Mission-map information: location and resource family, but no exact yield. */
   private drawChartedChambers(): void {
+    const comedy = ACTIVE_VISUAL_THEME.id === 'style-b';
     for (const node of this.nodes) {
       if (node.discovered) continue;
       const chartedOpen = (x: number, y: number) => {
@@ -2890,7 +2933,8 @@ export class GameScene extends Phaser.Scene {
           if (!chartedOpen(tx, ty)) continue;
           const left = tx * TILE;
           const top = ty * TILE;
-          this.detail.fillStyle(node.color, node.id === 'fungus' ? 0.11 : 0.025).fillRect(left + 3, top + 3, TILE - 6, TILE - 6);
+          const chartAlpha = node.id === 'fungus' ? (comedy ? 0.2 : 0.11) : 0.025;
+          this.detail.fillStyle(node.color, chartAlpha).fillRect(left + 3, top + 3, TILE - 6, TILE - 6);
           if (!chartedOpen(tx, ty - 1)) this.detail.lineBetween(left + 4, top + 3, left + TILE - 4, top + 3);
           if (!chartedOpen(tx + 1, ty)) this.detail.lineBetween(left + TILE - 3, top + 4, left + TILE - 3, top + TILE - 4);
           if (!chartedOpen(tx, ty + 1)) this.detail.lineBetween(left + 4, top + TILE - 3, left + TILE - 4, top + TILE - 3);
@@ -2900,7 +2944,7 @@ export class GameScene extends Phaser.Scene {
 
       const cx = this.wx(node.x);
       const cy = this.wy(node.y);
-      this.detail.fillStyle(0x090a0e, 0.78).fillCircle(cx, cy, 12);
+      this.detail.fillStyle(comedy ? 0x071427 : 0x090a0e, 0.78).fillCircle(cx, cy, 12);
       this.detail.lineStyle(2, node.color, 0.94).strokeCircle(cx, cy, 10);
       if (node.kind === 'ore') {
         this.detail.fillStyle(node.color, 0.9).fillTriangle(cx, cy - 5, cx + 5, cy, cx, cy + 5);
@@ -2925,7 +2969,7 @@ export class GameScene extends Phaser.Scene {
     }
     this.roomGlows = [];
     const tint: Partial<Record<RoomKind, number>> = {
-      kitchen: 0x6f9b62,
+      kitchen: ACTIVE_VISUAL_THEME.id === 'style-b' ? 0x55c9a2 : 0x6f9b62,
       smelter: 0xd0813a,
       workshop: 0xb9c2cc,
       prison: 0x8a7ea6,
@@ -3035,12 +3079,19 @@ export class GameScene extends Phaser.Scene {
   private drawHeartSanctum(): void {
     const cx = this.wx(HEART_TILE.x);
     const cy = this.wy(HEART_TILE.y);
+    const comedy = ACTIVE_VISUAL_THEME.id === 'style-b';
+    const daisFill = comedy ? 0x241b31 : 0x140f14;
+    const daisEdge = comedy ? 0xd8a532 : 0x71353f;
+    const daisInner = comedy ? 0xf2ddb0 : 0xc07867;
+    const obelisk = comedy ? 0x304563 : 0x30262d;
+    const obeliskLine = comedy ? 0xe1b84c : 0xb98263;
+    const obeliskCore = comedy ? 0x55c9a2 : 0xd37b65;
 
     // Quiet ceremonial dais with a readable radial seal under the living heart.
-    this.detail.fillStyle(0x140f14, 0.82).fillEllipse(cx, cy, 112, 82);
-    this.detail.lineStyle(2, 0x71353f, 0.7).strokeEllipse(cx, cy, 101, 72);
-    this.detail.lineStyle(1, 0xc07867, 0.34).strokeEllipse(cx, cy, 72, 49);
-    this.detail.lineStyle(1, 0x7c3948, 0.46);
+    this.detail.fillStyle(daisFill, 0.82).fillEllipse(cx, cy, 112, 82);
+    this.detail.lineStyle(2, daisEdge, comedy ? 0.82 : 0.7).strokeEllipse(cx, cy, 101, 72);
+    this.detail.lineStyle(1, daisInner, comedy ? 0.46 : 0.34).strokeEllipse(cx, cy, 72, 49);
+    this.detail.lineStyle(1, daisEdge, 0.46);
     for (let angle = 0; angle < 360; angle += 45) {
       const rad = Phaser.Math.DegToRad(angle);
       const innerX = cx + Math.cos(rad) * 26;
@@ -3053,9 +3104,9 @@ export class GameScene extends Phaser.Scene {
     // Four restrained obelisks frame the altar and lead the eye to the heart.
     for (const [ox, oy] of [[-43, -27], [43, -27], [-43, 27], [43, 27]]) {
       this.detail.fillStyle(0x090a0e, 0.7).fillEllipse(cx + ox, cy + oy + 7, 13, 5);
-      this.detail.fillStyle(0x30262d).fillTriangle(cx + ox, cy + oy - 9, cx + ox + 6, cy + oy + 7, cx + ox - 6, cy + oy + 7);
-      this.detail.lineStyle(1, 0xb98263, 0.55).lineBetween(cx + ox, cy + oy - 8, cx + ox, cy + oy + 4);
-      this.detail.fillStyle(0xd37b65, 0.6).fillCircle(cx + ox, cy + oy - 2, 1.5);
+      this.detail.fillStyle(obelisk).fillTriangle(cx + ox, cy + oy - 9, cx + ox + 6, cy + oy + 7, cx + ox - 6, cy + oy + 7);
+      this.detail.lineStyle(1, obeliskLine, 0.62).lineBetween(cx + ox, cy + oy - 8, cx + ox, cy + oy + 4);
+      this.detail.fillStyle(obeliskCore, comedy ? 0.82 : 0.6).fillCircle(cx + ox, cy + oy - 2, 1.5);
     }
   }
 

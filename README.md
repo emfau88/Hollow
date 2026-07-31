@@ -6,13 +6,25 @@
   <strong><a href="https://emfau88.github.io/Hollow/">▶ Hollow Covenant direkt im Browser spielen</a></strong>
 </p>
 
-**Hollow Covenant** ist ein spielbarer HTML5-Vertical-Slice eines düsteren, mobile-tauglichen Dungeon-Management-Spiels. Unter einer angeblich heiligen Metropole erwacht ein uraltes Dungeon-Herz: Der Spieler gräbt ein unterirdisches Reich aus, erschließt Rohstoffe, organisiert sichtbare Produktionsketten, baut eine kleine indirekt gesteuerte Armee auf und entscheidet über das Schicksal besiegter Inquisitoren.
+**Hollow Covenant** ist ein spielbarer HTML5-Vertical-Slice eines humorvoll-makabren, mobile-tauglichen Dungeon-Management-Spiels. Unter einer angeblich heiligen Metropole erwacht ein uraltes Dungeon-Herz: Der Spieler gräbt ein unterirdisches Reich aus, erschließt Rohstoffe, organisiert sichtbare Produktionsketten, baut eine kleine indirekt gesteuerte Armee auf und entscheidet über das Schicksal besiegter Inquisitoren.
 
 > **Projektstatus:** spielbarer Proof of Concept in aktiver Entwicklung. Zielplattformen sind Smartphone und Tablet im Querformat sowie Desktop-Browser. Grafik, Audio, Balancing und technische Architektur sind noch nicht auf finalem Produktionsniveau.
 
 <p align="center">
   <a href="https://emfau88.github.io/Hollow/"><img src="docs/HOLLOW_COVENANT_START.png" width="49%" alt="Startbildschirm von Hollow Covenant"></a>
   <a href="https://emfau88.github.io/Hollow/"><img src="docs/HOLLOW_COVENANT_DESKTOP.png" width="49%" alt="Aktuelle Desktop-Spielansicht von Hollow Covenant"></a>
+</p>
+
+### Experimentelle visuelle Richtung: Dungeon Administration
+
+Style B überträgt das Spiel auf eine hellere, freundlichere und stärker
+charakterbasierte Bildsprache. Der erste spielbare Vergleich ist separat
+aktivierbar; der bisherige Stil bleibt vorerst Standard.
+
+<p align="center">
+  <strong><a href="https://emfau88.github.io/Hollow/?theme=style-b">▶ Style-B-Slice direkt im Browser ausprobieren</a></strong><br /><br />
+  <a href="https://emfau88.github.io/Hollow/?theme=style-b"><img src="docs/mockups/HOLLOW_COVENANT_STYLE_B_PRODUCTION_FRAME.png" width="82%" alt="Produktions-Styleframe der helleren Dungeon-Administration-Richtung"></a><br />
+  <small>Zielbild auf realer Karten- und HUD-Dichte; der spielbare Slice setzt zunächst den Startbereich um.</small>
 </p>
 
 ## Vision
@@ -178,6 +190,7 @@ Bei jedem Push auf `main` installiert der GitHub-Actions-Workflow die Abhängigk
 - [QA-Bericht](docs/QA_REPORT.md) – automatisierte und manuelle Prüfungen
 - [Asset-Manifest](docs/ASSET_MANIFEST.md) – aktive und verworfene Grafikassets
 - [Imagegen-Log](docs/IMAGEGEN_LOG.md) – dokumentierte Generierungen und lokale Aufbereitung
+- [Visual Style B](docs/VISUAL_STYLE_B.md) – Style Bible, Produktionsregeln und Freigabekriterien
 
 ## Bewusste Grenzen des Vertical Slice
 
