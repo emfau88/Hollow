@@ -61,6 +61,17 @@ noch kein Ersatz für den vollständigen Vertical Slice. Nachgewiesen ist:
 - ein sparsames Beleuchtungsset setzt warme Covenant-Wandleuchten und kühle
   Naturlichter als emissive 3D-Körper mit echten lokalen Lichtquellen. Die Zahl
   der Lichter wird auf Mobilgeräten niedriger gehalten;
+- drei Arbeiter sind von Beginn an sichtbar. Frisch gegrabene Felder bleiben
+  zunächst roh und werden anschließend als eigene priorisierbare Arbeitskette
+  Feld für Feld beansprucht; Boden und Randarchitektur wechseln dabei sichtbar
+  von Natur zu Covenant;
+- vier vorbereitete neutrale Orte können durch einen Durchbruch entdeckt und
+  danach eingenommen werden: zwei Pilzgrotten, eine Eisengalerie und ein altes
+  Vorratsgewölbe. Verdeckte Ressourcen werden vorher nicht mehr auf der Karte
+  verraten;
+- Pilzvorkommen und fertige Funktionsräume verwenden kuratierte Kompositionen
+  aus vorhandenen Style-B-Assets, Boden-Decals, Licht, Randintarsien und
+  asymmetrisch verteilten Requisiten statt gleichförmig gestapelter Symbole;
 - Grabaufträge öffnen den Fels nicht sofort: Der sichtbare Arbeiter läuft zum
   exakt angrenzenden Feld, richtet sich zum Ziel aus und beendet dort erst seine
   Grabanimation samt Fortschrittsanzeige;
@@ -78,12 +89,13 @@ noch kein Ersatz für den vollständigen Vertical Slice. Nachgewiesen ist:
 
 Noch klar fehlend oder vereinfacht sind:
 
-- vollständige Übernahme der Kampagne mit Fog of War, Beanspruchen,
+- vollständige Übernahme der Kampagne mit Fog of War,
   Gegenstandstransport, Hunger, Kampf, Fallen, Rekrutierung, Wellen,
   Gefangenenablauf, Sieg/Niederlage und Speichern;
-- individuelle Simulation und sichtbare Darstellung aller Arbeiter. Aktuell
-  gräbt ein sichtbarer Arbeiter feldgenau, während Bauen, Abbau und weitere
-  Arbeiter noch zusammengefasst simuliert werden;
+- individuelle Wegfindung und Jobanimation für jeden Arbeiter. Alle drei
+  Startarbeiter sind sichtbar, aber nur der Grabarbeiter führt seinen Auftrag
+  bereits vollständig ortsgenau aus; Claiming, Bauen und Abbau werden noch
+  teilweise zusammengefasst simuliert;
 - dieselbe robuste Jobreservierung, Weg-Neuberechnung und Fehlerbehandlung wie
   im Hauptspiel sowie echtes Geräte-QA auf mehreren Smartphones und Tablets;
 - finale 3D-/2.5D-Assets, Animationen, Effekte, Audio, Balancing und ein
@@ -92,14 +104,14 @@ Noch klar fehlend oder vereinfacht sind:
 #### Warum die Sandbox noch spartanisch aussieht
 
 Der Prototyp sollte zuerst die zuvor problematische **Topologie, Verdeckung und
-Interaktion** beweisen. Deshalb bestehen Wände momentan aus einfachen
-Geometriequadern mit Testmaterialien; Bodenflächen sind große wiederholte
-Texturen, Erz und Pilze stehen als flache Sprites in der Welt und viele
-Raumobjekte stammen weiterhin aus der alten Top-down-Perspektive. Es fehlen
-kleinteilige Felsformen, Materialvariation, saubere Übergänge, Schattenarbeit,
-Dekoration und ein gemeinsamer Maßstab. Der nüchterne Eindruck ist daher vor
-allem ein noch fehlender Art- und Asset-Pass – nicht erneut das alte
-Ecken-/Kantenproblem des Renderers.
+Interaktion** beweisen. Natürlicher Fels, Claim-Übergänge, Pilzlandschaften und
+Raumkompositionen sind inzwischen vorhanden, bleiben aber ein erster
+Art-Direction-Pass: Ein Teil der Ausstattung ist weiterhin eine Mischung aus
+perspektivischen Sprites und einfacher Geometrie, Oberflächen wiederholen sich
+noch sichtbar und Animation, Schatten sowie atmosphärische Effekte sind nicht
+auf Mockup-Niveau. Der verbleibende Abstand ist damit vor allem eine Frage von
+konsistentem Asset-Maßstab, Materialtiefe und Szenenkomposition – nicht erneut
+das alte Ecken-/Kantenproblem des Renderers.
 
 Die größten Hebel für Mockup-Nähe wären, in dieser Reihenfolge:
 

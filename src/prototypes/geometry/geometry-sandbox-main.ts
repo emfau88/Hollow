@@ -12,6 +12,7 @@ import {
 } from './GeometryProofModel';
 import {
   SANDBOX_BOUNDS,
+  SANDBOX_DISCOVERY_SITES,
   SANDBOX_HEART,
   SANDBOX_START,
   advanceSandboxDigging,
@@ -31,6 +32,7 @@ import {
   validateSandboxRoom,
   workerCapacity,
   type SandboxActionResult,
+  type SandboxDiscoverySite,
   type SandboxRoom,
 } from './GeometrySandboxModel';
 import {
@@ -114,6 +116,8 @@ const heartBuilding = theme.assets.heartBuilding;
 const [
   floorMap,
   corridorMap,
+  rawFloorMap,
+  dampFloorMap,
   rockMap,
   rockBasaltMap,
   rockRootsMap,
@@ -134,9 +138,24 @@ const [
   prisonMap,
   generatedWallSideMap,
   generatedWallCapMap,
+  fungusGrottoMap,
+  fungusMediumMap,
+  fungusSmallMap,
+  grottoStationMap,
+  suppliesMap,
+  cartMap,
+  rackMap,
+  lampMap,
+  bannerMap,
+  mossMap,
+  sporesMap,
+  puddleMap,
+  rubbleMap,
 ] = await Promise.all([
   loadMap(`${terrainRoot}/claimed-floor.png`),
   loadMap(`${terrainRoot}/claimed-corridor.png`),
+  loadMap(`${terrainRoot}/raw-floor.png`),
+  loadMap(theme.assets.dampFloor ?? `${terrainRoot}/raw-floor.png`),
   loadMap(`${terrainRoot}/rock-top.png`, { x: 24, y: 16 }),
   loadMap(`${terrainRoot}/rock-basalt.png`, { x: 2.5, y: 2.5 }),
   loadMap(`${terrainRoot}/rock-roots.png`, { x: 2.5, y: 2.5 }),
@@ -157,11 +176,26 @@ const [
   loadMap('assets/generated/room-props-v3/prison-gate.png'),
   loadMap('assets/generated/geometry-sandbox-v2/walls/wall-side-masonry-v1.png', { x: 0.5, y: 0.5 }),
   loadMap('assets/generated/geometry-sandbox-v2/walls/wall-cap-limestone-v1.png', { x: 0.42, y: 0.42 }),
+  loadMap('assets/generated/fungus-grotto.png'),
+  loadMap('assets/generated/style-b-v2/decor/fungus-medium.png'),
+  loadMap('assets/generated/style-b-v2/decor/fungus-small.png'),
+  loadMap('assets/generated/style-b-v2/decor/grotto-station.png'),
+  loadMap('assets/generated/style-b-v2/decor/supplies.png'),
+  loadMap('assets/generated/style-b-v2/decor/cart.png'),
+  loadMap('assets/generated/style-b-v2/decor/rack.png'),
+  loadMap('assets/generated/style-b-v2/decor/lamp.png'),
+  loadMap('assets/generated/style-b-v2/decor/banner.png'),
+  loadMap('assets/generated/style-b-v3/decals/moss.png'),
+  loadMap('assets/generated/style-b-v3/decals/spores.png'),
+  loadMap('assets/generated/style-b-v3/decals/puddle.png'),
+  loadMap('assets/generated/style-b-v3/decals/rubble.png'),
 ]);
 
 const pixelMaps = [
   workerMap, heartBackplateMap, heartCoreMap, heartBezelMap, heartPulpitMap,
   ironMap, fungusMap, storageMap, bedMap, cauldronMap, furnaceMap, workbenchMap, prisonMap,
+  fungusGrottoMap, fungusMediumMap, fungusSmallMap, grottoStationMap, suppliesMap,
+  cartMap, rackMap, lampMap, bannerMap, mossMap, sporesMap, puddleMap, rubbleMap,
 ];
 for (const map of pixelMaps) {
   map.magFilter = THREE.NearestFilter;
@@ -184,7 +218,9 @@ function standardMaterial(options: { color: number; map?: THREE.Texture; roughne
 
 const floorMaterials = {
   start: standardMaterial({ color: 0xd7c9bb, map: floorMap, roughness: 0.84 }),
-  corridor: standardMaterial({ color: 0xb7cbe0, map: corridorMap, roughness: 0.92 }),
+  claimed: standardMaterial({ color: 0xd0c4b8, map: corridorMap, roughness: 0.9 }),
+  raw: standardMaterial({ color: 0x71879a, map: rawFloorMap, roughness: 0.98 }),
+  cavern: standardMaterial({ color: 0x5d8275, map: dampFloorMap, roughness: 0.98 }),
 };
 const bedrockMaterial = standardMaterial({ color: 0x39566d, map: rockMap, roughness: 0.98 });
 const geologyMaterials = {
@@ -376,10 +412,25 @@ const spriteMaterials = {
   smelter: spriteMaterial(furnaceMap),
   workshop: spriteMaterial(workbenchMap),
   prison: spriteMaterial(prisonMap),
+  fungusGrotto: spriteMaterial(fungusGrottoMap),
+  fungusMedium: spriteMaterial(fungusMediumMap),
+  fungusSmall: spriteMaterial(fungusSmallMap),
+  grottoStation: spriteMaterial(grottoStationMap),
+  supplies: spriteMaterial(suppliesMap),
+  cart: spriteMaterial(cartMap),
+  rack: spriteMaterial(rackMap),
+  lamp: spriteMaterial(lampMap),
+  banner: spriteMaterial(bannerMap),
 };
 const resourceMaterials = {
   iron: new THREE.MeshBasicMaterial({ map: ironMap, transparent: true, alphaTest: 0.035, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }),
   fungus: new THREE.MeshBasicMaterial({ map: fungusMap, transparent: true, alphaTest: 0.035, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }),
+};
+const decalMaterials = {
+  moss: new THREE.MeshBasicMaterial({ map: mossMap, transparent: true, alphaTest: 0.035, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }),
+  spores: new THREE.MeshBasicMaterial({ map: sporesMap, transparent: true, alphaTest: 0.035, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }),
+  puddle: new THREE.MeshBasicMaterial({ map: puddleMap, transparent: true, alphaTest: 0.035, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }),
+  rubble: new THREE.MeshBasicMaterial({ map: rubbleMap, transparent: true, alphaTest: 0.035, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }),
 };
 
 const heartX = SANDBOX_HEART.x + 0.5;
@@ -400,23 +451,63 @@ addSprite(world, spriteMaterials.heartCore, heartX, 1.16, heartZ, 1.06, 1.06, 11
 addSprite(world, spriteMaterials.heartBezel, heartX, 1.16, heartZ + 0.03, 1.4, 1.4, 12);
 addSprite(world, spriteMaterials.heartPulpit, heartX, 0.47, heartZ + 0.24, 1.86, 1.27, 13);
 
-const workerMaterial = spriteMaterial(workerMap);
-const actor = addSprite(world, workerMaterial, SANDBOX_START.x + 0.5, 0.82, SANDBOX_START.z + 0.5, 1.55, 1.55, 20);
-const actorShadow = new THREE.Mesh(actorShadowGeometry, new THREE.MeshBasicMaterial({ color: 0x01050b, transparent: true, opacity: 0.5, depthWrite: false }));
-world.add(actorShadow);
+interface WorkerVisual {
+  sprite: THREE.Sprite;
+  shadow: THREE.Mesh;
+  map: THREE.Texture;
+}
+const workerVisuals: WorkerVisual[] = [];
+function ensureWorkerVisuals(targetCount: number): void {
+  while (workerVisuals.length < targetCount) {
+    const index = workerVisuals.length;
+    const map = index === 0 ? workerMap : workerMap.clone();
+    map.needsUpdate = true;
+    if (workerAnimated) {
+      map.repeat.set(1 / 4, 1 / 6);
+      map.offset.set(0, 5 / 6);
+    }
+    const sprite = addSprite(
+      world,
+      spriteMaterial(map),
+      SANDBOX_START.x + 0.5 - index * 0.65,
+      0.82,
+      SANDBOX_START.z + 0.5 + (index % 2) * 0.55,
+      1.55,
+      1.55,
+      20 + index,
+    );
+    const shadow = new THREE.Mesh(
+      actorShadowGeometry,
+      new THREE.MeshBasicMaterial({ color: 0x01050b, transparent: true, opacity: 0.46, depthWrite: false }),
+    );
+    world.add(shadow);
+    workerVisuals.push({ sprite, shadow, map });
+  }
+  workerVisuals.forEach((visual, index) => {
+    const visible = index < targetCount;
+    visual.sprite.visible = visible;
+    visual.shadow.visible = visible;
+  });
+}
+ensureWorkerVisuals(3);
+const actor = workerVisuals[0].sprite;
+const actorShadow = workerVisuals[0].shadow;
 
 const roomFloorMaterials = Object.fromEntries(
   (Object.keys(ROOM_DEFINITIONS) as RoomKind[]).map((kind) => [
     kind,
-    new THREE.MeshBasicMaterial({
+    new THREE.MeshStandardMaterial({
       color: ROOM_DEFINITIONS[kind].color,
+      map: floorMap,
       transparent: true,
-      opacity: 0.44,
+      opacity: 0.82,
       depthWrite: false,
       side: THREE.DoubleSide,
+      roughness: 0.78,
+      metalness: 0.03,
     }),
   ]),
-) as Record<RoomKind, THREE.MeshBasicMaterial>;
+) as Record<RoomKind, THREE.MeshStandardMaterial>;
 
 const ambient = new THREE.AmbientLight(0x8290a2, 0.72);
 const hemisphere = new THREE.HemisphereLight(0x9fc7df, 0x101725, 1.9);
@@ -435,6 +526,7 @@ heartLight.position.set(heartX, 3.2, heartZ);
 scene.add(heartLight);
 
 let state = createSandboxState();
+let knownDiscoveryCount = 0;
 let surfaceStyle: SurfaceStyle = 'clean';
 let geometryGroup = new THREE.Group();
 let resourceGroup = new THREE.Group();
@@ -510,7 +602,7 @@ function adjacentOpenCell(edge: BoundaryEdge): { x: number; z: number } {
 }
 
 function builtCellKeys(cells: ProofCell[]): Set<string> {
-  const keys = new Set(cells.filter((cell) => cell.zone === 'start').map((cell) => proofCellKey(cell.x, cell.z)));
+  const keys = new Set(state.claimedCells);
   for (const room of state.rooms.filter(sandboxRoomComplete)) {
     for (let z = room.z; z < room.z + room.h; z += 1) {
       for (let x = room.x; x < room.x + room.w; x += 1) keys.add(proofCellKey(x, z));
@@ -586,14 +678,26 @@ function rebuildGeometry(): void {
   geometryGroup.clear();
   geometryGroup = new THREE.Group();
   const cells = [...state.openCells.values()];
-  for (const zone of ['start', 'corridor'] as const) {
-    addInstances(
-      tileGeometry,
-      floorMaterials[zone],
-      cells.filter((cell) => cell.zone === zone).map((cell) => matrixAt(cell.x + 0.5, 0.015, cell.z + 0.5)),
-      geometryGroup,
-    );
-  }
+  const tileMatrix = (cell: ProofCell): THREE.Matrix4 => matrixAt(cell.x + 0.5, 0.015, cell.z + 0.5);
+  addInstances(tileGeometry, floorMaterials.start, cells.filter((cell) => cell.zone === 'start').map(tileMatrix), geometryGroup);
+  addInstances(
+    tileGeometry,
+    floorMaterials.claimed,
+    cells.filter((cell) => cell.zone !== 'start' && state.claimedCells.has(proofCellKey(cell.x, cell.z))).map(tileMatrix),
+    geometryGroup,
+  );
+  addInstances(
+    tileGeometry,
+    floorMaterials.raw,
+    cells.filter((cell) => cell.zone === 'corridor' && !state.claimedCells.has(proofCellKey(cell.x, cell.z))).map(tileMatrix),
+    geometryGroup,
+  );
+  addInstances(
+    tileGeometry,
+    floorMaterials.cavern,
+    cells.filter((cell) => cell.zone === 'target' && !state.claimedCells.has(proofCellKey(cell.x, cell.z))).map(tileMatrix),
+    geometryGroup,
+  );
   addInstances(
     tileGeometry,
     plannedDigMaterial,
@@ -646,6 +750,97 @@ function roomPropPositions(room: SandboxRoom, count: number): Array<{ x: number;
   return positions;
 }
 
+function roomPerimeterPositions(room: SandboxRoom, count: number): Array<{ x: number; z: number }> {
+  if (count <= 0) return [];
+  const positions: Array<{ x: number; z: number }> = [];
+  const perSide = Math.ceil(count / 2);
+  for (let index = 0; index < count; index += 1) {
+    const north = index % 2 === 0;
+    const slot = Math.floor(index / 2);
+    positions.push({
+      x: room.x + 0.7 + ((slot + 0.5) / perSide) * Math.max(0.6, room.w - 1.4),
+      z: north ? room.z + 0.72 : room.z + room.h - 0.72,
+    });
+  }
+  return positions;
+}
+
+function addFloorDecal(
+  parent: THREE.Object3D,
+  material: THREE.Material,
+  x: number,
+  z: number,
+  width: number,
+  depth: number,
+  rotation = 0,
+): void {
+  const mesh = new THREE.Mesh(tileGeometry, material);
+  mesh.position.set(x, 0.084, z);
+  mesh.scale.set(width, 1, depth);
+  mesh.rotation.y = rotation;
+  mesh.renderOrder = 3;
+  parent.add(mesh);
+}
+
+function addRoomArchitecture(room: SandboxRoom): void {
+  const cx = room.x + room.w / 2;
+  const cz = room.z + room.h / 2;
+  addInstances(unitBox, brassDetailMaterial, [
+    matrixAt(cx, 0.09, room.z + 0.08, room.w - 0.32, 0.055, 0.08),
+    matrixAt(cx, 0.09, room.z + room.h - 0.08, room.w - 0.32, 0.055, 0.08),
+    matrixAt(room.x + 0.08, 0.09, cz, 0.08, 0.055, room.h - 0.32),
+    matrixAt(room.x + room.w - 0.08, 0.09, cz, 0.08, 0.055, room.h - 0.32),
+  ], roomGroup);
+  if (room.kind === 'kitchen') addFloorDecal(roomGroup, decalMaterials.moss, cx, cz, Math.max(1.4, room.w * 0.68), Math.max(1.5, room.h * 0.66), 0.17);
+  if (room.kind === 'smelter') addFloorDecal(roomGroup, decalMaterials.rubble, cx, cz, Math.max(1.2, room.w * 0.56), Math.max(1.1, room.h * 0.5), -0.12);
+  if (room.kind === 'storage' || room.kind === 'workshop') addFloorDecal(roomGroup, decalMaterials.rubble, cx, cz, Math.max(1.1, room.w * 0.48), Math.max(0.9, room.h * 0.42), 0.08);
+  addSprite(roomGroup, spriteMaterials.banner, cx, 0.7, room.z + 0.26, 0.62, 0.82, 7);
+  if (room.w * room.h >= 8) addSprite(roomGroup, spriteMaterials.lamp, room.x + 0.52, 0.55, room.z + 0.52, 0.58, 0.74, 8);
+}
+
+function addCompletedRoomDressing(room: SandboxRoom): void {
+  addRoomArchitecture(room);
+  const cells = room.w * room.h;
+  if (room.kind === 'bedroom') {
+    const count = bedroomCapacity(cells);
+    roomPerimeterPositions(room, count).forEach((position, index) => {
+      addSprite(roomGroup, spriteMaterials.bedroom, position.x, 0.44, position.z, 0.58, 0.92, 6 + index);
+    });
+    if (count > 2) addSprite(roomGroup, spriteMaterials.supplies, room.x + room.w / 2, 0.42, room.z + room.h / 2, 0.66, 0.66, 6);
+    return;
+  }
+  if (room.kind === 'storage') {
+    const positions = roomPropPositions(room, Math.max(2, Math.min(5, Math.ceil(cells / 4))));
+    positions.forEach((position, index) => {
+      const material = index % 3 === 0 ? spriteMaterials.storage : index % 3 === 1 ? spriteMaterials.supplies : spriteMaterials.cart;
+      addSprite(roomGroup, material, position.x, 0.46, position.z, index % 3 === 1 ? 0.82 : 0.7, index % 3 === 1 ? 0.7 : 0.72, 6 + index);
+    });
+    addSprite(roomGroup, spriteMaterials.rack, room.x + room.w - 0.5, 0.54, room.z + 0.5, 0.72, 0.78, 7);
+    return;
+  }
+  if (room.kind === 'kitchen') {
+    const positions = roomPropPositions(room, productionStations(cells));
+    positions.forEach((position, index) => addSprite(roomGroup, spriteMaterials.kitchen, position.x, 0.5, position.z, 0.88, 0.88, 7 + index));
+    addSprite(roomGroup, spriteMaterials.grottoStation, room.x + room.w - 0.7, 0.5, room.z + room.h - 0.7, 0.92, 0.92, 8);
+    addSprite(roomGroup, spriteMaterials.fungusSmall, room.x + 0.62, 0.34, room.z + room.h - 0.62, 0.48, 0.48, 8);
+    return;
+  }
+  if (room.kind === 'smelter') {
+    roomPropPositions(room, productionStations(cells)).forEach((position, index) => addSprite(roomGroup, spriteMaterials.smelter, position.x, 0.52, position.z, 0.94, 0.94, 7 + index));
+    addSprite(roomGroup, spriteMaterials.supplies, room.x + room.w - 0.65, 0.42, room.z + room.h - 0.62, 0.68, 0.62, 7);
+    return;
+  }
+  if (room.kind === 'workshop') {
+    roomPropPositions(room, productionStations(cells)).forEach((position, index) => addSprite(roomGroup, spriteMaterials.workshop, position.x, 0.46, position.z, 0.9, 0.74, 7 + index));
+    addSprite(roomGroup, spriteMaterials.rack, room.x + 0.55, 0.54, room.z + room.h - 0.55, 0.72, 0.78, 7);
+    addSprite(roomGroup, spriteMaterials.cart, room.x + room.w - 0.58, 0.42, room.z + room.h - 0.58, 0.66, 0.66, 7);
+    return;
+  }
+  roomPerimeterPositions(room, prisonCapacity(cells)).forEach((position, index) => {
+    addSprite(roomGroup, spriteMaterials.prison, position.x, 0.48, position.z, 0.78, 0.88, 7 + index);
+  });
+}
+
 function rebuildRooms(): void {
   world.remove(roomGroup);
   roomGroup.clear();
@@ -669,36 +864,62 @@ function rebuildRooms(): void {
   addInstances(tileGeometry, plannedRoomMaterial, plannedMatrices, roomGroup);
   for (const room of state.rooms) {
     if (!sandboxRoomComplete(room)) continue;
-    const material = spriteMaterials[room.kind];
-    const cells = room.w * room.h;
-    const count = room.kind === 'bedroom'
-      ? bedroomCapacity(cells)
-      : room.kind === 'prison'
-        ? prisonCapacity(cells)
-        : room.kind === 'storage'
-          ? Math.max(1, Math.min(6, Math.ceil(cells / 4)))
-          : productionStations(cells);
-    const width = room.kind === 'bedroom' ? 0.55 : room.kind === 'prison' ? 0.82 : room.kind === 'storage' ? 0.7 : 0.9;
-    const height = room.kind === 'bedroom' ? 0.92 : room.kind === 'prison' ? 0.9 : width;
-    for (const position of roomPropPositions(room, count)) {
-      addSprite(roomGroup, material, position.x, 0.46, position.z + 0.04, width, height, 6);
-    }
+    addCompletedRoomDressing(room);
   }
   world.add(roomGroup);
+}
+
+function siteContains(site: SandboxDiscoverySite, x: number, z: number): boolean {
+  return x >= site.x && x < site.x + site.w && z >= site.z && z < site.z + site.h;
+}
+
+function addDiscoveredSiteDressing(site: SandboxDiscoverySite): void {
+  const cx = site.x + site.w / 2;
+  const cz = site.z + site.h / 2;
+  if (site.kind === 'fungus') {
+    addFloorDecal(resourceGroup, decalMaterials.moss, cx, cz, site.w * 0.84, site.h * 0.82, site.id === 'spore-garden' ? 0.28 : -0.16);
+    addFloorDecal(resourceGroup, decalMaterials.spores, cx - 0.8, cz + 0.65, site.w * 0.48, site.h * 0.44, 0.2);
+    addFloorDecal(resourceGroup, decalMaterials.puddle, cx + 1.25, cz - 1.1, 1.7, 1.25, -0.24);
+    addSprite(resourceGroup, spriteMaterials.fungusGrotto, cx, 1.02, cz, site.w * 0.56, site.h * 0.56, 9);
+    addSprite(resourceGroup, spriteMaterials.fungusMedium, site.x + 1.05, 0.5, site.z + site.h - 1.05, 0.9, 0.9, 10);
+    addSprite(resourceGroup, spriteMaterials.fungusSmall, site.x + site.w - 1.1, 0.35, site.z + 1.08, 0.58, 0.58, 10);
+    addSprite(resourceGroup, spriteMaterials.grottoStation, site.x + site.w - 1.15, 0.5, site.z + site.h - 1.08, 1.02, 1.02, 10);
+    const glow = new THREE.PointLight(0x5be9bd, mobileProfile ? 2.4 : 4.2, 6.5, 2);
+    glow.position.set(cx, 1.55, cz);
+    resourceGroup.add(glow);
+    return;
+  }
+  if (site.kind === 'cache') {
+    addFloorDecal(resourceGroup, decalMaterials.rubble, cx, cz, site.w * 0.7, site.h * 0.62, 0.15);
+    addSprite(resourceGroup, spriteMaterials.supplies, cx - 1.2, 0.48, cz - 0.65, 1.02, 0.9, 9);
+    addSprite(resourceGroup, spriteMaterials.cart, cx + 1.25, 0.46, cz + 0.7, 0.88, 0.88, 9);
+    addSprite(resourceGroup, spriteMaterials.rack, site.x + 0.8, 0.58, site.z + 0.82, 0.86, 0.92, 9);
+    addSprite(resourceGroup, spriteMaterials.banner, site.x + site.w - 0.75, 0.7, site.z + 0.55, 0.72, 0.94, 9);
+    return;
+  }
+  addFloorDecal(resourceGroup, decalMaterials.rubble, cx, cz, site.w * 0.6, site.h * 0.55, -0.12);
+  addSprite(resourceGroup, spriteMaterials.cart, site.x + 1.1, 0.45, site.z + site.h - 1.05, 0.78, 0.78, 9);
+  addSprite(resourceGroup, spriteMaterials.lamp, site.x + site.w - 0.8, 0.58, site.z + 0.72, 0.64, 0.82, 9);
 }
 
 function rebuildResources(): void {
   world.remove(resourceGroup);
   resourceGroup.clear();
   resourceGroup = new THREE.Group();
+  SANDBOX_DISCOVERY_SITES
+    .filter((site) => state.discoveredSites.has(site.id))
+    .forEach(addDiscoveredSiteDressing);
   for (const kind of ['iron', 'fungus'] as const) {
     const matrices = state.deposits
-      .filter((deposit) => deposit.kind === kind && deposit.remaining > 0)
-      .map((deposit) => {
-        const open = state.openCells.has(proofCellKey(deposit.x, deposit.z));
-        const size = open ? 0.86 : 0.64;
+      .filter((deposit) => deposit.kind === kind && deposit.remaining > 0 && state.openCells.has(proofCellKey(deposit.x, deposit.z)))
+      .filter((deposit) => kind === 'iron' || !SANDBOX_DISCOVERY_SITES.some((site) => site.kind === 'fungus' && state.discoveredSites.has(site.id) && siteContains(site, deposit.x, deposit.z)))
+      .filter((deposit, index) => kind === 'fungus' || index % 2 === 0)
+      .map((deposit, index) => {
+        const size = kind === 'iron' ? 0.58 + seededUnit(deposit.id + 17) * 0.22 : 0.66 + seededUnit(deposit.id + 31) * 0.18;
+        const jitterX = (seededUnit(deposit.id + 43) - 0.5) * 0.24;
+        const jitterZ = (seededUnit(deposit.id + 59) - 0.5) * 0.24;
         return new THREE.Matrix4().compose(
-          new THREE.Vector3(deposit.x + 0.5, open ? 0.58 : 0.34, deposit.z + 0.5),
+          new THREE.Vector3(deposit.x + 0.5 + jitterX, 0.48 + (index % 2) * 0.07, deposit.z + 0.5 + jitterZ),
           resourceFacing,
           new THREE.Vector3(size, size, 1),
         );
@@ -732,6 +953,23 @@ for (let index = 0; index < 4; index += 1) {
 }
 digFx.visible = false;
 world.add(digFx);
+
+const claimFx = new THREE.Group();
+const claimRing = new THREE.Mesh(
+  new THREE.RingGeometry(0.24, 0.42, 24),
+  new THREE.MeshBasicMaterial({ color: 0xe5b94f, transparent: true, opacity: 0.82, depthWrite: false, side: THREE.DoubleSide }),
+);
+claimRing.rotation.x = -Math.PI / 2;
+claimRing.position.y = 0.13;
+claimFx.add(claimRing);
+for (const offset of [-0.23, 0, 0.23]) {
+  const marker = new THREE.Mesh(unitBox, brassDetailMaterial);
+  marker.position.set(offset, 0.1, 0);
+  marker.scale.set(0.13, 0.16, 0.13);
+  claimFx.add(marker);
+}
+claimFx.visible = false;
+world.add(claimFx);
 
 function updateActorPath(): void {
   const planned = [...state.plannedDig.values()].find((cell) => [
@@ -827,6 +1065,36 @@ function updateActor(delta: number): { terrainChanged: boolean } {
   return { terrainChanged };
 }
 
+function updateSupportWorkers(): void {
+  for (let index = 1; index < workerVisuals.length; index += 1) {
+    const visual = workerVisuals[index];
+    if (!visual.sprite.visible) continue;
+    const phase = workerAnimationTime * (0.34 + index * 0.025) + index * 2.4;
+    const radiusX = 1.2 + index * 0.22;
+    const radiusZ = 0.72 + index * 0.08;
+    const x = heartX + Math.cos(phase) * radiusX;
+    const z = heartZ + 1.05 + Math.sin(phase * 0.86) * radiusZ;
+    const previousX = visual.sprite.position.x;
+    visual.sprite.position.set(x, 0.82, z);
+    visual.shadow.position.set(x, 0.045, z + 0.06);
+    if (workerAnimated) {
+      const frame = Math.floor(workerAnimationTime * 8 + index * 1.7) % 4;
+      visual.map.offset.set(frame / 4, 1 - 3 / 6);
+      visual.sprite.scale.x = (x > previousX ? -1 : 1) * 1.55;
+    }
+  }
+}
+
+function updateClaimFx(): void {
+  const active = state.activeClaim;
+  claimFx.visible = Boolean(active);
+  if (!active) return;
+  claimFx.position.set(active.x + 0.5, 0, active.z + 0.5);
+  claimRing.scale.setScalar(0.7 + active.progress * 0.45);
+  claimRing.rotation.z = workerAnimationTime * 1.2;
+  (claimRing.material as THREE.MeshBasicMaterial).opacity = 0.45 + active.progress * 0.42;
+}
+
 const ui = document.createElement('div');
 ui.className = 'geometry-ui';
 ui.innerHTML = `
@@ -837,7 +1105,7 @@ ui.innerHTML = `
     <span><b data-stock="biomass">0</b><i>Biomasse</i></span>
     <span><b data-stock="ration">0</b><i>Rationen</i></span>
     <span><b data-stock="essence">0</b><i>Essenz</i></span>
-    <span><b data-workers>3/5</b><i>Arbeiter</i><em data-worker-jobs>G0 B0 A0</em></span>
+    <span><b data-workers>3/5</b><i>Arbeiter</i><em data-worker-jobs>G0 K0 B0 A0</em></span>
   </div>
   <div class="geometry-view-actions" aria-label="Ansicht">
     <button type="button" data-action="fit" title="Karte einpassen">⌖</button>
@@ -859,6 +1127,7 @@ ui.innerHTML = `
       <strong>Arbeitsprioritäten</strong>
       <div class="geometry-priorities">
         <button type="button" data-priority="dig">Graben <small data-priority-label="dig">Normal</small></button>
+        <button type="button" data-priority="claim">Claimen <small data-priority-label="claim">Normal</small></button>
         <button type="button" data-priority="build">Bauen <small data-priority-label="build">Normal</small></button>
         <button type="button" data-priority="mine">Abbau <small data-priority-label="mine">Normal</small></button>
       </div>
@@ -911,7 +1180,7 @@ function updateUi(): void {
   const workers = ui.querySelector<HTMLElement>('[data-workers]');
   if (workers) workers.textContent = `${workerCapacity(state)}/5`;
   const jobsOutput = ui.querySelector<HTMLElement>('[data-worker-jobs]');
-  if (jobsOutput) jobsOutput.textContent = `G${state.workerJobs.dig} B${state.workerJobs.build} A${state.workerJobs.mine}`;
+  if (jobsOutput) jobsOutput.textContent = `G${state.workerJobs.dig} K${state.workerJobs.claim} B${state.workerJobs.build} A${state.workerJobs.mine}`;
   const summary: Record<string, number> = {
     rooms: state.rooms.filter(sandboxRoomComplete).length,
     iron: remainingDepositUnits(state, 'iron'),
@@ -924,7 +1193,7 @@ function updateUi(): void {
     if (output) output.textContent = String(value);
   }
   const priorityLabels = ['Niedrig', 'Normal', 'Hoch'] as const;
-  for (const task of ['dig', 'build', 'mine'] as const) {
+  for (const task of ['dig', 'claim', 'build', 'mine'] as const) {
     const output = ui.querySelector<HTMLElement>(`[data-priority-label="${task}"]`);
     if (output) output.textContent = priorityLabels[state.workPriorities[task]];
     const button = ui.querySelector<HTMLButtonElement>(`[data-priority="${task}"]`);
@@ -942,6 +1211,7 @@ function syncWorld(): void {
   updateActorPath();
   syncActorPosition();
   updateUi();
+  knownDiscoveryCount = state.discoveredSites.size;
 }
 
 function syncTerrain(): void {
@@ -950,6 +1220,11 @@ function syncTerrain(): void {
   updateActorPath();
   syncActorPosition();
   updateUi();
+  if (state.discoveredSites.size > knownDiscoveryCount) {
+    const newest = SANDBOX_DISCOVERY_SITES.find((site) => state.discoveredSites.has(site.id) && ![...state.discoveredSites].slice(0, knownDiscoveryCount).includes(site.id));
+    if (newest) showStatus({ ok: true, message: `${newest.label} entdeckt. Der neutrale Boden wird nun Feld für Feld beansprucht.` });
+    knownDiscoveryCount = state.discoveredSites.size;
+  }
 }
 
 let terrainSyncQueued = false;
@@ -1004,7 +1279,7 @@ ui.querySelectorAll<HTMLButtonElement>('[data-surface]').forEach((button) => {
 });
 ui.querySelectorAll<HTMLButtonElement>('[data-priority]').forEach((button) => {
   button.addEventListener('click', () => {
-    const task = button.dataset.priority as 'dig' | 'build' | 'mine';
+    const task = button.dataset.priority as 'dig' | 'claim' | 'build' | 'mine';
     state.workPriorities[task] = ((state.workPriorities[task] + 1) % 3) as 0 | 1 | 2;
     updateUi();
     showStatus({ ok: true, message: `${button.textContent?.trim() ?? task}: Priorität angepasst.` });
@@ -1025,6 +1300,7 @@ ui.querySelector<HTMLButtonElement>('[data-action="zoom-out"]')?.addEventListene
 });
 ui.querySelector<HTMLButtonElement>('[data-action="reset"]')?.addEventListener('click', () => {
   state = createSandboxState();
+  ensureWorkerVisuals(state.workerCount);
   actorDestinationKey = '';
   cameraTarget.set(SANDBOX_START.x, 0, SANDBOX_START.z);
   viewHeight = mobileProfile ? 15 : 20;
@@ -1034,6 +1310,7 @@ ui.querySelector<HTMLButtonElement>('[data-action="reset"]')?.addEventListener('
 });
 ui.querySelector<HTMLButtonElement>('[data-action="summon-worker"]')?.addEventListener('click', () => {
   const result = summonSandboxWorker(state);
+  ensureWorkerVisuals(state.workerCount);
   showStatus(result);
   updateUi();
 });
@@ -1276,6 +1553,8 @@ function animate(timestamp: number): void {
   const delta = Math.min(timer.getDelta(), 0.05);
   const actorTick = updateActor(delta);
   const tick = tickSandboxEconomy(state, delta, { autonomousDigging: false });
+  updateSupportWorkers();
+  updateClaimFx();
   if (actorTick.terrainChanged) scheduleTerrainSync();
   if (tick.terrainChanged) scheduleTerrainSync();
   if (tick.roomsChanged) {

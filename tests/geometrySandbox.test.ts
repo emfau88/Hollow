@@ -19,8 +19,30 @@ describe('playable geometry sandbox', () => {
   it('starts on a large resource-rich map', () => {
     const state = createSandboxState();
     expect(state.openCells.size).toBe(77);
+    expect(state.claimedCells.size).toBe(77);
+    expect(state.workerCount).toBe(3);
     expect(remainingDepositUnits(state, 'iron')).toBeGreaterThan(500);
     expect(state.stock.metal).toBeGreaterThan(10);
+  });
+
+  it('claims freshly excavated corridors field by field', () => {
+    const state = createSandboxState();
+    expect(planSandboxDigCell(state, 14, 25).ok).toBe(true);
+    tickSandboxEconomy(state, 0.1, { autonomousDigging: false });
+    expect(advanceSandboxDigging(state, { x: 14, z: 25 }, 1.3).completed).toBe(true);
+    expect(state.claimedCells.has('14,25')).toBe(false);
+    tickSandboxEconomy(state, 1.5, { autonomousDigging: false });
+    expect(state.claimedCells.has('14,25')).toBe(true);
+  });
+
+  it('reveals authored neutral chambers when their entrance is reached', () => {
+    const state = createSandboxState();
+    for (let x = 14; x <= 23; x += 1) expect(planSandboxDigCell(state, x, 22).ok).toBe(true);
+    for (let z = 21; z >= 17; z -= 1) expect(planSandboxDigCell(state, 23, z).ok).toBe(true);
+    for (let index = 0; index < 120; index += 1) tickSandboxEconomy(state, 0.5);
+    expect(state.discoveredSites.has('fungus-grotto')).toBe(true);
+    expect(state.openCells.has('20,10')).toBe(true);
+    expect(state.openCells.has('26,16')).toBe(true);
   });
 
   it('digs connected tunnels and rejects remote rock', () => {

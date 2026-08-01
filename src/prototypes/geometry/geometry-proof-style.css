@@ -231,7 +231,7 @@ button { color: inherit; font: inherit; }
 .geometry-materials { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .geometry-tools { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .geometry-room-tools { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.geometry-priorities { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
+.geometry-priorities { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; }
 .geometry-priorities small { display: block; margin-top: 2px; color: #7f9598; font-size: 6px; }
 .geometry-priorities .priority-high { border-color: rgba(98, 208, 170, 0.68); }
 .geometry-priorities .priority-high small { color: #62d0aa; }

@@ -38,9 +38,29 @@ export interface SandboxRoom {
   buildProgress: number;
 }
 
+export interface SandboxDiscoverySite {
+  id: string;
+  label: string;
+  kind: 'fungus' | 'iron' | 'cache';
+  x: number;
+  z: number;
+  w: number;
+  h: number;
+  entry: { x: number; z: number };
+}
+
+export const SANDBOX_DISCOVERY_SITES: SandboxDiscoverySite[] = [
+  { id: 'fungus-grotto', label: 'Leuchtende Pilzgrotte', kind: 'fungus', x: 20, z: 10, w: 7, h: 7, entry: { x: 23, z: 17 } },
+  { id: 'iron-gallery', label: 'Alte Eisengalerie', kind: 'iron', x: 27, z: 17, w: 7, h: 6, entry: { x: 26, z: 20 } },
+  { id: 'forgotten-cache', label: 'Vergessenes Vorratsgewölbe', kind: 'cache', x: 37, z: 7, w: 7, h: 6, entry: { x: 40, z: 13 } },
+  { id: 'spore-garden', label: 'Versunkener Sporenhain', kind: 'fungus', x: 39, z: 22, w: 7, h: 6, entry: { x: 38, z: 24 } },
+];
+
 export interface SandboxState {
   openCells: Map<string, ProofCell>;
+  claimedCells: Set<string>;
   plannedDig: Map<string, { x: number; z: number }>;
+  discoveredSites: Set<string>;
   rooms: SandboxRoom[];
   deposits: SandboxDeposit[];
   stock: Stock;
@@ -51,9 +71,11 @@ export interface SandboxState {
   miningClock: number;
   diggingClock: number;
   activeDig?: { x: number; z: number; progress: number };
+  claimingClock: number;
+  activeClaim?: { x: number; z: number; progress: number };
   buildingClock: number;
   nextRoomId: number;
-  workerJobs: { dig: number; build: number; mine: number; idle: number };
+  workerJobs: { dig: number; build: number; claim: number; mine: number; idle: number };
   workPriorities: WorkPriorities;
   workerCount: number;
 }
@@ -121,7 +143,9 @@ export function createSandboxState(): SandboxState {
   ];
   return {
     openCells,
+    claimedCells: new Set(openCells.keys()),
     plannedDig: new Map(),
+    discoveredSites: new Set(),
     rooms: [],
     deposits,
     stock: { ore: 0, biomass: 8, essence: 4, metal: 24, ration: 4, armour: 0 },
@@ -131,12 +155,41 @@ export function createSandboxState(): SandboxState {
     productionClock: { kitchen: 0, smelter: 0, workshop: 0 },
     miningClock: 0,
     diggingClock: 0,
+    claimingClock: 0,
     buildingClock: 0,
     nextRoomId: 1,
-    workerJobs: { dig: 0, build: 0, mine: 0, idle: 3 },
+    workerJobs: { dig: 0, build: 0, claim: 0, mine: 0, idle: 3 },
     workPriorities: { ...DEFAULT_WORK_PRIORITIES },
     workerCount: 3,
   };
+}
+
+function siteCells(site: SandboxDiscoverySite): Array<{ x: number; z: number }> {
+  const cells: Array<{ x: number; z: number }> = [];
+  for (let z = site.z; z < site.z + site.h; z += 1) {
+    for (let x = site.x; x < site.x + site.w; x += 1) cells.push({ x, z });
+  }
+  return cells;
+}
+
+function revealConnectedSites(state: SandboxState): boolean {
+  let revealed = false;
+  for (const site of SANDBOX_DISCOVERY_SITES) {
+    if (state.discoveredSites.has(site.id) || !state.openCells.has(proofCellKey(site.entry.x, site.entry.z))) continue;
+    state.discoveredSites.add(site.id);
+    for (const cell of siteCells(site)) {
+      state.openCells.set(proofCellKey(cell.x, cell.z), { ...cell, zone: 'target' });
+    }
+    revealed = true;
+  }
+  return revealed;
+}
+
+function claimableSandboxCells(state: SandboxState): Array<{ x: number; z: number }> {
+  return [...state.openCells.values()]
+    .filter((cell) => !state.claimedCells.has(proofCellKey(cell.x, cell.z)))
+    .filter((cell) => neighbours(cell.x, cell.z).some((neighbour) => state.claimedCells.has(proofCellKey(neighbour.x, neighbour.z))))
+    .map(({ x, z }) => ({ x, z }));
 }
 
 export function sandboxInBounds(x: number, z: number): boolean {
@@ -258,6 +311,9 @@ export function validateSandboxRoom(
   if (cells.some((cell) => !state.openCells.has(proofCellKey(cell.x, cell.z)))) {
     return { ok: false, message: 'Räume können nur auf vollständig ausgegrabenem Boden gebaut werden.' };
   }
+  if (cells.some((cell) => !state.claimedCells.has(proofCellKey(cell.x, cell.z)))) {
+    return { ok: false, message: 'Der Boden muss zuerst vom Covenant beansprucht werden.' };
+  }
   const occupied = new Set(state.rooms.flatMap((room) => roomCells(room).map((cell) => proofCellKey(cell.x, cell.z))));
   if (cells.some((cell) => occupied.has(proofCellKey(cell.x, cell.z)))) {
     return { ok: false, message: 'Der Bereich überschneidet einen vorhandenen Raum.' };
@@ -348,6 +404,7 @@ export function advanceSandboxDigging(
   if (state.activeDig.progress < 1) return { completed: false, progress: state.activeDig.progress };
   state.plannedDig.delete(key);
   state.openCells.set(key, { ...target, zone: 'corridor' });
+  revealConnectedSites(state);
   state.activeDig = undefined;
   return { completed: true, progress: 1 };
 }
@@ -362,16 +419,17 @@ export function tickSandboxEconomy(
   let resourcesChanged = false;
   const workers = Math.max(1, workerCapacity(state));
   const executableDig = [...state.plannedDig.values()].filter((cell) => canDigSandboxCell(state, cell.x, cell.z)).length;
+  const claimable = claimableSandboxCells(state).length;
   const buildCells = state.rooms.reduce((sum, room) => sum + Math.max(0, room.w * room.h - room.buildProgress), 0);
-  const mineNodes = state.deposits.filter((deposit) => deposit.remaining > 0 && state.openCells.has(proofCellKey(deposit.x, deposit.z))).length;
-  const available = { dig: executableDig, build: buildCells, mine: mineNodes };
-  const jobs = { dig: 0, build: 0, mine: 0, idle: 0 };
+  const mineNodes = state.deposits.filter((deposit) => deposit.remaining > 0 && state.claimedCells.has(proofCellKey(deposit.x, deposit.z))).length;
+  const available = { dig: executableDig, build: buildCells, claim: claimable, mine: mineNodes };
+  const jobs = { dig: 0, build: 0, claim: 0, mine: 0, idle: 0 };
   const foodUrgent = state.stock.ration < 3 || state.stock.biomass < 4;
   for (let index = 0; index < workers; index += 1) {
     const selected = workerTaskOrder(index, foodUrgent, state.workPriorities).find((task) => (
-      (task === 'dig' || task === 'build' || task === 'mine') && available[task] > 0
+      (task === 'dig' || task === 'build' || task === 'claim' || task === 'mine') && available[task] > 0
     ));
-    if (selected === 'dig' || selected === 'build' || selected === 'mine') {
+    if (selected === 'dig' || selected === 'build' || selected === 'claim' || selected === 'mine') {
       jobs[selected] += 1;
       available[selected] -= 1;
     } else {
@@ -388,8 +446,28 @@ export function tickSandboxEconomy(
       state.diggingClock -= 1;
       state.plannedDig.delete(proofCellKey(next.x, next.z));
       state.openCells.set(proofCellKey(next.x, next.z), { ...next, zone: 'corridor' });
+      revealConnectedSites(state);
       terrainChanged = true;
     }
+  }
+
+  const nextClaim = claimableSandboxCells(state)[0];
+  if (jobs.claim > 0 && nextClaim) {
+    if (!state.activeClaim || state.activeClaim.x !== nextClaim.x || state.activeClaim.z !== nextClaim.z) {
+      state.activeClaim = { ...nextClaim, progress: 0 };
+      state.claimingClock = 0;
+    }
+    state.claimingClock += deltaSeconds * jobs.claim * 0.75;
+    state.activeClaim.progress = Math.min(1, state.claimingClock);
+    if (state.claimingClock >= 1) {
+      state.claimedCells.add(proofCellKey(nextClaim.x, nextClaim.z));
+      state.claimingClock -= 1;
+      state.activeClaim = undefined;
+      terrainChanged = true;
+    }
+  } else {
+    state.activeClaim = undefined;
+    state.claimingClock = 0;
   }
 
   state.buildingClock += deltaSeconds * jobs.build * 0.55;
@@ -402,7 +480,7 @@ export function tickSandboxEconomy(
   }
 
   const mineable = (): SandboxDeposit | undefined => state.deposits.find((deposit) => (
-    deposit.remaining > 0 && state.openCells.has(proofCellKey(deposit.x, deposit.z))
+    deposit.remaining > 0 && state.claimedCells.has(proofCellKey(deposit.x, deposit.z))
   ));
   state.miningClock += deltaSeconds * jobs.mine * 0.7;
   while (state.miningClock >= 1 && totalStock(state) < storageCapacity(state)) {
