@@ -16,6 +16,19 @@ Art-Direction-Referenzen dienten
 `HOLLOW_COVENANT_STYLE_B_PRODUCTION_FRAME.png` und
 `HOLLOW_COVENANT_STYLE_B_DUNGEON_ADMIN.png`.
 
+## Engine-seitige Modulbausteine
+
+Die Bilder sind nur Oberflächen. Die eigentlichen Module entstehen im neuen
+Renderer aus echter Geometrie und reagieren automatisch auf die Kartentopologie:
+
+- organische Felswände aus deterministisch variierten, gestapelten Felskörpern;
+- konstruierte Pfeiler, Sockel, Kappen, Messingbänder und Schwellen;
+- warme Covenant-Wandleuchten und türkisfarbene Naturlichter mit emissiven
+  Körpern und begrenzten echten Punktlichtern.
+
+Dadurch bleiben Ecken, T-Stücke und nachträglich verbundene Gänge korrekt, ohne
+für jede Form ein eigenes Komplettbild zu benötigen.
+
 ## Finale Prompts
 
 ### Wandkörper
@@ -33,4 +46,3 @@ Art-Direction-Referenzen dienten
 > and hairline cracks, warm ivory-gray stone with cool crevice shadows. Match
 > the supplied Style-B mockups. No ornament, gold, symbols, objects, text or
 > seams.
-

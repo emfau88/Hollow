@@ -8,6 +8,7 @@ import {
   findOpenPath,
   proofCellKey,
   type BoundaryEdge,
+  type ProofCell,
 } from './GeometryProofModel';
 import {
   SANDBOX_BOUNDS,
@@ -290,6 +291,8 @@ world.add(digPlane);
 
 const tileGeometry = new THREE.PlaneGeometry(1.01, 1.01).rotateX(-Math.PI / 2);
 const unitBox = new THREE.BoxGeometry(1, 1, 1);
+const naturalRockGeometry = new THREE.DodecahedronGeometry(0.5, 0);
+const lightOrbGeometry = new THREE.SphereGeometry(0.11, 10, 8);
 const actorShadowGeometry = new THREE.CircleGeometry(0.42, 24).rotateX(-Math.PI / 2);
 const selectionGeometry = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
 const resourceGeometry = new THREE.PlaneGeometry(1, 1);
@@ -303,6 +306,21 @@ const plannedRoomMaterial = new THREE.MeshBasicMaterial({ color: 0xb58b3d, trans
 const selectionPreview = new THREE.Mesh(selectionGeometry, selectionMaterial);
 selectionPreview.visible = false;
 world.add(selectionPreview);
+
+const brassDetailMaterial = standardMaterial({ color: 0xc79838, roughness: 0.48, metalness: 0.34 });
+const warmLightMaterial = new THREE.MeshStandardMaterial({
+  color: 0xffc44d,
+  emissive: 0xff8a18,
+  emissiveIntensity: 4.2,
+  roughness: 0.32,
+  metalness: 0.04,
+});
+const fungusLightMaterial = new THREE.MeshStandardMaterial({
+  color: 0x72e6c6,
+  emissive: 0x21d7ad,
+  emissiveIntensity: 3.4,
+  roughness: 0.5,
+});
 
 function matrixAt(x: number, y: number, z: number, sx = 1, sy = 1, sz = 1): THREE.Matrix4 {
   return new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion(), new THREE.Vector3(sx, sy, sz));
@@ -421,7 +439,8 @@ let surfaceStyle: SurfaceStyle = 'clean';
 let geometryGroup = new THREE.Group();
 let resourceGroup = new THREE.Group();
 let roomGroup = new THREE.Group();
-world.add(geometryGroup, resourceGroup, roomGroup);
+let lightingGroup = new THREE.Group();
+world.add(geometryGroup, resourceGroup, roomGroup, lightingGroup);
 
 function edgeMatrix(edge: BoundaryEdge, y: number, height: number, thickness: number, length = 1.045): THREE.Matrix4 {
   const horizontal = edge.axis === 'horizontal';
@@ -436,6 +455,130 @@ function addWallFamily(edges: BoundaryEdge[], family: WallFamily, parent: THREE.
   addInstances(unitBox, coreMaterials(family), edges.map((edge) => edgeMatrix(edge, 0.55, 0.9, 0.25)), parent, !transparent);
   addInstances(unitBox, family.base, edges.map((edge) => edgeMatrix(edge, 0.1, 0.2, 0.32, 1.06)), parent);
   addInstances(unitBox, family.cap, edges.map((edge) => edgeMatrix(edge, 1.04, 0.18, 0.32, 1.08)), parent);
+}
+
+function edgeHash(edge: BoundaryEdge, salt = 0): number {
+  let hash = 2166136261 ^ salt;
+  for (let index = 0; index < edge.key.length; index += 1) {
+    hash ^= edge.key.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function seededUnit(seed: number): number {
+  const value = Math.sin(seed * 12.9898 + 78.233) * 43758.5453;
+  return value - Math.floor(value);
+}
+
+function naturalRockMatrices(edges: BoundaryEdge[]): THREE.Matrix4[] {
+  const matrices: THREE.Matrix4[] = [];
+  const along = [-0.34, 0, 0.34];
+  const rows = [0.24, 0.59, 0.92];
+  for (const edge of edges) {
+    const base = edgeHash(edge);
+    for (let row = 0; row < rows.length; row += 1) {
+      for (let column = 0; column < along.length; column += 1) {
+        const seed = base + row * 31 + column * 97;
+        const jitter = (seededUnit(seed) - 0.5) * 0.08;
+        const lateral = along[column] + (row % 2 === 1 ? 0.08 : 0) + jitter;
+        const x = edge.x + (edge.axis === 'horizontal' ? lateral : jitter * 0.35);
+        const z = edge.z + (edge.axis === 'vertical' ? lateral : jitter * 0.35);
+        const sx = (edge.axis === 'horizontal' ? 0.39 : 0.3) * (0.88 + seededUnit(seed + 1) * 0.24);
+        const sz = (edge.axis === 'vertical' ? 0.39 : 0.3) * (0.88 + seededUnit(seed + 2) * 0.24);
+        const sy = 0.43 * (0.86 + seededUnit(seed + 3) * 0.28);
+        matrices.push(new THREE.Matrix4().compose(
+          new THREE.Vector3(x, rows[row] + jitter * 0.3, z),
+          new THREE.Quaternion().setFromEuler(new THREE.Euler(
+            seededUnit(seed + 4) * 0.35,
+            seededUnit(seed + 5) * Math.PI,
+            seededUnit(seed + 6) * 0.28,
+          )),
+          new THREE.Vector3(sx, sy, sz),
+        ));
+      }
+    }
+  }
+  return matrices;
+}
+
+function adjacentOpenCell(edge: BoundaryEdge): { x: number; z: number } {
+  if (edge.side === 'north') return { x: Math.floor(edge.x), z: edge.z };
+  if (edge.side === 'south') return { x: Math.floor(edge.x), z: edge.z - 1 };
+  if (edge.side === 'east') return { x: edge.x - 1, z: Math.floor(edge.z) };
+  return { x: edge.x, z: Math.floor(edge.z) };
+}
+
+function builtCellKeys(cells: ProofCell[]): Set<string> {
+  const keys = new Set(cells.filter((cell) => cell.zone === 'start').map((cell) => proofCellKey(cell.x, cell.z)));
+  for (const room of state.rooms.filter(sandboxRoomComplete)) {
+    for (let z = room.z; z < room.z + room.h; z += 1) {
+      for (let x = room.x; x < room.x + room.w; x += 1) keys.add(proofCellKey(x, z));
+    }
+  }
+  return keys;
+}
+
+function thresholdMatrices(cells: ProofCell[], constructed: Set<string>): THREE.Matrix4[] {
+  const open = new Set(cells.map((cell) => proofCellKey(cell.x, cell.z)));
+  const matrices: THREE.Matrix4[] = [];
+  for (const cell of cells) {
+    for (const neighbour of [{ x: cell.x + 1, z: cell.z, vertical: true }, { x: cell.x, z: cell.z + 1, vertical: false }]) {
+      const currentKey = proofCellKey(cell.x, cell.z);
+      const neighbourKey = proofCellKey(neighbour.x, neighbour.z);
+      if (!open.has(neighbourKey) || constructed.has(currentKey) === constructed.has(neighbourKey)) continue;
+      matrices.push(matrixAt(
+        neighbour.vertical ? cell.x + 1 : cell.x + 0.5,
+        0.09,
+        neighbour.vertical ? cell.z + 0.5 : cell.z + 1,
+        neighbour.vertical ? 0.13 : 0.9,
+        0.12,
+        neighbour.vertical ? 0.9 : 0.13,
+      ));
+    }
+  }
+  return matrices;
+}
+
+function selectLightEdges(edges: BoundaryEdge[], maximum: number): BoundaryEdge[] {
+  const selected: BoundaryEdge[] = [];
+  for (const edge of [...edges].sort((a, b) => edgeHash(a) - edgeHash(b))) {
+    if (edge.side === 'south') continue;
+    if (selected.some((candidate) => Math.hypot(candidate.x - edge.x, candidate.z - edge.z) < 4.5)) continue;
+    selected.push(edge);
+    if (selected.length >= maximum) break;
+  }
+  return selected;
+}
+
+function rebuildLighting(builtEdges: BoundaryEdge[], naturalEdges: BoundaryEdge[]): void {
+  world.remove(lightingGroup);
+  lightingGroup.clear();
+  lightingGroup = new THREE.Group();
+  const addFixture = (edge: BoundaryEdge, natural: boolean): void => {
+    const inward = edge.side === 'north' ? { x: 0, z: 0.16 }
+      : edge.side === 'south' ? { x: 0, z: -0.16 }
+        : edge.side === 'east' ? { x: -0.16, z: 0 }
+          : { x: 0.16, z: 0 };
+    const fixture = new THREE.Group();
+    fixture.position.set(edge.x + inward.x, natural ? 0.58 : 0.67, edge.z + inward.z);
+    if (!natural) {
+      const bracket = new THREE.Mesh(unitBox, brassDetailMaterial);
+      bracket.scale.set(0.18, 0.38, 0.18);
+      fixture.add(bracket);
+    }
+    const orb = new THREE.Mesh(lightOrbGeometry, natural ? fungusLightMaterial : warmLightMaterial);
+    orb.position.y = natural ? 0 : 0.17;
+    orb.scale.set(natural ? 1.25 : 1, natural ? 0.8 : 1.18, natural ? 1.25 : 1);
+    fixture.add(orb);
+    const light = new THREE.PointLight(natural ? 0x42e7be : 0xffa62f, natural ? 3.2 : 4.4, natural ? 4.2 : 4.8, 2);
+    light.position.y = natural ? 0.18 : 0.3;
+    fixture.add(light);
+    lightingGroup.add(fixture);
+  };
+  selectLightEdges(builtEdges, mobileProfile ? 3 : 5).forEach((edge) => addFixture(edge, false));
+  selectLightEdges(naturalEdges, mobileProfile ? 2 : 3).forEach((edge) => addFixture(edge, true));
+  world.add(lightingGroup);
 }
 
 function rebuildGeometry(): void {
@@ -458,11 +601,16 @@ function rebuildGeometry(): void {
     geometryGroup,
   );
   const edges = buildBoundaryEdges(cells);
-  const opaqueEdges = edges.filter((edge) => edge.side !== 'south');
-  const foregroundEdges = edges.filter((edge) => edge.side === 'south');
-  addWallFamily(opaqueEdges, wallFamilies[surfaceStyle], geometryGroup);
-  addWallFamily(foregroundEdges, foregroundFamilies[surfaceStyle], geometryGroup, true);
-  const vertices = boundaryVertices(edges);
+  const constructed = builtCellKeys(cells);
+  const builtEdges = edges.filter((edge) => constructed.has(proofCellKey(adjacentOpenCell(edge).x, adjacentOpenCell(edge).z)));
+  const naturalEdges = edges.filter((edge) => !builtEdges.includes(edge));
+  const opaqueBuilt = builtEdges.filter((edge) => edge.side !== 'south');
+  const foregroundBuilt = builtEdges.filter((edge) => edge.side === 'south');
+  addWallFamily(opaqueBuilt, wallFamilies[surfaceStyle], geometryGroup);
+  addWallFamily(foregroundBuilt, foregroundFamilies[surfaceStyle], geometryGroup, true);
+  addInstances(naturalRockGeometry, wallFamilies.natural.side, naturalRockMatrices(naturalEdges.filter((edge) => edge.side !== 'south')), geometryGroup, !mobileProfile);
+  addInstances(naturalRockGeometry, foregroundFamilies.natural.side, naturalRockMatrices(naturalEdges.filter((edge) => edge.side === 'south')), geometryGroup);
+  const vertices = boundaryVertices(builtEdges);
   addInstances(
     unitBox,
     wallFamilies[surfaceStyle].post,
@@ -472,7 +620,11 @@ function rebuildGeometry(): void {
   );
   addInstances(unitBox, wallFamilies[surfaceStyle].base, vertices.map((vertex) => matrixAt(vertex.x, 0.1, vertex.z, 0.42, 0.2, 0.42)), geometryGroup);
   addInstances(unitBox, wallFamilies[surfaceStyle].cap, vertices.map((vertex) => matrixAt(vertex.x, 1.04, vertex.z, 0.44, 0.18, 0.44)), geometryGroup);
+  addInstances(unitBox, brassDetailMaterial, vertices.map((vertex) => matrixAt(vertex.x, 0.57, vertex.z, 0.41, 0.12, 0.41)), geometryGroup);
+  addInstances(unitBox, brassDetailMaterial, builtEdges.filter((edge) => edgeHash(edge) % 4 === 0).map((edge) => edgeMatrix(edge, 0.58, 0.66, 0.34, 0.1)), geometryGroup);
+  addInstances(unitBox, brassDetailMaterial, thresholdMatrices(cells, constructed), geometryGroup);
   world.add(geometryGroup);
+  rebuildLighting(builtEdges, naturalEdges);
   root.dataset.openCells = String(cells.length);
   root.dataset.boundaryEdges = String(edges.length);
   renderer.shadowMap.needsUpdate = true;

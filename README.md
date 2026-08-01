@@ -54,6 +54,13 @@ noch kein Ersatz für den vollständigen Vertical Slice. Nachgewiesen ist:
 - echte Boden- und Wandgeometrie wird aus offenen Feldern erzeugt; Geraden,
   Innen-/Außenecken, T-Stücke und Kreuzungen benötigen keine überlappenden
   Komplettsprites mehr;
+- die Wanddarstellung unterscheidet inzwischen automatisch zwischen gebauter
+  Architektur und natürlichem Fels: organische Felskörper schließen Gangränder,
+  während Räume topology-getriebene Pfeiler, Kappen, Messingbänder und
+  Übergangsschwellen erhalten;
+- ein sparsames Beleuchtungsset setzt warme Covenant-Wandleuchten und kühle
+  Naturlichter als emissive 3D-Körper mit echten lokalen Lichtquellen. Die Zahl
+  der Lichter wird auf Mobilgeräten niedriger gehalten;
 - Grabaufträge öffnen den Fels nicht sofort: Der sichtbare Arbeiter läuft zum
   exakt angrenzenden Feld, richtet sich zum Ziel aus und beendet dort erst seine
   Grabanimation samt Fortschrittsanzeige;
