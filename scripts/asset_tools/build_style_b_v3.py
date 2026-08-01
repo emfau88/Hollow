@@ -201,6 +201,58 @@ def build_walls() -> dict[str, Image.Image]:
     return built
 
 
+def build_corridor_walls(room_walls: dict[str, Image.Image]) -> dict[str, Image.Image]:
+    """Build a low, direction-consistent rock lip for every dug passage."""
+    frame_size = 96
+    source = visible_crop(room_walls["north"])
+    # Only the pale cap belongs to the corridor family. The dark plum masonry
+    # below it is a room facade and caused horizontal passages to be roughly
+    # 60% darker than their vertical counterparts when it was compressed.
+    cap = visible_crop(source.crop((0, 0, source.width, round(source.height * 0.42))))
+    cap = ImageOps.fit(cap, (36, 11), method=Image.Resampling.LANCZOS)
+    alpha = cap.getchannel("A")
+    luminance = ImageOps.grayscale(cap.convert("RGB"))
+    cap = ImageOps.colorize(
+        luminance,
+        black="#24353b",
+        mid="#77898b",
+        white="#c1cbc5",
+        midpoint=124,
+    ).convert("RGBA")
+    cap.putalpha(alpha)
+    cap = cap.filter(ImageFilter.UnsharpMask(radius=0.34, percent=118, threshold=2))
+
+    horizontal = cap
+    vertical = cap.rotate(90, expand=True, resample=Image.Resampling.BICUBIC)
+
+    def module(sprite: Image.Image) -> Image.Image:
+        canvas = Image.new("RGBA", (frame_size, frame_size))
+        x = (frame_size - sprite.width) // 2
+        y = (frame_size - sprite.height) // 2
+        shadow_alpha = sprite.getchannel("A").filter(ImageFilter.GaussianBlur(radius=1.15))
+        shadow_alpha = shadow_alpha.point(lambda value: round(value * 0.42))
+        shadow = Image.new("RGBA", sprite.size, (6, 15, 22, 0))
+        shadow.putalpha(shadow_alpha)
+        canvas.alpha_composite(shadow, (x + 2, y + 4))
+        canvas.alpha_composite(sprite, (x, y))
+        return canvas
+
+    built = {
+        "north": module(horizontal),
+        "east": module(vertical),
+        "south": module(horizontal),
+        "west": module(vertical),
+    }
+    for name, image in built.items():
+        image.save(OUTPUT / "walls" / f"corridor-{name}-v6.png", optimize=True)
+
+    atlas = Image.new("RGBA", (frame_size * 4, frame_size))
+    for index, name in enumerate(("north", "east", "south", "west")):
+        atlas.alpha_composite(built[name], (index * frame_size, 0))
+    atlas.save(OUTPUT / "walls" / "corridor-wall-atlas-v6.png", optimize=True)
+    return built
+
+
 def seamless_surface(panel: Image.Image, band: int = 32) -> Image.Image:
     # Feather only the opposing outer edge bands into a common value. This
     # keeps the authored macro composition intact and avoids kaleidoscopic
@@ -335,6 +387,7 @@ def make_preview(
 def main() -> None:
     ensure_dirs()
     walls = build_walls()
+    build_corridor_walls(walls)
     terrain = build_terrain()
     decals = build_decals()
     heart = build_heart_mount()

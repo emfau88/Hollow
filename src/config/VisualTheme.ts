@@ -18,6 +18,7 @@ interface ThemeAssetPaths {
   wallKit?: {
     atlas?: string;
     neutralAtlas?: string;
+    corridorAtlas?: string;
     north: string;
     east: string;
     south: string;
@@ -132,6 +133,7 @@ const STYLE_B_THEME: VisualTheme = {
     wallKit: {
       atlas: 'assets/generated/style-b-v3/walls/wall-atlas-v5.png',
       neutralAtlas: 'assets/generated/style-b-v3/walls/wall-atlas-neutral-v5.png',
+      corridorAtlas: 'assets/generated/style-b-v3/walls/corridor-wall-atlas-v6.png',
       north: 'assets/generated/style-b-v3/walls/north.png',
       east: 'assets/generated/style-b-v3/walls/east.png',
       south: 'assets/generated/style-b-v3/walls/south.png',

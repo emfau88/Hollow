@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  isNarrowPassage,
   shouldRenderWallPost,
   wallEdgeFrame,
   wallJoint,
@@ -73,57 +72,17 @@ describe('wallJoint', () => {
   });
 });
 
-describe('isNarrowPassage', () => {
-  it('keeps a rectangular room corner on the deep room-wall set', () => {
-    expect(isNarrowPassage({
-      north: false,
-      northEast: false,
-      east: true,
-      southEast: true,
-      south: true,
-      southWest: false,
-      west: false,
-      northWest: false,
-    })).toBe(false);
-  });
-
-  it('uses compact walls for a one-cell horizontal tunnel', () => {
-    expect(isNarrowPassage({
-      north: false,
-      northEast: false,
-      east: true,
-      southEast: false,
-      south: false,
-      southWest: false,
-      west: true,
-      northWest: false,
-    })).toBe(true);
-  });
-
-  it('uses compact walls for an L-shaped tunnel bend', () => {
-    expect(isNarrowPassage({
-      north: true,
-      northEast: false,
-      east: true,
-      southEast: false,
-      south: false,
-      southWest: false,
-      west: false,
-      northWest: false,
-    })).toBe(true);
-  });
-});
-
 describe('wall rendering policy', () => {
-  it('selects shallow atlas frames for every narrow passage direction', () => {
-    expect((['north', 'east', 'south', 'west'] as const).map((side) => wallEdgeFrame(side, true)))
-      .toEqual([8, 9, 10, 11]);
+  it('uses the same four edge slots for every modular wall family', () => {
+    expect((['north', 'east', 'south', 'west'] as const).map((side) => wallEdgeFrame(side)))
+      .toEqual([0, 1, 2, 3]);
   });
 
-  it('never places posts at tunnel mouths, diagonals or narrow bends', () => {
-    expect(shouldRenderWallPost('concave', false)).toBe(false);
-    expect(shouldRenderWallPost('diagonal', false)).toBe(false);
-    expect(shouldRenderWallPost('convex', true)).toBe(false);
-    expect(shouldRenderWallPost('convex', false)).toBe(true);
+  it('never places posts at tunnel mouths, diagonals or corridor bends', () => {
+    expect(shouldRenderWallPost('concave', 'room')).toBe(false);
+    expect(shouldRenderWallPost('diagonal', 'chamber')).toBe(false);
+    expect(shouldRenderWallPost('convex', 'corridor')).toBe(false);
+    expect(shouldRenderWallPost('convex', 'room')).toBe(true);
+    expect(shouldRenderWallPost('convex', 'chamber')).toBe(true);
   });
 });

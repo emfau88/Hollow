@@ -189,6 +189,22 @@ beim Beanspruchen wechseln sie in die Spielerarchitektur. Die Auswahl zwischen
 Raum- und Gangwand wird aus offenen 2-mal-2-Flächen abgeleitet und durch Tests
 für horizontale, vertikale und L-förmige Verläufe abgesichert.
 
+### Style-B-V6: semantisches 2.5D-Architektursystem
+
+Der sechste Pass ersetzt die fehleranfällige 2-mal-2-Formerkennung durch drei
+explizite Darstellungsrollen: Spielerraum, strategische Kammer und Korridor.
+Ein Korridor bleibt dadurch auch bei zwei Feldern Breite, L-Knick oder
+T-Anschluss ein Korridor. Fertige Räume und Rohstoffkammern behalten ihre
+tiefen 2.5D-Fassaden und quadratischen äußeren Eckpfeiler.
+
+Korridore verwenden einen eigenen niedrigen V6-Steinlippenatlas. Alle vier
+Richtungen stammen aus derselben hellen Materialquelle, besitzen weniger als zehn
+Helligkeitsstufen Unterschied und teilen einen dezenten Schatten nach rechts
+unten. Die dunkle pflaumenfarbene Raumfassade wird nie mehr in einen Gang
+komprimiert. An Gangmündungen und Knicken entstehen keine freistehenden
+Raumpfosten. Das großflächige braune Tutorial-Grabungsdecal wurde aus der
+Laufzeit entfernt; der tatsächliche Boden bleibt unverdeckt.
+
 ## Freigabekriterien für den nächsten Produktionsschritt
 
 1. Herz-Hauptquartier, Dienerrollen und Pilzgrotte sind innerhalb von fünf

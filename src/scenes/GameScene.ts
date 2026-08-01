@@ -55,6 +55,7 @@ import {
   type AutomationWorldTarget,
   type HollowAgentApi,
 } from '../core/AutomationBridge';
+import { classifyTerrainArchitecture, type TerrainArchitecture } from '../core/TerrainArchitecture';
 
 const TILE = BALANCE.tileSize;
 const W = BALANCE.mapWidth;
@@ -270,7 +271,6 @@ export class GameScene extends Phaser.Scene {
   private roomProps: Phaser.GameObjects.Image[] = [];
   private heartSetpieceObjects: Phaser.GameObjects.GameObject[] = [];
   private grottoDecorObjects: Phaser.GameObjects.Image[] = [];
-  private tutorialRouteDecal?: Phaser.GameObjects.Image;
   private heartPathTree?: PathTree;
   private bannerAttackPath: GridPoint[] = [];
   private nextHudUpdateAt = 0;
@@ -374,6 +374,12 @@ export class GameScene extends Phaser.Scene {
             frameHeight: 96,
           });
         }
+        if (themeAssets.wallKit.corridorAtlas) {
+          this.load.spritesheet('style-b-corridor-wall-atlas', themeAssets.wallKit.corridorAtlas, {
+            frameWidth: 96,
+            frameHeight: 96,
+          });
+        }
       } else {
         this.load.image('style-b-wall-north', themeAssets.wallKit.north);
         this.load.image('style-b-wall-east', themeAssets.wallKit.east);
@@ -387,7 +393,6 @@ export class GameScene extends Phaser.Scene {
     }
     if (themeAssets.groundDecals) {
       this.load.image('style-b-ground-rubble', themeAssets.groundDecals.rubble);
-      this.load.image('style-b-ground-excavation', themeAssets.groundDecals.excavation);
       this.load.image('style-b-ground-inlay', themeAssets.groundDecals.covenantInlay);
       this.load.image('style-b-ground-moss', themeAssets.groundDecals.moss);
       this.load.image('style-b-ground-spores', themeAssets.groundDecals.spores);
@@ -516,6 +521,7 @@ export class GameScene extends Phaser.Scene {
       enemyBorder: 'terrain-v3-enemy-border',
       wallAtlas: themeAssets.wallKit?.atlas ? 'style-b-wall-atlas' : undefined,
       neutralWallAtlas: themeAssets.wallKit?.neutralAtlas ? 'style-b-neutral-wall-atlas' : undefined,
+      corridorWallAtlas: themeAssets.wallKit?.corridorAtlas ? 'style-b-corridor-wall-atlas' : undefined,
       wallNorth: themeAssets.wallKit ? 'style-b-wall-north' : undefined,
       wallEast: themeAssets.wallKit ? 'style-b-wall-east' : undefined,
       wallSouth: themeAssets.wallKit ? 'style-b-wall-south' : undefined,
@@ -1598,13 +1604,7 @@ export class GameScene extends Phaser.Scene {
       .setDisplaySize(84, 48)
       .setDepth(4.5)
       .setAlpha(0.72);
-    const routeMidX = (TUTORIAL_ROUTE_START.x + TUTORIAL_ROUTE_END.x) / 2;
-    this.tutorialRouteDecal = this.add.image(this.wx(routeMidX), this.wy(TUTORIAL_ROUTE_START.y), 'style-b-ground-excavation')
-      .setDisplaySize(218, 78)
-      .setDepth(4.5)
-      .setAlpha(0.86)
-      .setVisible(false);
-    this.heartSetpieceObjects.push(inlay, rubble, this.tutorialRouteDecal);
+    this.heartSetpieceObjects.push(inlay, rubble);
   }
 
   private createStyleBHeartHeadquarters(): void {
@@ -1929,7 +1929,6 @@ export class GameScene extends Phaser.Scene {
       if (node.id === 'fungus') {
         this.clearTutorialGuide();
         for (const prop of this.grottoDecorObjects) prop.setAlpha(1);
-        this.tutorialRouteDecal?.setVisible(true);
       }
       for (const enemy of this.enemies.filter((candidate) => candidate.origin === node.id)) {
         enemy.sprite.setVisible(true);
@@ -3197,7 +3196,25 @@ export class GameScene extends Phaser.Scene {
       controlAt: (x, y) => this.tileAt(x, y)?.control ?? 'neutral',
       materialAt: (x, y) => this.terrainMaterialAt(x, y),
       floorAt: (x, y) => this.terrainFloorAt(x, y),
+      architectureAt: (x, y) => this.terrainArchitectureAt(x, y),
     };
+  }
+
+  private terrainArchitectureAt(x: number, y: number): TerrainArchitecture {
+    const tile = this.tileAt(x, y);
+    const inStartingChamber = x >= STARTING_CHAMBER.x
+      && x < STARTING_CHAMBER.x + STARTING_CHAMBER.w
+      && y >= STARTING_CHAMBER.y
+      && y < STARTING_CHAMBER.y + STARTING_CHAMBER.h;
+    const hasCompletedRoom = tile?.roomKind === 'heart'
+      || (tile?.roomId !== undefined && tile.construction === 'complete');
+    const inStrategicChamber = this.nodes.some((node) => (
+      x >= node.chamber.x
+      && x < node.chamber.x + node.chamber.w
+      && y >= node.chamber.y
+      && y < node.chamber.y + node.chamber.h
+    ));
+    return classifyTerrainArchitecture({ inStartingChamber, hasCompletedRoom, inStrategicChamber });
   }
 
   private terrainFloorAt(x: number, y: number): TerrainFloor {

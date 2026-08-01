@@ -1,6 +1,5 @@
 import Phaser from 'phaser';
 import {
-  isNarrowPassage,
   shouldRenderWallPost,
   wallEdgeFrame,
   wallJoint,
@@ -8,6 +7,7 @@ import {
   type WallJoint,
   type WallSide,
 } from './WallLayout';
+import type { TerrainArchitecture } from './TerrainArchitecture';
 
 export type TerrainControl = 'neutral' | 'claiming' | 'owned' | 'enemy';
 export type TerrainVisibility = 'hidden' | 'charted' | 'revealed';
@@ -20,6 +20,7 @@ export interface TerrainQuery {
   controlAt(x: number, y: number): TerrainControl;
   materialAt(x: number, y: number): TerrainMaterial;
   floorAt(x: number, y: number): TerrainFloor;
+  architectureAt(x: number, y: number): TerrainArchitecture;
 }
 
 interface TerrainPoint {
@@ -43,6 +44,7 @@ export interface TerrainAssetKeys {
   enemyBorder: string;
   wallAtlas?: string;
   neutralWallAtlas?: string;
+  corridorWallAtlas?: string;
   wallNorth?: string;
   wallEast?: string;
   wallSouth?: string;
@@ -224,21 +226,10 @@ export class TerrainRenderer {
     return `${x},${y}`;
   }
 
-  private isNarrowAt(q: TerrainQuery, x: number, y: number): boolean {
-    if (!this.isVisibleOpen(q, x, y)) return false;
-    return isNarrowPassage({
-      north: this.isVisibleOpen(q, x, y - 1),
-      northEast: this.isVisibleOpen(q, x + 1, y - 1),
-      east: this.isVisibleOpen(q, x + 1, y),
-      southEast: this.isVisibleOpen(q, x + 1, y + 1),
-      south: this.isVisibleOpen(q, x, y + 1),
-      southWest: this.isVisibleOpen(q, x - 1, y + 1),
-      west: this.isVisibleOpen(q, x - 1, y),
-      northWest: this.isVisibleOpen(q, x - 1, y - 1),
-    });
-  }
-
   private wallTexture(q: TerrainQuery, x: number, y: number): string {
+    if (q.architectureAt(x, y) === 'corridor' && this.assets.corridorWallAtlas) {
+      return this.assets.corridorWallAtlas;
+    }
     const neutral = q.controlAt(x, y) === 'neutral' && this.assets.neutralWallAtlas;
     return neutral || this.assets.wallAtlas!;
   }
@@ -253,7 +244,6 @@ export class TerrainRenderer {
 
     const alpha = visibility === 'charted' ? 0.66 : 1;
     const sides = this.sidesAt(q, x, y);
-    const narrow = this.isNarrowAt(q, x, y);
     const texture = this.wallTexture(q, x, y);
     for (const side of sides) {
       let worldX = x * this.tile + this.tile / 2;
@@ -267,7 +257,7 @@ export class TerrainRenderer {
         key,
         this.acquireWallSprite(
           texture,
-          wallEdgeFrame(side, narrow),
+          wallEdgeFrame(side),
           worldX,
           worldY,
           alpha,
@@ -296,12 +286,11 @@ export class TerrainRenderer {
       [x, y, cells.southEast],
       [x - 1, y, cells.southWest],
     ] as const;
-    // Deep posts belong to room corners. Concave tunnel mouths already join
-    // two edge modules and extra posts create the double-column/barrier bug.
-    // Narrow bends likewise rely on their compact overlapping edge modules.
+    // Deep posts belong to authored room/chamber corners. Corridor mouths and
+    // bends join their low edge modules directly, independent of route width.
     const openCell = visibleCells.find(([, , open]) => open);
-    const narrow = openCell ? this.isNarrowAt(q, openCell[0], openCell[1]) : false;
-    if (!openCell || !shouldRenderWallPost(kind, narrow)) return;
+    const architecture = openCell ? q.architectureAt(openCell[0], openCell[1]) : 'corridor';
+    if (!openCell || !shouldRenderWallPost(kind, architecture)) return;
     const revealed = visibleCells.some(([cellX, cellY, open]) => open && q.visibilityAt(cellX, cellY) === 'revealed');
     const texture = this.wallTexture(q, openCell[0], openCell[1]);
     this.wallJointSprites.set(

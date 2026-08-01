@@ -1,5 +1,17 @@
 # Changelog
 
+## Style B V6 – semantisches 2.5D-System – 1. August 2026
+
+- Darstellungsrollen `room`, `chamber` und `corridor` vom offenen Grundriss
+  entkoppelt; zweispurige Gänge wechseln nicht mehr auf tiefe Raumwände
+- eigenen niedrigen Korridoratlas mit konsistenter Helligkeit für Nord, Ost,
+  Süd und West ergänzt
+- ein- und zweispurige Horizontal-/Vertikalgänge sowie L- und T-Anschlüsse im
+  laufenden Spiel ohne Doppelpfosten oder Blockaden geprüft
+- großflächiges braunes Tutorial-Grabungsdecal vollständig aus der Laufzeit
+  entfernt
+- Terrainrollen und kritische Gangformen mit 53 automatischen Tests abgesichert
+
 ## Style B V5 – robuste Raum- und Gangwände – 1. August 2026
 
 - quadratische 90-Grad-Raumpfeiler ohne diagonale Steinflügel eingeführt
