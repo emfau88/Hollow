@@ -28,6 +28,24 @@ vollständig ausgestattete Pilzgrotte. Der bisherige Stil bleibt vorerst Standar
   <small>Echter Spielscreen mit vergrößertem Herzraum, 2.5D-Wandbausatz, plastischen Böden und sichtbarer Pilzgrotte.</small>
 </p>
 
+### Spielbare 2.5D-Sandbox
+
+Der neue Geometriepfad kann unabhängig vom bisherigen Renderer als mobile-first
+Sandbox gespielt werden. Er verwendet echte 3D-Böden und -Wände, übernimmt aber
+die sechs Raumtypen, Baukosten und Produktionsrezepte des Hauptspiels. Die große
+Karte enthält mehrere ergiebige Eisen- und Pilzvorkommen und unterstützt freies
+Ganggraben, Kammerplanung, zeitbasierte Arbeiteraufträge, maßstäbliche
+Raumausstattung, Produktion und Touch-Bedienung. Hauptspiel und frühere
+Prototyp-/Diagnoseseiten bleiben als getrennte Einstiege erhalten.
+
+<p align="center">
+  <strong><a href="https://emfau88.github.io/Hollow/geometry-sandbox.html">▶ Spielbare 2.5D-Sandbox öffnen</a></strong><br />
+  <small>Smartphone/Tablet: Querformat empfohlen. Gang per Tippen/Ziehen; Kammern und Räume als Fläche aufziehen.</small>
+</p>
+
+Die technischen Hintergründe und der beschlossene Migrationspfad stehen in der
+[Renderer-Entscheidung](docs/GEOMETRY_RENDERER_DECISION.md).
+
 ## Vision
 
 Der Vertical Slice soll eine zentrale These beweisen:
@@ -192,6 +210,7 @@ Bei jedem Push auf `main` installiert der GitHub-Actions-Workflow die Abhängigk
 - [Asset-Manifest](docs/ASSET_MANIFEST.md) – aktive und verworfene Grafikassets
 - [Imagegen-Log](docs/IMAGEGEN_LOG.md) – dokumentierte Generierungen und lokale Aufbereitung
 - [Visual Style B](docs/VISUAL_STYLE_B.md) – Style Bible, Produktionsregeln und Freigabekriterien
+- [Renderer-Entscheidung](docs/GEOMETRY_RENDERER_DECISION.md) – Wandproblematik, Testergebnis und 2.5D-Migrationspfad
 
 ## Bewusste Grenzen des Vertical Slice
 

@@ -1,0 +1,602 @@
+:root {
+  color: #efe3c4;
+  background: #06111f;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-synthesis: none;
+  --gauntlet-bg: #06111f;
+  --gauntlet-panel: rgba(7, 20, 39, 0.965);
+  --gauntlet-panel-soft: rgba(10, 29, 50, 0.88);
+  --gauntlet-gold: #d8a532;
+  --gauntlet-gold-light: #f0cf71;
+  --gauntlet-cream: #f2ddb0;
+  --gauntlet-edge: rgba(216, 165, 50, 0.62);
+  --gauntlet-muted: #a9b4b2;
+  --gauntlet-mint: #61cba7;
+  --gauntlet-danger: #dc6b70;
+  --gauntlet-warning: #e2ad42;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#wall-gauntlet,
+#gauntlet-canvas {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  background:
+    radial-gradient(circle at 45% 42%, rgba(31, 74, 103, 0.22), transparent 45%),
+    var(--gauntlet-bg);
+}
+
+button,
+select,
+input {
+  color: inherit;
+  font: inherit;
+}
+
+#wall-gauntlet {
+  position: relative;
+  isolation: isolate;
+}
+
+#gauntlet-canvas {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+}
+
+#gauntlet-canvas::after {
+  position: absolute;
+  inset: 0;
+  content: "";
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, rgba(1, 7, 16, 0.27), transparent 15%, transparent 82%, rgba(1, 7, 16, 0.34)),
+    linear-gradient(180deg, rgba(1, 7, 16, 0.22), transparent 16%, transparent 82%, rgba(1, 7, 16, 0.38));
+}
+
+#gauntlet-canvas canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+  touch-action: none;
+}
+
+#gauntlet-canvas canvas:active,
+#gauntlet-canvas canvas.dragging {
+  cursor: grabbing;
+}
+
+.gauntlet-loading {
+  position: absolute;
+  z-index: 6;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--gauntlet-gold-light);
+  background: var(--gauntlet-bg);
+  font-family: "Arial Narrow", "Barlow Condensed", sans-serif;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.17em;
+  text-transform: uppercase;
+}
+
+.gauntlet-loading::before {
+  position: absolute;
+  width: 32px;
+  height: 32px;
+  margin-top: -58px;
+  border: 2px solid rgba(216, 165, 50, 0.18);
+  border-top-color: var(--gauntlet-gold);
+  border-radius: 50%;
+  content: "";
+  animation: gauntlet-spin 850ms linear infinite;
+}
+
+@keyframes gauntlet-spin {
+  to { transform: rotate(1turn); }
+}
+
+.gauntlet-ui {
+  position: absolute;
+  z-index: 4;
+  inset: 0;
+  pointer-events: none;
+}
+
+.gauntlet-badge,
+.gauntlet-panel,
+.gauntlet-toolbar,
+.gauntlet-legend {
+  border: 1px solid var(--gauntlet-edge);
+  background:
+    linear-gradient(180deg, rgba(42, 75, 103, 0.16), rgba(2, 11, 25, 0.05)),
+    var(--gauntlet-panel);
+  box-shadow:
+    0 18px 48px rgba(0, 4, 12, 0.45),
+    inset 0 0 0 2px rgba(2, 10, 23, 0.69),
+    inset 0 1px rgba(255, 234, 177, 0.1);
+  backdrop-filter: blur(9px);
+}
+
+.gauntlet-badge {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  max-width: calc(100vw - 370px);
+  padding: 6px 10px;
+  color: #c9c4b0;
+  border-color: rgba(216, 165, 50, 0.4);
+  border-radius: 3px;
+  font-family: "Arial Narrow", "Barlow Condensed", sans-serif;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.gauntlet-badge::before,
+.gauntlet-badge > i {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--gauntlet-mint);
+  box-shadow: 0 0 9px var(--gauntlet-mint);
+  content: "";
+}
+
+.gauntlet-panel {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: min(340px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
+  padding: 14px 15px 13px;
+  overflow: auto;
+  border-radius: 5px;
+  pointer-events: auto;
+  scrollbar-color: rgba(216, 165, 50, 0.4) transparent;
+  scrollbar-width: thin;
+}
+
+.gauntlet-panel::-webkit-scrollbar {
+  width: 6px;
+}
+
+.gauntlet-panel::-webkit-scrollbar-thumb {
+  border-radius: 6px;
+  background: rgba(216, 165, 50, 0.38);
+}
+
+.gauntlet-kicker,
+.gauntlet-eyebrow,
+.gauntlet-panel > header > span:first-child {
+  display: block;
+  color: var(--gauntlet-gold);
+  font-family: "Arial Narrow", "Barlow Condensed", sans-serif;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+
+.gauntlet-panel h1,
+.gauntlet-panel h2 {
+  margin: 4px 0 6px;
+  color: var(--gauntlet-cream);
+  font-family: "Arial Narrow", "Barlow Condensed", Impact, sans-serif;
+  font-stretch: condensed;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.gauntlet-panel h1 { font-size: 24px; }
+.gauntlet-panel h2 { font-size: 20px; }
+
+.gauntlet-panel h3,
+.gauntlet-section-title {
+  margin: 13px 0 6px;
+  color: #d9d0b7;
+  font-family: "Arial Narrow", "Barlow Condensed", sans-serif;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.gauntlet-panel p,
+.gauntlet-copy {
+  margin: 0;
+  color: var(--gauntlet-muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.gauntlet-panel code,
+.gauntlet-panel output,
+.gauntlet-mono {
+  color: #b8d2cc;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 8px;
+}
+
+.gauntlet-controls,
+.gauntlet-control-group,
+.gauntlet-family-controls,
+.gauntlet-view-controls,
+.gauntlet-actions,
+.gauntlet-buttons {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+  margin-top: 7px;
+}
+
+.gauntlet-controls[data-columns="3"],
+.gauntlet-control-group[data-columns="3"],
+.gauntlet-view-controls {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.gauntlet-controls[data-columns="4"],
+.gauntlet-family-controls {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.gauntlet-controls > label,
+.gauntlet-control-group > label {
+  display: grid;
+  gap: 4px;
+  color: #8d9da0;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.gauntlet-panel button,
+.gauntlet-toolbar button,
+.gauntlet-panel select {
+  min-width: 0;
+  min-height: 32px;
+  padding: 6px 8px;
+  color: #cbc5af;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.035);
+  cursor: pointer;
+  font-size: 8px;
+  font-weight: 750;
+  line-height: 1.15;
+}
+
+.gauntlet-panel select {
+  width: 100%;
+  cursor: default;
+  background-color: #0b1d35;
+}
+
+.gauntlet-panel button:hover:not(:disabled),
+.gauntlet-toolbar button:hover:not(:disabled) {
+  border-color: rgba(216, 165, 50, 0.68);
+  background: rgba(216, 165, 50, 0.1);
+}
+
+.gauntlet-panel button:focus-visible,
+.gauntlet-toolbar button:focus-visible,
+.gauntlet-panel select:focus-visible,
+.gauntlet-panel input:focus-visible {
+  outline: 2px solid var(--gauntlet-gold-light);
+  outline-offset: 2px;
+}
+
+.gauntlet-panel button:disabled,
+.gauntlet-toolbar button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.gauntlet-panel button[aria-pressed="true"],
+.gauntlet-toolbar button[aria-pressed="true"],
+.gauntlet-panel button.active,
+.gauntlet-panel button[data-active="true"],
+.gauntlet-panel .gauntlet-primary {
+  color: #161207;
+  border-color: var(--gauntlet-gold-light);
+  background: linear-gradient(#efc85f, #b88325);
+  box-shadow: 0 0 14px rgba(216, 165, 50, 0.2);
+}
+
+.gauntlet-checklist {
+  display: grid;
+  gap: 4px;
+  margin: 7px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.gauntlet-checklist li {
+  position: relative;
+  min-height: 23px;
+  padding: 5px 7px 5px 24px;
+  color: #aeb8b5;
+  border: 1px solid rgba(139, 166, 169, 0.14);
+  border-radius: 3px;
+  background: rgba(1, 10, 23, 0.45);
+  font-size: 8px;
+  line-height: 1.35;
+}
+
+.gauntlet-checklist li::before {
+  position: absolute;
+  top: 7px;
+  left: 8px;
+  width: 7px;
+  height: 7px;
+  border: 1px solid #718187;
+  border-radius: 50%;
+  content: "";
+}
+
+.gauntlet-checklist li[data-state="pass"],
+.gauntlet-checklist li.pass {
+  color: #b8d9ca;
+}
+
+.gauntlet-checklist li[data-state="pass"]::before,
+.gauntlet-checklist li.pass::before {
+  border-color: var(--gauntlet-mint);
+  background: var(--gauntlet-mint);
+  box-shadow: 0 0 8px rgba(97, 203, 167, 0.7);
+}
+
+.gauntlet-checklist li[data-state="warn"]::before,
+.gauntlet-checklist li.warn::before {
+  border-color: var(--gauntlet-warning);
+  background: var(--gauntlet-warning);
+}
+
+.gauntlet-checklist li[data-state="fail"],
+.gauntlet-checklist li.fail {
+  color: #e0aaac;
+}
+
+.gauntlet-checklist li[data-state="fail"]::before,
+.gauntlet-checklist li.fail::before {
+  border-color: var(--gauntlet-danger);
+  background: var(--gauntlet-danger);
+}
+
+.gauntlet-caveat,
+.gauntlet-warning,
+[data-gauntlet-caveat] {
+  margin-top: 10px;
+  padding: 8px 9px;
+  color: #c8bea4;
+  border: 1px solid rgba(226, 173, 66, 0.28);
+  border-left: 3px solid var(--gauntlet-warning);
+  border-radius: 3px;
+  background: rgba(99, 64, 12, 0.14);
+  font-size: 8px;
+  line-height: 1.4;
+}
+
+.gauntlet-caveat strong,
+.gauntlet-warning strong {
+  color: #e5c674;
+}
+
+.gauntlet-metrics,
+.gauntlet-metric-grid,
+.gauntlet-panel dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+  margin: 9px 0 0;
+}
+
+.gauntlet-metric,
+.gauntlet-metrics > div,
+.gauntlet-panel dl > div {
+  min-width: 0;
+  padding: 6px 7px;
+  border: 1px solid rgba(118, 153, 158, 0.18);
+  border-radius: 3px;
+  background: rgba(1, 10, 23, 0.48);
+}
+
+.gauntlet-metric span,
+.gauntlet-metrics dt,
+.gauntlet-panel dl dt {
+  display: block;
+  overflow: hidden;
+  color: #7f9295;
+  font-size: 7px;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.gauntlet-metric strong,
+.gauntlet-metrics dd,
+.gauntlet-panel dl dd {
+  display: block;
+  margin: 3px 0 0;
+  overflow: hidden;
+  color: #d8cfb4;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gauntlet-legend {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  max-width: calc(100vw - 380px);
+  padding: 7px 9px;
+  color: #8fa0a1;
+  border-color: rgba(117, 151, 155, 0.3);
+  border-radius: 3px;
+  font-size: 8px;
+  pointer-events: none;
+}
+
+.gauntlet-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.gauntlet-legend i {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  background: var(--gauntlet-gold);
+}
+
+.gauntlet-panel footer,
+.gauntlet-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 10px;
+  color: #718487;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 7px;
+  line-height: 1.3;
+}
+
+[hidden],
+.gauntlet-ui [hidden] {
+  display: none !important;
+}
+
+@media (max-width: 1050px), (max-height: 700px) {
+  .gauntlet-panel {
+    top: 8px;
+    right: 8px;
+    width: 294px;
+    max-height: calc(100dvh - 16px);
+    padding: 10px 11px;
+  }
+
+  .gauntlet-panel h1 { font-size: 20px; }
+  .gauntlet-panel h2 { font-size: 18px; }
+  .gauntlet-panel h3,
+  .gauntlet-section-title { margin-top: 9px; }
+  .gauntlet-panel > header > p,
+  .gauntlet-copy { font-size: 9px; }
+  .gauntlet-badge { top: 8px; left: 8px; }
+  .gauntlet-legend { bottom: 8px; left: 8px; max-width: calc(100vw - 326px); }
+}
+
+@media (max-width: 760px), (max-height: 500px) {
+  .gauntlet-badge,
+  .gauntlet-legend {
+    display: none;
+  }
+
+  .gauntlet-panel {
+    top: auto;
+    right: 6px;
+    bottom: 6px;
+    width: min(278px, calc(100vw - 12px));
+    max-height: calc(100dvh - 12px);
+    padding: 8px;
+  }
+
+  .gauntlet-panel h1,
+  .gauntlet-panel h2 {
+    margin-top: 2px;
+    font-size: 16px;
+  }
+
+  .gauntlet-panel > header > p,
+  .gauntlet-panel > p,
+  .gauntlet-caveat,
+  .gauntlet-warning,
+  [data-gauntlet-caveat] {
+    display: none;
+  }
+
+  .gauntlet-controls,
+  .gauntlet-control-group,
+  .gauntlet-family-controls,
+  .gauntlet-view-controls,
+  .gauntlet-actions,
+  .gauntlet-buttons {
+    gap: 4px;
+    margin-top: 5px;
+  }
+
+  .gauntlet-panel button,
+  .gauntlet-panel select {
+    min-height: 29px;
+    padding: 4px 6px;
+  }
+
+  .gauntlet-checklist {
+    gap: 3px;
+    margin-top: 5px;
+  }
+
+  .gauntlet-checklist li {
+    min-height: 20px;
+    padding-block: 3px;
+  }
+
+  .gauntlet-metrics,
+  .gauntlet-metric-grid,
+  .gauntlet-panel dl {
+    margin-top: 6px;
+  }
+
+  .gauntlet-panel footer,
+  .gauntlet-footer {
+    display: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .gauntlet-panel {
+    right: 5px;
+    bottom: 5px;
+    left: 5px;
+    width: auto;
+    max-height: min(52dvh, 390px);
+  }
+
+  .gauntlet-controls[data-columns="4"],
+  .gauntlet-family-controls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gauntlet-loading::before {
+    animation: none;
+  }
+}

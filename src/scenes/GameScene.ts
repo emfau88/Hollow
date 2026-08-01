@@ -363,40 +363,54 @@ export class GameScene extends Phaser.Scene {
       }
     }
     if (themeAssets.wallKit) {
+      const wallFrame = themeAssets.wallKit.geometry;
       if (themeAssets.wallKit.atlas) {
         this.load.spritesheet('style-b-wall-atlas', themeAssets.wallKit.atlas, {
-          frameWidth: 96,
-          frameHeight: 96,
+          frameWidth: wallFrame.frameWidth,
+          frameHeight: wallFrame.frameHeight,
         });
         if (themeAssets.wallKit.neutralAtlas) {
           this.load.spritesheet('style-b-neutral-wall-atlas', themeAssets.wallKit.neutralAtlas, {
-            frameWidth: 96,
-            frameHeight: 96,
+            frameWidth: wallFrame.frameWidth,
+            frameHeight: wallFrame.frameHeight,
           });
         }
         if (themeAssets.wallKit.corridorAtlas) {
           this.load.spritesheet('style-b-corridor-wall-atlas', themeAssets.wallKit.corridorAtlas, {
-            frameWidth: 96,
-            frameHeight: 96,
+            frameWidth: wallFrame.frameWidth,
+            frameHeight: wallFrame.frameHeight,
           });
         }
         if (themeAssets.wallKit.naturalAtlas) {
           this.load.spritesheet('style-b-natural-wall-atlas', themeAssets.wallKit.naturalAtlas, {
-            frameWidth: 96,
-            frameHeight: 96,
+            frameWidth: wallFrame.frameWidth,
+            frameHeight: wallFrame.frameHeight,
           });
         }
         if (themeAssets.wallKit.builtThresholdAtlas) {
           this.load.spritesheet('style-b-built-threshold-atlas', themeAssets.wallKit.builtThresholdAtlas, {
-            frameWidth: 96,
-            frameHeight: 96,
+            frameWidth: wallFrame.frameWidth,
+            frameHeight: wallFrame.frameHeight,
           });
         }
         if (themeAssets.wallKit.naturalThresholdAtlas) {
           this.load.spritesheet('style-b-natural-threshold-atlas', themeAssets.wallKit.naturalThresholdAtlas, {
-            frameWidth: 96,
-            frameHeight: 96,
+            frameWidth: wallFrame.frameWidth,
+            frameHeight: wallFrame.frameHeight,
           });
+        }
+        for (const [key, path] of [
+          ['style-b-wall-occlusion-atlas', themeAssets.wallKit.occlusionAtlas],
+          ['style-b-neutral-wall-occlusion-atlas', themeAssets.wallKit.neutralOcclusionAtlas],
+          ['style-b-natural-wall-occlusion-atlas', themeAssets.wallKit.naturalOcclusionAtlas],
+          ['style-b-corridor-wall-occlusion-atlas', themeAssets.wallKit.corridorOcclusionAtlas],
+        ] as const) {
+          if (path) {
+            this.load.spritesheet(key, path, {
+              frameWidth: wallFrame.frameWidth,
+              frameHeight: wallFrame.frameHeight,
+            });
+          }
         }
       } else {
         this.load.image('style-b-wall-north', themeAssets.wallKit.north);
@@ -543,6 +557,16 @@ export class GameScene extends Phaser.Scene {
       corridorWallAtlas: themeAssets.wallKit?.corridorAtlas ? 'style-b-corridor-wall-atlas' : undefined,
       builtThresholdAtlas: themeAssets.wallKit?.builtThresholdAtlas ? 'style-b-built-threshold-atlas' : undefined,
       naturalThresholdAtlas: themeAssets.wallKit?.naturalThresholdAtlas ? 'style-b-natural-threshold-atlas' : undefined,
+      wallOcclusionAtlas: themeAssets.wallKit?.occlusionAtlas ? 'style-b-wall-occlusion-atlas' : undefined,
+      neutralWallOcclusionAtlas: themeAssets.wallKit?.neutralOcclusionAtlas ? 'style-b-neutral-wall-occlusion-atlas' : undefined,
+      naturalWallOcclusionAtlas: themeAssets.wallKit?.naturalOcclusionAtlas ? 'style-b-natural-wall-occlusion-atlas' : undefined,
+      corridorWallOcclusionAtlas: themeAssets.wallKit?.corridorOcclusionAtlas ? 'style-b-corridor-wall-occlusion-atlas' : undefined,
+      wallOriginX: themeAssets.wallKit?.geometry.originX,
+      wallOriginY: themeAssets.wallKit?.geometry.originY,
+      wallThresholdDepth: themeAssets.wallKit?.geometry.thresholdDepth,
+      wallEdgeDepth: themeAssets.wallKit?.geometry.edgeDepth,
+      wallJointDepth: themeAssets.wallKit?.geometry.jointDepth,
+      wallOcclusionDepth: themeAssets.wallKit?.geometry.occlusionDepth,
       wallNorth: themeAssets.wallKit ? 'style-b-wall-north' : undefined,
       wallEast: themeAssets.wallKit ? 'style-b-wall-east' : undefined,
       wallSouth: themeAssets.wallKit ? 'style-b-wall-south' : undefined,
@@ -884,6 +908,16 @@ export class GameScene extends Phaser.Scene {
         this.setSpeed(speed);
         return this.automationResult('setSpeed', true);
       },
+      setFrameLoop: (enabled) => {
+        if (enabled) this.game.loop.wake(true);
+        else this.game.loop.sleep();
+        const changed = this.game.loop.running === enabled;
+        return this.automationResult(
+          'setFrameLoop',
+          changed,
+          changed ? undefined : 'Der Phaser-Frame-Loop konnte nicht umgeschaltet werden.',
+        );
+      },
       step: (ticks = 1) => {
         if (!this.hud.isStarted) return this.automationResult('step', false, 'Das Spiel wurde noch nicht gestartet.');
         const count = Phaser.Math.Clamp(Math.floor(ticks), 1, 600);
@@ -959,6 +993,7 @@ export class GameScene extends Phaser.Scene {
           : 'playing',
       elapsed: Number(this.elapsed.toFixed(2)),
       speed: this.speed,
+      frameLoopRunning: this.game.loop.running,
       phase: this.phase,
       tool: this.tool,
       objective: { title: objective.title, body: objective.body, checklist: this.missionChecklist() },

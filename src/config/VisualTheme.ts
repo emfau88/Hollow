@@ -1,5 +1,42 @@
 export type VisualThemeId = 'legacy' | 'style-b';
 
+export type WallKitId = 'production-v7' | 'golden-v1';
+
+export interface WallKitGeometry {
+  frameWidth: number;
+  frameHeight: number;
+  originX: number;
+  originY: number;
+  thresholdDepth: number;
+  edgeDepth: number;
+  jointDepth: number;
+  occlusionDepth?: number;
+}
+
+interface ThemeWallKit {
+  id: WallKitId;
+  geometry: WallKitGeometry;
+  atlas?: string;
+  neutralAtlas?: string;
+  naturalAtlas?: string;
+  corridorAtlas?: string;
+  builtThresholdAtlas?: string;
+  naturalThresholdAtlas?: string;
+  /** Optional second copy of the topology atlas for authored front faces. */
+  occlusionAtlas?: string;
+  neutralOcclusionAtlas?: string;
+  naturalOcclusionAtlas?: string;
+  corridorOcclusionAtlas?: string;
+  north: string;
+  east: string;
+  south: string;
+  west: string;
+  northEast: string;
+  eastSouth: string;
+  southWest: string;
+  westNorth: string;
+}
+
 interface ThemeAssetPaths {
   terrain: string;
   dampFloor?: string;
@@ -15,22 +52,7 @@ interface ThemeAssetPaths {
     pulpit: string;
     bezel?: string;
   };
-  wallKit?: {
-    atlas?: string;
-    neutralAtlas?: string;
-    naturalAtlas?: string;
-    corridorAtlas?: string;
-    builtThresholdAtlas?: string;
-    naturalThresholdAtlas?: string;
-    north: string;
-    east: string;
-    south: string;
-    west: string;
-    northEast: string;
-    eastSouth: string;
-    southWest: string;
-    westNorth: string;
-  };
+  wallKit?: ThemeWallKit;
   groundDecals?: {
     rubble: string;
     excavation: string;
@@ -134,6 +156,16 @@ const STYLE_B_THEME: VisualTheme = {
       bezel: 'assets/generated/style-b-v3/heart/bezel.png',
     },
     wallKit: {
+      id: 'production-v7',
+      geometry: {
+        frameWidth: 96,
+        frameHeight: 96,
+        originX: 0.5,
+        originY: 0.5,
+        thresholdDepth: 1.9,
+        edgeDepth: 2,
+        jointDepth: 2.1,
+      },
       atlas: 'assets/generated/style-b-v3/walls/wall-atlas-built-v7.png',
       neutralAtlas: 'assets/generated/style-b-v3/walls/wall-atlas-fortified-v7.png',
       naturalAtlas: 'assets/generated/style-b-v3/walls/wall-atlas-natural-v7.png',
@@ -191,9 +223,51 @@ const STYLE_B_THEME: VisualTheme = {
   preDiscoveryResourceAlpha: 0.74,
 };
 
+const GOLDEN_V1_ROOT = 'assets/generated/style-b-wall-prototypes/golden-v1';
+
+/**
+ * Opt-in asset contract for evaluating a new wall family without replacing V7.
+ * Every atlas keeps the established frames 0-13 and 96 px boundary pivot. The
+ * optional occlusion atlases mirror those frames and may contain only the
+ * authored pixels that must sit in front of props and actors.
+ */
+const GOLDEN_V1_WALL_KIT: ThemeWallKit = {
+  ...STYLE_B_THEME.assets.wallKit!,
+  id: 'golden-v1',
+  geometry: {
+    frameWidth: 96,
+    frameHeight: 96,
+    originX: 0.5,
+    originY: 0.5,
+    thresholdDepth: 1.9,
+    edgeDepth: 2,
+    jointDepth: 2.1,
+    occlusionDepth: 34,
+  },
+  atlas: `${GOLDEN_V1_ROOT}/wall-atlas-built.png`,
+  neutralAtlas: `${GOLDEN_V1_ROOT}/wall-atlas-fortified.png`,
+  naturalAtlas: `${GOLDEN_V1_ROOT}/wall-atlas-natural.png`,
+  corridorAtlas: `${GOLDEN_V1_ROOT}/wall-atlas-corridor.png`,
+  builtThresholdAtlas: `${GOLDEN_V1_ROOT}/threshold-built.png`,
+  naturalThresholdAtlas: `${GOLDEN_V1_ROOT}/threshold-natural.png`,
+  // The renderer supports a second, high-depth topology layer, but Golden-v1
+  // keeps it inactive until a front-facing mask is hand-authored and visually
+  // accepted. Directional outward wall envelopes currently avoid actor overlap
+  // without allocating an empty occlusion sprite for every edge and joint.
+};
+
 export function resolveVisualTheme(search: string): VisualTheme {
-  const requested = new URLSearchParams(search).get('theme')?.toLowerCase();
-  return requested === 'comedy' || requested === 'style-b' ? STYLE_B_THEME : LEGACY_THEME;
+  const params = new URLSearchParams(search);
+  const requested = params.get('theme')?.toLowerCase();
+  if (requested !== 'comedy' && requested !== 'style-b') return LEGACY_THEME;
+  if (params.get('wall-prototype')?.toLowerCase() !== 'golden-v1') return STYLE_B_THEME;
+  return {
+    ...STYLE_B_THEME,
+    assets: {
+      ...STYLE_B_THEME.assets,
+      wallKit: GOLDEN_V1_WALL_KIT,
+    },
+  };
 }
 
 export const ACTIVE_VISUAL_THEME = resolveVisualTheme(

@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#071427" />
+    <meta
+      name="description"
+      content="Diagnostische Wandtopologie-Testseite für Hollow Covenant."
+    />
+    <title>Hollow Covenant – Wall Topology Gauntlet</title>
+  </head>
+  <body>
+    <main id="wall-gauntlet" data-testid="wall-gauntlet">
+      <div
+        id="gauntlet-canvas"
+        aria-label="Interaktive Testfläche für Wandkanten, Knoten und Übergänge"
+      ></div>
+      <div class="gauntlet-loading" role="status" aria-live="polite">
+        Wandtopologie wird aufgebaut …
+      </div>
+    </main>
+    <script type="module" src="/src/prototypes/spatial/wall-gauntlet-main.ts"></script>
+  </body>
+</html>

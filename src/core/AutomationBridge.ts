@@ -23,6 +23,7 @@ export interface AutomationState {
   outcome: 'not-started' | 'playing' | 'victory' | 'defeat';
   elapsed: number;
   speed: 0 | 1 | 2;
+  frameLoopRunning: boolean;
   phase: number;
   tool: ToolKind;
   objective: {
@@ -89,6 +90,7 @@ export interface HollowAgentApi {
   summonWorker(): AutomationActionResult;
   recruit(kind: Exclude<UnitKind, 'inquisitor'>): AutomationActionResult;
   setSpeed(speed: 0 | 1 | 2): AutomationActionResult;
+  setFrameLoop(enabled: boolean): AutomationActionResult;
   step(ticks?: number): AutomationActionResult;
   focusTarget(id: string): AutomationActionResult;
   reset(options?: { seed?: number }): void;

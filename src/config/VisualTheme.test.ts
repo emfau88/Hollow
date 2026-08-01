@@ -20,6 +20,39 @@ describe('visual theme selection', () => {
     expect(resolveVisualTheme('?theme=comedy').id).toBe('style-b');
   });
 
+  it('keeps the production V7 wall kit unless the prototype is explicitly requested', () => {
+    const production = resolveVisualTheme('?theme=style-b').assets.wallKit!;
+    const unknown = resolveVisualTheme('?theme=style-b&wall-prototype=unknown').assets.wallKit!;
+
+    expect(production.id).toBe('production-v7');
+    expect(production.atlas).toBe('assets/generated/style-b-v3/walls/wall-atlas-built-v7.png');
+    expect(production.occlusionAtlas).toBeUndefined();
+    expect(production.geometry).toEqual({
+      frameWidth: 96,
+      frameHeight: 96,
+      originX: 0.5,
+      originY: 0.5,
+      thresholdDepth: 1.9,
+      edgeDepth: 2,
+      jointDepth: 2.1,
+    });
+    expect(unknown).toBe(production);
+  });
+
+  it('selects isolated Golden V1 paths only for an explicit Style B prototype query', () => {
+    const prototype = resolveVisualTheme('?theme=style-b&wall-prototype=golden-v1');
+    const wallKit = prototype.assets.wallKit!;
+
+    expect(wallKit.id).toBe('golden-v1');
+    expect(wallKit.atlas).toBe('assets/generated/style-b-wall-prototypes/golden-v1/wall-atlas-built.png');
+    expect(wallKit.naturalThresholdAtlas)
+      .toBe('assets/generated/style-b-wall-prototypes/golden-v1/threshold-natural.png');
+    expect(wallKit.occlusionAtlas).toBeUndefined();
+    expect(wallKit.geometry.occlusionDepth).toBe(34);
+    expect(prototype.assets.terrain).toBe(resolveVisualTheme('?theme=style-b').assets.terrain);
+    expect(resolveVisualTheme('?wall-prototype=golden-v1').id).toBe('legacy');
+  });
+
   it('ships the complete V7 architecture atlas family at the expected frame grid', () => {
     const wallKit = resolveVisualTheme('?theme=style-b').assets.wallKit!;
     for (const path of [wallKit.atlas!, wallKit.neutralAtlas!, wallKit.naturalAtlas!, wallKit.corridorAtlas!]) {

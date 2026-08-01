@@ -48,6 +48,16 @@ export interface TerrainAssetKeys {
   corridorWallAtlas?: string;
   builtThresholdAtlas?: string;
   naturalThresholdAtlas?: string;
+  wallOcclusionAtlas?: string;
+  neutralWallOcclusionAtlas?: string;
+  naturalWallOcclusionAtlas?: string;
+  corridorWallOcclusionAtlas?: string;
+  wallOriginX?: number;
+  wallOriginY?: number;
+  wallThresholdDepth?: number;
+  wallEdgeDepth?: number;
+  wallJointDepth?: number;
+  wallOcclusionDepth?: number;
   wallNorth?: string;
   wallEast?: string;
   wallSouth?: string;
@@ -69,6 +79,8 @@ export class TerrainRenderer {
   private overlayStamp: Phaser.GameObjects.Image;
   private wallEdgeSprites = new Map<string, Phaser.GameObjects.Image>();
   private wallJointSprites = new Map<string, Phaser.GameObjects.Image>();
+  private wallOcclusionEdgeSprites = new Map<string, Phaser.GameObjects.Image>();
+  private wallOcclusionJointSprites = new Map<string, Phaser.GameObjects.Image>();
   private transitionSprites = new Map<string, Phaser.GameObjects.Image>();
   private wallSpritePool: Phaser.GameObjects.Image[] = [];
 
@@ -206,6 +218,7 @@ export class TerrainRenderer {
       ?? this.scene.add.image(0, 0, texture, frame).setOrigin(0.5);
     return sprite
       .setTexture(texture, frame)
+      .setOrigin(this.assets.wallOriginX ?? 0.5, this.assets.wallOriginY ?? 0.5)
       .setPosition(x, y)
       .setAlpha(alpha)
       .setDepth(depth)
@@ -241,10 +254,23 @@ export class TerrainRenderer {
     return neutral || this.assets.wallAtlas!;
   }
 
+  private wallOcclusionTextureForArchitecture(
+    architecture: TerrainArchitecture,
+    control: TerrainControl,
+  ): string | undefined {
+    if (architecture === 'corridor') return this.assets.corridorWallOcclusionAtlas;
+    if (architecture === 'natural-cavern') return this.assets.naturalWallOcclusionAtlas;
+    const neutral = architecture === 'fortified-chamber'
+      && control !== 'owned'
+      && this.assets.neutralWallOcclusionAtlas;
+    return neutral || this.assets.wallOcclusionAtlas;
+  }
+
   private updateWallEdges(q: TerrainQuery, x: number, y: number): void {
     if (!this.assets.wallAtlas) return;
     for (const side of ['north', 'east', 'south', 'west'] as const) {
       this.releaseSprite(this.wallEdgeSprites, this.edgeKey(x, y, side));
+      this.releaseSprite(this.wallOcclusionEdgeSprites, this.edgeKey(x, y, side));
     }
     const visibility = q.visibilityAt(x, y);
     if (!q.isOpen(x, y) || visibility === 'hidden') return;
@@ -252,6 +278,10 @@ export class TerrainRenderer {
     const alpha = visibility === 'charted' ? 0.66 : 1;
     const sides = this.sidesAt(q, x, y);
     const texture = this.wallTexture(q, x, y);
+    const occlusionTexture = this.wallOcclusionTextureForArchitecture(
+      q.architectureAt(x, y),
+      q.controlAt(x, y),
+    );
     for (const side of sides) {
       let worldX = x * this.tile + this.tile / 2;
       let worldY = y * this.tile + this.tile / 2;
@@ -268,9 +298,22 @@ export class TerrainRenderer {
           worldX,
           worldY,
           alpha,
-          2,
+          this.assets.wallEdgeDepth ?? 2,
         ),
       );
+      if (occlusionTexture && this.assets.wallOcclusionDepth !== undefined) {
+        this.wallOcclusionEdgeSprites.set(
+          key,
+          this.acquireWallSprite(
+            occlusionTexture,
+            wallEdgeFrame(side),
+            worldX,
+            worldY,
+            alpha,
+            this.assets.wallOcclusionDepth,
+          ),
+        );
+      }
     }
   }
 
@@ -278,6 +321,7 @@ export class TerrainRenderer {
     if (!this.assets.wallAtlas) return;
     const key = this.jointKey(x, y);
     this.releaseSprite(this.wallJointSprites, key);
+    this.releaseSprite(this.wallOcclusionJointSprites, key);
     const cells = {
       northWest: this.isVisibleOpen(q, x - 1, y - 1),
       northEast: this.isVisibleOpen(q, x, y - 1),
@@ -309,10 +353,32 @@ export class TerrainRenderer {
     if (!openCell) return;
     const revealed = visibleCells.some(([cellX, cellY, open]) => open && q.visibilityAt(cellX, cellY) === 'revealed');
     const texture = this.wallTextureForArchitecture(openCell.architecture, openCell.control);
+    const occlusionTexture = this.wallOcclusionTextureForArchitecture(openCell.architecture, openCell.control);
+    const frame = wallJointFrame(kind);
     this.wallJointSprites.set(
       key,
-      this.acquireWallSprite(texture, wallJointFrame(kind), x * this.tile, y * this.tile, revealed ? 1 : 0.66, 2.1),
+      this.acquireWallSprite(
+        texture,
+        frame,
+        x * this.tile,
+        y * this.tile,
+        revealed ? 1 : 0.66,
+        this.assets.wallJointDepth ?? 2.1,
+      ),
     );
+    if (occlusionTexture && this.assets.wallOcclusionDepth !== undefined) {
+      this.wallOcclusionJointSprites.set(
+        key,
+        this.acquireWallSprite(
+          occlusionTexture,
+          frame,
+          x * this.tile,
+          y * this.tile,
+          revealed ? 1 : 0.66,
+          this.assets.wallOcclusionDepth,
+        ),
+      );
+    }
   }
 
   private transitionKey(x: number, y: number, side: 'east' | 'south'): string {
@@ -345,13 +411,22 @@ export class TerrainRenderer {
     const worldY = side === 'south' ? (y + 1) * this.tile : y * this.tile + this.tile / 2;
     this.transitionSprites.set(
       key,
-      this.acquireWallSprite(texture, wallEdgeFrame(side), worldX, worldY, alpha, 1.9),
+      this.acquireWallSprite(
+        texture,
+        wallEdgeFrame(side),
+        worldX,
+        worldY,
+        alpha,
+        this.assets.wallThresholdDepth ?? 1.9,
+      ),
     );
   }
 
   private clearWallSprites(): void {
     for (const key of [...this.wallEdgeSprites.keys()]) this.releaseSprite(this.wallEdgeSprites, key);
     for (const key of [...this.wallJointSprites.keys()]) this.releaseSprite(this.wallJointSprites, key);
+    for (const key of [...this.wallOcclusionEdgeSprites.keys()]) this.releaseSprite(this.wallOcclusionEdgeSprites, key);
+    for (const key of [...this.wallOcclusionJointSprites.keys()]) this.releaseSprite(this.wallOcclusionJointSprites, key);
     for (const key of [...this.transitionSprites.keys()]) this.releaseSprite(this.transitionSprites, key);
   }
 
