@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  advanceSandboxDigging,
   createSandboxState,
   excavateSandboxChamber,
   planSandboxDigCell,
@@ -28,6 +29,17 @@ describe('playable geometry sandbox', () => {
     expect(state.openCells.has('14,25')).toBe(false);
     expect(planSandboxDigCell(state, 30, 10).ok).toBe(false);
     tickSandboxEconomy(state, 2);
+    expect(state.openCells.has('14,25')).toBe(true);
+  });
+
+  it('keeps a marked wall closed until a worker completes work at that exact field', () => {
+    const state = createSandboxState();
+    expect(planSandboxDigCell(state, 14, 25).ok).toBe(true);
+    tickSandboxEconomy(state, 4, { autonomousDigging: false });
+    expect(state.openCells.has('14,25')).toBe(false);
+    expect(advanceSandboxDigging(state, { x: 14, z: 25 }, 0.8).completed).toBe(false);
+    expect(state.openCells.has('14,25')).toBe(false);
+    expect(advanceSandboxDigging(state, { x: 14, z: 25 }, 0.5).completed).toBe(true);
     expect(state.openCells.has('14,25')).toBe(true);
   });
 

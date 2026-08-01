@@ -50,6 +50,7 @@ export interface SandboxState {
   productionClock: Record<'kitchen' | 'smelter' | 'workshop', number>;
   miningClock: number;
   diggingClock: number;
+  activeDig?: { x: number; z: number; progress: number };
   buildingClock: number;
   nextRoomId: number;
   workerJobs: { dig: number; build: number; mine: number; idle: number };
@@ -66,6 +67,10 @@ export interface SandboxTickResult {
   terrainChanged: boolean;
   roomsChanged: boolean;
   resourcesChanged: boolean;
+}
+
+export interface SandboxTickOptions {
+  autonomousDigging?: boolean;
 }
 
 function addRect(
@@ -326,7 +331,32 @@ export function remainingDepositUnits(state: SandboxState, kind?: SandboxDeposit
     .reduce((sum, deposit) => sum + deposit.remaining, 0);
 }
 
-export function tickSandboxEconomy(state: SandboxState, deltaSeconds: number): SandboxTickResult {
+export function advanceSandboxDigging(
+  state: SandboxState,
+  target: { x: number; z: number },
+  deltaSeconds: number,
+): { completed: boolean; progress: number } {
+  const key = proofCellKey(target.x, target.z);
+  if (!state.plannedDig.has(key) || !canDigSandboxCell(state, target.x, target.z) || state.workerJobs.dig < 1) {
+    state.activeDig = undefined;
+    return { completed: false, progress: 0 };
+  }
+  if (!state.activeDig || state.activeDig.x !== target.x || state.activeDig.z !== target.z) {
+    state.activeDig = { ...target, progress: 0 };
+  }
+  state.activeDig.progress = Math.min(1, state.activeDig.progress + deltaSeconds / 1.25);
+  if (state.activeDig.progress < 1) return { completed: false, progress: state.activeDig.progress };
+  state.plannedDig.delete(key);
+  state.openCells.set(key, { ...target, zone: 'corridor' });
+  state.activeDig = undefined;
+  return { completed: true, progress: 1 };
+}
+
+export function tickSandboxEconomy(
+  state: SandboxState,
+  deltaSeconds: number,
+  options: SandboxTickOptions = {},
+): SandboxTickResult {
   let terrainChanged = false;
   let roomsChanged = false;
   let resourcesChanged = false;
@@ -350,14 +380,16 @@ export function tickSandboxEconomy(state: SandboxState, deltaSeconds: number): S
   }
   state.workerJobs = jobs;
 
-  state.diggingClock += deltaSeconds * jobs.dig * 0.9;
-  while (state.diggingClock >= 1) {
-    const next = [...state.plannedDig.values()].find((cell) => canDigSandboxCell(state, cell.x, cell.z));
-    if (!next) break;
-    state.diggingClock -= 1;
-    state.plannedDig.delete(proofCellKey(next.x, next.z));
-    state.openCells.set(proofCellKey(next.x, next.z), { ...next, zone: 'corridor' });
-    terrainChanged = true;
+  if (options.autonomousDigging !== false) {
+    state.diggingClock += deltaSeconds * jobs.dig * 0.9;
+    while (state.diggingClock >= 1) {
+      const next = [...state.plannedDig.values()].find((cell) => canDigSandboxCell(state, cell.x, cell.z));
+      if (!next) break;
+      state.diggingClock -= 1;
+      state.plannedDig.delete(proofCellKey(next.x, next.z));
+      state.openCells.set(proofCellKey(next.x, next.z), { ...next, zone: 'corridor' });
+      terrainChanged = true;
+    }
   }
 
   state.buildingClock += deltaSeconds * jobs.build * 0.55;

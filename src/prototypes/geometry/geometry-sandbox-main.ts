@@ -13,6 +13,7 @@ import {
   SANDBOX_BOUNDS,
   SANDBOX_HEART,
   SANDBOX_START,
+  advanceSandboxDigging,
   canPlanSandboxCell,
   createSandboxState,
   excavateSandboxChamber,
@@ -68,8 +69,7 @@ const cameraOffset = new THREE.Vector3(0, 17.5, 10.5);
 let viewHeight = mobileProfile ? 15 : 20;
 
 function reservedPanelWidth(): number {
-  if (window.innerWidth <= 600) return 0;
-  return Math.min(350, window.innerWidth * 0.38);
+  return 0;
 }
 
 function clampCameraTarget(): void {
@@ -560,6 +560,22 @@ let actorDestinationKey = '';
 let actorSegment = 0;
 let actorProgress = 0;
 let workerAnimationTime = 0;
+let actorDigTarget: { x: number; z: number } | undefined;
+let actorMoving = false;
+
+const digFx = new THREE.Group();
+const digProgressMaterial = new THREE.MeshBasicMaterial({ color: 0xf2c95f, transparent: true, opacity: 0.9, depthWrite: false, side: THREE.DoubleSide });
+const digProgressRing = new THREE.Mesh(new THREE.RingGeometry(0.3, 0.4, 24, 1, 0, Math.PI * 2), digProgressMaterial);
+digProgressRing.rotation.x = -Math.PI / 2;
+digProgressRing.position.y = 0.12;
+digFx.add(digProgressRing);
+for (let index = 0; index < 4; index += 1) {
+  const chip = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.11, 0.11), wallFamilies.natural.side);
+  chip.position.set((index - 1.5) * 0.13, 0.28 + (index % 2) * 0.12, 0);
+  digFx.add(chip);
+}
+digFx.visible = false;
+world.add(digFx);
 
 function updateActorPath(): void {
   const planned = [...state.plannedDig.values()].find((cell) => [
@@ -576,38 +592,37 @@ function updateActorPath(): void {
         { x: planned.x - 1, z: planned.z },
       ].find((cell) => state.openCells.has(proofCellKey(cell.x, cell.z)))
     : undefined;
-  const mineable = state.deposits.find((deposit) => deposit.remaining > 0 && state.openCells.has(proofCellKey(deposit.x, deposit.z)));
-  const destination = excavationApproach ?? (mineable ? { x: mineable.x, z: mineable.z } : undefined);
-  const destinationKey = destination ? proofCellKey(destination.x, destination.z) : 'idle';
+  const destination = excavationApproach;
+  const destinationKey = planned && destination ? `${proofCellKey(planned.x, planned.z)}@${proofCellKey(destination.x, destination.z)}` : 'idle';
   if (destinationKey === actorDestinationKey) return;
   actorDestinationKey = destinationKey;
+  actorDigTarget = planned && destination ? { x: planned.x, z: planned.z } : undefined;
+  digFx.visible = false;
   const actorCell = { x: Math.floor(actor.position.x), z: Math.floor(actor.position.z) };
   const routeStart = state.openCells.has(proofCellKey(actorCell.x, actorCell.z)) ? actorCell : SANDBOX_START;
   const route = destination
     ? findOpenPath([...state.openCells.values()], routeStart, destination)
     : [];
-  actorPath = route.length > 1
-    ? [...route.map((cell) => ({ x: cell.x + 0.5, z: cell.z + 0.5 })), ...route.slice(1, -1).reverse().map((cell) => ({ x: cell.x + 0.5, z: cell.z + 0.5 }))]
-    : [
-        { x: 9.5, z: 23.5 }, { x: 12.5, z: 23.5 },
-        { x: 12.5, z: 27.5 }, { x: 9.5, z: 27.5 },
-      ];
+  actorPath = route.length > 0
+    ? route.map((cell) => ({ x: cell.x + 0.5, z: cell.z + 0.5 }))
+    : [{ x: actor.position.x, z: actor.position.z }];
   actorSegment = 0;
   actorProgress = 0;
 }
 
 function syncActorPosition(): void {
-  const from = actorPath[actorSegment % actorPath.length];
-  const to = actorPath[(actorSegment + 1) % actorPath.length];
+  const from = actorPath[Math.min(actorSegment, actorPath.length - 1)];
+  const to = actorPath[Math.min(actorSegment + 1, actorPath.length - 1)];
   actor.position.set(THREE.MathUtils.lerp(from.x, to.x, actorProgress), 0.82, THREE.MathUtils.lerp(from.z, to.z, actorProgress));
   actorShadow.position.set(actor.position.x, 0.045, actor.position.z + 0.06);
 }
 
-function updateActor(delta: number): void {
+function updateActor(delta: number): { terrainChanged: boolean } {
   let remaining = delta * 1.7;
-  while (remaining > 0) {
-    const from = actorPath[actorSegment % actorPath.length];
-    const to = actorPath[(actorSegment + 1) % actorPath.length];
+  actorMoving = actorSegment < actorPath.length - 1;
+  while (remaining > 0 && actorSegment < actorPath.length - 1) {
+    const from = actorPath[actorSegment];
+    const to = actorPath[actorSegment + 1];
     const length = Math.max(0.001, Math.hypot(to.x - from.x, to.z - from.z));
     const available = (1 - actorProgress) * length;
     if (remaining < available) {
@@ -615,21 +630,45 @@ function updateActor(delta: number): void {
       remaining = 0;
     } else {
       remaining -= available;
-      actorSegment = (actorSegment + 1) % actorPath.length;
+      actorSegment += 1;
       actorProgress = 0;
     }
   }
+  actorMoving = actorSegment < actorPath.length - 1;
   syncActorPosition();
-  if (!workerAnimated) return;
+  const working = !actorMoving && Boolean(actorDigTarget) && state.workerJobs.dig > 0;
+  let terrainChanged = false;
+  if (working && actorDigTarget) {
+    const result = advanceSandboxDigging(state, actorDigTarget, delta);
+    digFx.visible = true;
+    digFx.position.set(actorDigTarget.x + 0.5, 0.02, actorDigTarget.z + 0.5);
+    digProgressRing.scale.setScalar(Math.max(0.08, result.progress));
+    digProgressRing.rotation.z = workerAnimationTime * 1.6;
+    for (let index = 1; index < digFx.children.length; index += 1) {
+      const chip = digFx.children[index];
+      chip.position.y = 0.2 + ((workerAnimationTime * 1.8 + index * 0.19) % 0.55);
+      chip.rotation.x += delta * (2 + index);
+      chip.rotation.z += delta * (1.5 + index * 0.4);
+    }
+    terrainChanged = result.completed;
+  } else {
+    digFx.visible = false;
+  }
+  if (!workerAnimated) return { terrainChanged };
   workerAnimationTime += delta;
-  const from = actorPath[actorSegment % actorPath.length];
-  const to = actorPath[(actorSegment + 1) % actorPath.length];
-  const dx = to.x - from.x;
-  const dz = to.z - from.z;
+  const from = actorPath[Math.min(actorSegment, actorPath.length - 1)];
+  const to = actorMoving ? actorPath[Math.min(actorSegment + 1, actorPath.length - 1)] : actorDigTarget ?? from;
+  const targetX = actorMoving ? to.x : actorDigTarget ? actorDigTarget.x + 0.5 : from.x;
+  const targetZ = actorMoving ? to.z : actorDigTarget ? actorDigTarget.z + 0.5 : from.z;
+  const dx = targetX - from.x;
+  const dz = targetZ - from.z;
   const row = Math.abs(dx) > Math.abs(dz) ? 2 : dz < 0 ? 1 : 0;
-  workerMap.offset.set((Math.floor(workerAnimationTime * 8) % 4) / 4, 1 - (row + 1) / 6);
+  const animationRow = (working ? 3 : 0) + row;
+  const frame = working || actorMoving ? Math.floor(workerAnimationTime * (working ? 9 : 8)) % 4 : 1;
+  workerMap.offset.set(frame / 4, 1 - (animationRow + 1) / 6);
   // The source side frame faces left. Flip only while moving right.
   actor.scale.x = (dx > 0 && row === 2 ? -1 : 1) * 1.55;
+  return { terrainChanged };
 }
 
 const ui = document.createElement('div');
@@ -637,60 +676,65 @@ ui.className = 'geometry-ui';
 ui.innerHTML = `
   <div class="geometry-badge">Spielbare 2.5D-Sandbox</div>
   <div class="geometry-resource-bar" aria-label="Ressourcen">
-    <span><b data-stock="ore">0</b> Erz</span>
-    <span><b data-stock="metal">0</b> Metall</span>
-    <span><b data-stock="biomass">0</b> Biomasse</span>
-    <span><b data-stock="ration">0</b> Rationen</span>
-    <span><b data-stock="armour">0</b> Rüstung</span>
-    <span><b data-workers>3/5</b> Arbeiter <i data-worker-jobs>G0 B0 A0</i></span>
+    <span><b data-stock="ore">0</b><i>Erz</i></span>
+    <span><b data-stock="metal">0</b><i>Metall</i></span>
+    <span><b data-stock="biomass">0</b><i>Biomasse</i></span>
+    <span><b data-stock="ration">0</b><i>Rationen</i></span>
+    <span><b data-stock="essence">0</b><i>Essenz</i></span>
+    <span><b data-workers>3/5</b><i>Arbeiter</i><em data-worker-jobs>G0 B0 A0</em></span>
   </div>
-  <section class="geometry-panel geometry-sandbox-panel" aria-labelledby="geometry-title">
-    <button type="button" class="geometry-panel-toggle" data-action="toggle-hud" aria-expanded="true">HUD einklappen</button>
-    <header>
-      <span class="geometry-kicker">Renderer- und Gameplay-Proof</span>
-      <h1 id="geometry-title">Hollow Covenant 2.5D</h1>
-      <p>Grabe Gänge und Kammern, erschließe große Erzadern und baue dieselben sechs Raumtypen wie im Hauptspiel.</p>
-    </header>
+  <div class="geometry-view-actions" aria-label="Ansicht">
+    <button type="button" data-action="fit" title="Karte einpassen">⌖</button>
+    <button type="button" data-action="orientation" title="Querformat anfordern">↻</button>
+    <button type="button" data-action="fullscreen" title="Vollbild umschalten">⛶</button>
+  </div>
+  <div class="geometry-bottom-area">
     <div class="geometry-status" role="status" aria-live="polite">
       <strong data-status-title>Gang-Werkzeug aktiv</strong>
-      <span data-status-copy>Tippe oder ziehe von offenem Boden in den Fels.</span>
+      <span data-status-copy>Auftrag markieren; der Arbeiter läuft hin und gräbt das Feld sichtbar aus.</span>
     </div>
-    <h2>Werkzeuge</h2>
-    <div class="geometry-tools">
-      <button type="button" data-tool="pan">Ansicht</button>
-      <button type="button" data-tool="dig" aria-pressed="true">Gang</button>
-      <button type="button" data-tool="chamber">Kammer</button>
-      <button type="button" data-action="fit">Karte</button>
-      <button type="button" data-action="zoom-in">+</button>
-      <button type="button" data-action="zoom-out">−</button>
-    </div>
-    <h2>Räume bauen</h2>
-    <div class="geometry-room-tools">
-      ${(Object.keys(ROOM_DEFINITIONS) as RoomKind[]).map((kind) => `<button type="button" data-tool="room-${kind}">${ROOM_DEFINITIONS[kind].label}<small>ab ${ROOM_DEFINITIONS[kind].minW}×${ROOM_DEFINITIONS[kind].minH}</small></button>`).join('')}
-    </div>
-    <h2>Arbeitsprioritäten</h2>
-    <div class="geometry-priorities">
-      <button type="button" data-priority="dig">Graben <small data-priority-label="dig">Normal</small></button>
-      <button type="button" data-priority="build">Bauen <small data-priority-label="build">Normal</small></button>
-      <button type="button" data-priority="mine">Abbau <small data-priority-label="mine">Normal</small></button>
-    </div>
-    <button type="button" class="geometry-summon" data-action="summon-worker">Arbeiter rufen · 2 Essenz</button>
-    <h2>Wandfamilie</h2>
-    <div class="geometry-materials">
-      <button type="button" data-surface="clean" aria-pressed="true">Mauer</button>
-      <button type="button" data-surface="project">Zwerg</button>
-      <button type="button" data-surface="natural">Natur</button>
-    </div>
-    <div class="geometry-sandbox-summary">
-      <span><b data-summary="rooms">0</b> Räume</span>
-      <span><b data-summary="iron">0</b> Erz im Berg</span>
-      <span><b data-summary="storage">80</b> Lager</span>
-      <span><b data-summary="beds">0</b> Betten</span>
-      <span><b data-summary="prison">0</b> Zellen</span>
-    </div>
-    <button type="button" class="geometry-reset" data-action="reset">Neue Sandbox</button>
-  </section>
-  <div class="geometry-legend"><b>Gang:</b> tippen/ziehen · <b>Kammer/Raum:</b> Bereich aufziehen · Ansicht und Zoom über Werkzeuge</div>
+    <section class="geometry-popover" data-popover="build" hidden>
+      <strong>Raum bauen</strong>
+      <div class="geometry-room-tools">
+        ${(Object.keys(ROOM_DEFINITIONS) as RoomKind[]).map((kind) => `<button type="button" data-tool="room-${kind}">${ROOM_DEFINITIONS[kind].label}<small>ab ${ROOM_DEFINITIONS[kind].minW}×${ROOM_DEFINITIONS[kind].minH}</small></button>`).join('')}
+      </div>
+    </section>
+    <section class="geometry-popover" data-popover="work" hidden>
+      <strong>Arbeitsprioritäten</strong>
+      <div class="geometry-priorities">
+        <button type="button" data-priority="dig">Graben <small data-priority-label="dig">Normal</small></button>
+        <button type="button" data-priority="build">Bauen <small data-priority-label="build">Normal</small></button>
+        <button type="button" data-priority="mine">Abbau <small data-priority-label="mine">Normal</small></button>
+      </div>
+    </section>
+    <section class="geometry-popover" data-popover="more" hidden>
+      <strong>Verwaltung</strong>
+      <div class="geometry-more-grid">
+        <button type="button" data-action="summon-worker">Arbeiter<small>2 Essenz</small></button>
+        <button type="button" data-action="zoom-in">Zoom +</button>
+        <button type="button" data-action="zoom-out">Zoom −</button>
+        <button type="button" data-surface="clean" aria-pressed="true">Mauer</button>
+        <button type="button" data-surface="project">Zwerg</button>
+        <button type="button" data-surface="natural">Natur</button>
+        <button type="button" data-action="reset">Neue Sandbox</button>
+      </div>
+      <div class="geometry-sandbox-summary">
+        <span><b data-summary="rooms">0</b> Räume</span>
+        <span><b data-summary="iron">0</b> Erz</span>
+        <span><b data-summary="storage">80</b> Lager</span>
+        <span><b data-summary="beds">0</b> Betten</span>
+        <span><b data-summary="prison">0</b> Zellen</span>
+      </div>
+    </section>
+    <nav class="geometry-toolbar" aria-label="Werkzeugleiste">
+      <button type="button" data-tool="pan"><b>✥</b>Ansicht<small>Verschieben</small></button>
+      <button type="button" data-tool="dig" aria-pressed="true"><b>⌁</b>Gang<small>Route ziehen</small></button>
+      <button type="button" data-tool="chamber"><b>▣</b>Kammer<small>Fläche ziehen</small></button>
+      <button type="button" data-menu="build"><b>▦</b>Bauen<small>6 Räume</small></button>
+      <button type="button" data-menu="work"><b>☷</b>Arbeit<small>Prioritäten</small></button>
+      <button type="button" data-menu="more"><b>•••</b>Mehr<small>Ansicht &amp; Spiel</small></button>
+    </nav>
+  </div>
 `;
 root.append(ui);
 
@@ -765,6 +809,8 @@ function scheduleTerrainSync(): void {
 function setTool(tool: SandboxTool): void {
   activeTool = tool;
   selectionPreview.visible = false;
+  ui.querySelectorAll<HTMLElement>('[data-popover]').forEach((popover) => { popover.hidden = true; });
+  ui.querySelectorAll<HTMLButtonElement>('[data-menu]').forEach((button) => button.setAttribute('aria-expanded', 'false'));
   ui.querySelectorAll<HTMLButtonElement>('[data-tool]').forEach((button) => {
     button.setAttribute('aria-pressed', String(button.dataset.tool === tool));
   });
@@ -780,6 +826,18 @@ function setTool(tool: SandboxTool): void {
 
 ui.querySelectorAll<HTMLButtonElement>('[data-tool]').forEach((button) => {
   button.addEventListener('click', () => setTool(button.dataset.tool as SandboxTool));
+});
+ui.querySelectorAll<HTMLButtonElement>('[data-menu]').forEach((button) => {
+  button.addEventListener('click', () => {
+    const name = button.dataset.menu;
+    const target = ui.querySelector<HTMLElement>(`[data-popover="${name}"]`);
+    if (!target) return;
+    const open = target.hidden;
+    ui.querySelectorAll<HTMLElement>('[data-popover]').forEach((popover) => { popover.hidden = true; });
+    ui.querySelectorAll<HTMLButtonElement>('[data-menu]').forEach((candidate) => candidate.setAttribute('aria-expanded', 'false'));
+    target.hidden = !open;
+    button.setAttribute('aria-expanded', String(open));
+  });
 });
 ui.querySelectorAll<HTMLButtonElement>('[data-surface]').forEach((button) => {
   button.addEventListener('click', () => {
@@ -823,13 +881,39 @@ ui.querySelector<HTMLButtonElement>('[data-action="summon-worker"]')?.addEventLi
   showStatus(result);
   updateUi();
 });
-ui.querySelector<HTMLButtonElement>('[data-action="toggle-hud"]')?.addEventListener('click', (event) => {
-  const button = event.currentTarget as HTMLButtonElement;
-  const panel = button.closest<HTMLElement>('.geometry-panel');
-  if (!panel) return;
-  const collapsed = panel.classList.toggle('is-collapsed');
-  button.setAttribute('aria-expanded', String(!collapsed));
-  button.textContent = collapsed ? 'HUD öffnen' : 'HUD einklappen';
+
+async function enterFullscreen(): Promise<boolean> {
+  if (document.fullscreenElement) return true;
+  try {
+    await root.requestFullscreen({ navigationUI: 'hide' });
+    return true;
+  } catch {
+    showStatus({ ok: false, message: 'Der Browser hat Vollbild blockiert. Bitte Vollbild in den Browseroptionen erlauben.' });
+    return false;
+  }
+}
+
+ui.querySelector<HTMLButtonElement>('[data-action="fullscreen"]')?.addEventListener('click', async () => {
+  if (document.fullscreenElement) await document.exitFullscreen();
+  else await enterFullscreen();
+});
+
+ui.querySelector<HTMLButtonElement>('[data-action="orientation"]')?.addEventListener('click', async () => {
+  if (!await enterFullscreen()) return;
+  const orientation = screen.orientation as ScreenOrientation & { lock?: (value: 'landscape') => Promise<void> };
+  try {
+    if (!orientation.lock) throw new Error('unsupported');
+    await orientation.lock('landscape');
+    showStatus({ ok: true, message: 'Querformat aktiv. Erneut drehen oder Vollbild verlassen, um zurückzukehren.' });
+  } catch {
+    showStatus({ ok: false, message: 'Dieses Gerät erlaubt keine erzwungene Drehung. Vollbild ist aktiv; bitte das Gerät quer halten.' });
+  }
+});
+
+document.addEventListener('fullscreenchange', () => {
+  const button = ui.querySelector<HTMLButtonElement>('[data-action="fullscreen"]');
+  if (button) button.textContent = document.fullscreenElement ? '×' : '⛶';
+  updateCamera();
 });
 
 const raycaster = new THREE.Raycaster();
@@ -882,8 +966,29 @@ let pointerStart = { x: 0, y: 0 };
 let lastPointer = { x: 0, y: 0 };
 let selectionStart: { x: number; z: number } | undefined;
 let lastDigCell: { x: number; z: number } | undefined;
+let pendingTouchDig: { x: number; z: number } | undefined;
+const activePointers = new Map<number, { x: number; y: number }>();
+let pinching = false;
+let pinchStartDistance = 0;
+let pinchStartViewHeight = viewHeight;
+
+function pointerDistance(): number {
+  const points = [...activePointers.values()];
+  return points.length < 2 ? 0 : Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y);
+}
 
 renderer.domElement.addEventListener('pointerdown', (event) => {
+  activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+  if (event.pointerType === 'touch' && activePointers.size >= 2) {
+    pinching = true;
+    pinchStartDistance = Math.max(1, pointerDistance());
+    pinchStartViewHeight = viewHeight;
+    pendingTouchDig = undefined;
+    selectionStart = undefined;
+    lastDigCell = undefined;
+    selectionPreview.visible = false;
+    return;
+  }
   dragging = true;
   pointerStart = { x: event.clientX, y: event.clientY };
   lastPointer = { ...pointerStart };
@@ -892,6 +997,11 @@ renderer.domElement.addEventListener('pointerdown', (event) => {
   const cell = mapCellAt(event.clientX, event.clientY);
   if (!cell || activeTool === 'pan') return;
   if (activeTool === 'dig') {
+    if (event.pointerType === 'touch') {
+      pendingTouchDig = cell;
+      lastDigCell = cell;
+      return;
+    }
     const result = planSandboxDigCell(state, cell.x, cell.z);
     lastDigCell = cell;
     if (result.ok) scheduleTerrainSync();
@@ -903,6 +1013,13 @@ renderer.domElement.addEventListener('pointerdown', (event) => {
 });
 
 renderer.domElement.addEventListener('pointermove', (event) => {
+  if (activePointers.has(event.pointerId)) activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+  if (pinching && activePointers.size >= 2) {
+    const distance = Math.max(1, pointerDistance());
+    viewHeight = THREE.MathUtils.clamp(pinchStartViewHeight * pinchStartDistance / distance, 9, 42);
+    updateCamera();
+    return;
+  }
   const cell = mapCellAt(event.clientX, event.clientY);
   if (!dragging) {
     renderer.domElement.style.cursor = activeTool === 'pan' ? 'grab' : cell && canPlanSandboxCell(state, cell.x, cell.z) ? 'crosshair' : 'default';
@@ -917,6 +1034,11 @@ renderer.domElement.addEventListener('pointermove', (event) => {
     return;
   }
   if (activeTool === 'dig' && cell && lastDigCell && (cell.x !== lastDigCell.x || cell.z !== lastDigCell.z)) {
+    if (pendingTouchDig) {
+      const initial = planSandboxDigCell(state, pendingTouchDig.x, pendingTouchDig.z);
+      if (initial.ok) scheduleTerrainSync();
+      pendingTouchDig = undefined;
+    }
     const changed = digLine(lastDigCell, cell);
     lastDigCell = cell;
     if (changed) scheduleTerrainSync();
@@ -926,8 +1048,24 @@ renderer.domElement.addEventListener('pointermove', (event) => {
 });
 
 function finishPointer(event: PointerEvent): void {
+  activePointers.delete(event.pointerId);
+  if (pinching) {
+    if (activePointers.size < 2) pinching = false;
+    dragging = false;
+    pendingTouchDig = undefined;
+    selectionStart = undefined;
+    lastDigCell = undefined;
+    selectionPreview.visible = false;
+    if (renderer.domElement.hasPointerCapture(event.pointerId)) renderer.domElement.releasePointerCapture(event.pointerId);
+    return;
+  }
   if (!dragging) return;
   const cell = mapCellAt(event.clientX, event.clientY);
+  if (pendingTouchDig && activeTool === 'dig') {
+    const result = planSandboxDigCell(state, pendingTouchDig.x, pendingTouchDig.z);
+    showStatus(result);
+    if (result.ok) scheduleTerrainSync();
+  }
   if (selectionStart && cell) {
     const result = activeTool === 'chamber'
       ? excavateSandboxChamber(state, selectionStart, cell)
@@ -948,6 +1086,7 @@ function finishPointer(event: PointerEvent): void {
   dragging = false;
   selectionStart = undefined;
   lastDigCell = undefined;
+  pendingTouchDig = undefined;
   selectionPreview.visible = false;
   renderer.domElement.classList.remove('dragging');
   if (renderer.domElement.hasPointerCapture(event.pointerId)) renderer.domElement.releasePointerCapture(event.pointerId);
@@ -979,8 +1118,9 @@ function animate(timestamp: number): void {
   lastRenderedAt = timestamp - (elapsed % interval);
   timer.update(timestamp);
   const delta = Math.min(timer.getDelta(), 0.05);
-  updateActor(delta);
-  const tick = tickSandboxEconomy(state, delta);
+  const actorTick = updateActor(delta);
+  const tick = tickSandboxEconomy(state, delta, { autonomousDigging: false });
+  if (actorTick.terrainChanged) scheduleTerrainSync();
   if (tick.terrainChanged) scheduleTerrainSync();
   if (tick.roomsChanged) {
     rebuildRooms();

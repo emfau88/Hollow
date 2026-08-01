@@ -501,3 +501,154 @@ button { color: inherit; font: inherit; }
     max-height: calc(100dvh - max(12px, env(safe-area-inset-top)) - max(12px, env(safe-area-inset-bottom)));
   }
 }
+
+/* Sandbox HUD: mirrors the compact top-strip / bottom-toolbar structure of the main game. */
+.geometry-view-actions {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  display: flex;
+  gap: 4px;
+  pointer-events: auto;
+}
+
+.geometry-view-actions button,
+.geometry-toolbar button,
+.geometry-popover button {
+  min-width: 44px;
+  min-height: 44px;
+  color: #d8d0b9;
+  border: 1px solid rgba(217, 170, 58, 0.3);
+  border-radius: 5px;
+  background: rgba(7, 22, 40, 0.94);
+  touch-action: manipulation;
+}
+
+.geometry-view-actions button { font-size: 19px; }
+
+.geometry-bottom-area {
+  position: absolute;
+  z-index: 6;
+  right: max(10px, env(safe-area-inset-right));
+  bottom: max(10px, env(safe-area-inset-bottom));
+  left: max(10px, env(safe-area-inset-left));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.geometry-bottom-area .geometry-status {
+  width: min(520px, calc(100vw - 20px));
+  margin: 0;
+  padding: 7px 10px;
+  border: 1px solid rgba(98, 208, 170, 0.28);
+  border-left: 3px solid var(--pass);
+  background: rgba(5, 18, 34, 0.92);
+  pointer-events: none;
+}
+
+.geometry-toolbar {
+  display: flex;
+  gap: 4px;
+  width: min(600px, calc(100vw - 20px));
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--panel);
+  box-shadow: 0 14px 36px rgba(0, 4, 12, 0.5);
+  pointer-events: auto;
+}
+
+.geometry-toolbar button {
+  min-width: 0;
+  flex: 1;
+  padding: 5px 4px;
+  font-size: 9px;
+  font-weight: 750;
+}
+
+.geometry-toolbar button b,
+.geometry-toolbar button small,
+.geometry-popover button small { display: block; }
+.geometry-toolbar button b { color: var(--gold); font-size: 16px; line-height: 1; }
+.geometry-toolbar button small,
+.geometry-popover button small { margin-top: 3px; color: #829497; font-size: 7px; }
+.geometry-toolbar button[aria-pressed="true"],
+.geometry-toolbar button[aria-expanded="true"] {
+  color: #171207;
+  border-color: var(--gold-light);
+  background: linear-gradient(#efca64, #b8872c);
+}
+.geometry-toolbar button[aria-pressed="true"] b,
+.geometry-toolbar button[aria-expanded="true"] b,
+.geometry-toolbar button[aria-pressed="true"] small,
+.geometry-toolbar button[aria-expanded="true"] small { color: #30230d; }
+
+.geometry-popover {
+  width: min(520px, calc(100vw - 20px));
+  max-height: min(42dvh, 330px);
+  padding: 9px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: rgba(6, 19, 37, 0.97);
+  box-shadow: 0 16px 38px rgba(0, 4, 12, 0.52);
+  pointer-events: auto;
+}
+.geometry-popover[hidden] { display: none; }
+.geometry-popover > strong { display: block; margin: 0 2px 7px; color: #eadbb7; font-size: 11px; }
+.geometry-popover .geometry-room-tools { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.geometry-more-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; }
+.geometry-popover button { padding: 6px; font-size: 9px; font-weight: 750; }
+
+.geometry-resource-bar em {
+  display: block;
+  color: #6f898e;
+  font-size: 6px;
+  font-style: normal;
+}
+
+@media (max-width: 850px) {
+  .geometry-badge { display: none; }
+  .geometry-resource-bar {
+    top: max(8px, env(safe-area-inset-top));
+    right: 150px;
+    left: max(8px, env(safe-area-inset-left));
+    max-width: none;
+    transform: none;
+  }
+}
+
+@media (max-width: 600px) {
+  .geometry-resource-bar {
+    right: 102px;
+    padding-right: 0;
+  }
+  .geometry-resource-bar span { min-width: 59px; padding: 6px 4px; }
+  .geometry-view-actions {
+    top: max(6px, env(safe-area-inset-top));
+    right: max(6px, env(safe-area-inset-right));
+  }
+  .geometry-view-actions button { min-width: 44px; padding: 0; }
+  .geometry-view-actions button:nth-child(1) { display: none; }
+  .geometry-bottom-area { right: max(5px, env(safe-area-inset-right)); bottom: max(5px, env(safe-area-inset-bottom)); left: max(5px, env(safe-area-inset-left)); }
+  .geometry-bottom-area .geometry-status { width: min(500px, calc(100vw - 10px)); }
+  .geometry-status span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .geometry-toolbar { width: min(500px, calc(100vw - 10px)); gap: 2px; padding: 3px; }
+  .geometry-toolbar button { min-height: 48px; padding: 4px 2px; font-size: 8px; }
+  .geometry-toolbar button b { font-size: 14px; }
+  .geometry-toolbar button small { display: none; }
+  .geometry-popover { width: min(500px, calc(100vw - 10px)); max-height: 44dvh; }
+  .geometry-popover .geometry-room-tools { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .geometry-more-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .geometry-sandbox-summary { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .geometry-sandbox-summary span { padding: 5px 3px; text-align: center; }
+}
+
+@media (max-width: 380px) {
+  .geometry-toolbar button { font-size: 7px; }
+  .geometry-resource-bar span { min-width: 54px; }
+  .geometry-popover .geometry-room-tools { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
