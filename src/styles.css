@@ -49,6 +49,10 @@ button {
   image-rendering: pixelated;
 }
 
+:root[data-theme="style-b"] #game canvas {
+  image-rendering: auto;
+}
+
 #hud {
   z-index: 3;
   pointer-events: none;

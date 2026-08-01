@@ -16,6 +16,7 @@ interface ThemeAssetPaths {
     bezel?: string;
   };
   wallKit?: {
+    atlas?: string;
     north: string;
     east: string;
     south: string;
@@ -128,6 +129,7 @@ const STYLE_B_THEME: VisualTheme = {
       bezel: 'assets/generated/style-b-v3/heart/bezel.png',
     },
     wallKit: {
+      atlas: 'assets/generated/style-b-v3/walls/wall-atlas.png',
       north: 'assets/generated/style-b-v3/walls/north.png',
       east: 'assets/generated/style-b-v3/walls/east.png',
       south: 'assets/generated/style-b-v3/walls/south.png',

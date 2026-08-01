@@ -33,6 +33,7 @@ export interface TerrainAssetKeys {
   wallCorner: string;
   claimedBorder: string;
   enemyBorder: string;
+  wallAtlas?: string;
   wallNorth?: string;
   wallEast?: string;
   wallSouth?: string;
@@ -44,6 +45,16 @@ export interface TerrainAssetKeys {
 }
 
 const SURFACE_SHEET_TILES = 16;
+const WALL_ATLAS_FRAMES: Record<WallPart, number> = {
+  north: 0,
+  east: 1,
+  south: 2,
+  west: 3,
+  'north-east': 4,
+  'east-south': 5,
+  'south-west': 6,
+  'west-north': 7,
+};
 
 /**
  * Asset-backed terrain renderer. Every visible world surface and edge comes
@@ -53,6 +64,8 @@ export class TerrainRenderer {
   private rt: Phaser.GameObjects.RenderTexture;
   private stamp: Phaser.GameObjects.Image;
   private overlayStamp: Phaser.GameObjects.Image;
+  private wallSprites = new Map<number, Phaser.GameObjects.Image[]>();
+  private wallSpritePool: Phaser.GameObjects.Image[] = [];
 
   constructor(
     private scene: Phaser.Scene,
@@ -65,7 +78,7 @@ export class TerrainRenderer {
       .renderTexture(0, 0, width * tile, height * tile)
       .setOrigin(0, 0)
       .setDepth(0);
-    if (assets.wallNorth) this.rt.texture.setFilter(Phaser.Textures.FilterMode.NEAREST);
+    if (assets.wallAtlas) this.rt.texture.setFilter(Phaser.Textures.FilterMode.LINEAR);
     this.stamp = scene.make.image({ key: assets.rock }, false).setOrigin(0, 0);
     this.overlayStamp = scene.make.image({ key: assets.wallEdge }, false).setOrigin(0.5, 0.5);
   }
@@ -100,6 +113,7 @@ export class TerrainRenderer {
   }
 
   private drawWallEdges(q: TerrainQuery, x: number, y: number, alpha = 1): void {
+    if (this.assets.wallAtlas) return;
     const n = this.isWall(q, x, y - 1);
     const e = this.isWall(q, x + 1, y);
     const s = this.isWall(q, x, y + 1);
@@ -155,6 +169,53 @@ export class TerrainRenderer {
     if (e) this.drawOverlay(this.assets.wallEdge, x, y, 1, alpha);
     if (s) this.drawOverlay(this.assets.wallEdge, x, y, 2, alpha);
     if (w) this.drawOverlay(this.assets.wallEdge, x, y, 3, alpha);
+  }
+
+  private partsAt(q: TerrainQuery, x: number, y: number): WallPart[] {
+    return wallParts({
+      north: this.isWall(q, x, y - 1),
+      east: this.isWall(q, x + 1, y),
+      south: this.isWall(q, x, y + 1),
+      west: this.isWall(q, x - 1, y),
+    });
+  }
+
+  private releaseWallSprites(index: number): void {
+    const sprites = this.wallSprites.get(index);
+    if (!sprites) return;
+    for (const sprite of sprites) {
+      sprite.setActive(false).setVisible(false);
+      this.wallSpritePool.push(sprite);
+    }
+    this.wallSprites.delete(index);
+  }
+
+  private updateWallSprites(q: TerrainQuery, x: number, y: number): void {
+    if (!this.assets.wallAtlas) return;
+    const index = y * this.width + x;
+    this.releaseWallSprites(index);
+    const visibility = q.visibilityAt(x, y);
+    if (!q.isOpen(x, y) || visibility === 'hidden') return;
+
+    const sprites: Phaser.GameObjects.Image[] = [];
+    const alpha = visibility === 'charted' ? 0.58 : 1;
+    for (const part of this.partsAt(q, x, y)) {
+      const frame = WALL_ATLAS_FRAMES[part];
+      const sprite = this.wallSpritePool.pop()
+        ?? this.scene.add.image(0, 0, this.assets.wallAtlas, frame).setOrigin(0.5).setDepth(2);
+      sprite
+        .setTexture(this.assets.wallAtlas, frame)
+        .setPosition(x * this.tile + this.tile / 2, y * this.tile + this.tile / 2)
+        .setAlpha(alpha)
+        .setActive(true)
+        .setVisible(true);
+      sprites.push(sprite);
+    }
+    if (sprites.length) this.wallSprites.set(index, sprites);
+  }
+
+  private clearWallSprites(): void {
+    for (const index of [...this.wallSprites.keys()]) this.releaseWallSprites(index);
   }
 
   private hasSameControl(q: TerrainQuery, x: number, y: number, control: TerrainControl): boolean {
@@ -218,6 +279,7 @@ export class TerrainRenderer {
 
   render(q: TerrainQuery): void {
     this.rt.clear();
+    this.clearWallSprites();
 
     // Pass 1: a single continuous rock mass, replaced only by revealed floors.
     for (let y = 0; y < this.height; y++) {
@@ -231,7 +293,8 @@ export class TerrainRenderer {
       for (let x = 0; x < this.width; x++) {
         const visibility = q.visibilityAt(x, y);
         if (q.isOpen(x, y) && visibility !== 'hidden') {
-          this.drawWallEdges(q, x, y, visibility === 'charted' ? 0.58 : 1);
+          if (this.assets.wallAtlas) this.updateWallSprites(q, x, y);
+          else this.drawWallEdges(q, x, y, visibility === 'charted' ? 0.58 : 1);
         }
       }
     }
@@ -262,5 +325,8 @@ export class TerrainRenderer {
     }
     for (const index of dirty) this.drawBase(q, index % this.width, Math.floor(index / this.width));
     for (const index of dirty) this.drawEdges(q, index % this.width, Math.floor(index / this.width));
+    if (this.assets.wallAtlas) {
+      for (const index of dirty) this.updateWallSprites(q, index % this.width, Math.floor(index / this.width));
+    }
   }
 }

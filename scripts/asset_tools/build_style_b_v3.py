@@ -66,23 +66,29 @@ def normalise(
 
 
 def build_walls() -> dict[str, Image.Image]:
-    sheet = Image.open(SOURCE / "wall-kit-master-alpha.png").convert("RGBA")
+    sheet = Image.open(SOURCE / "wall-kit-master-v2-alpha.png").convert("RGBA")
     built: dict[str, Image.Image] = {}
 
-    # One strong authored north wall is the canonical module. Rotating that
-    # exact bitmap guarantees identical thickness and eliminates the generated
-    # right-wall variant that contained mostly brass ticks instead of masonry.
+    # A 96px visual frame surrounds one logical 32px terrain tile. The wall can
+    # therefore keep its painted cap and masonry face mostly over the adjacent
+    # rock while intruding only a few pixels into the walkable tile. This is the
+    # key to dimensional walls that do not visually close one-tile corridors.
+    frame_size = 96
+    logical_min = 32
+    logical_max = 64
     straight = crop_cell(sheet, 4, 2, 0, 0, gutter=6)
-    left = round(straight.width * 0.31)
-    right = round(straight.width * 0.69)
+    left = round(straight.width * 0.20)
+    right = round(straight.width * 0.80)
     straight = visible_crop(straight.crop((left, 0, right, straight.height)))
-    # Runtime walls stay inside their 32px terrain cell. The previous 48/64px
-    # exports overlapped neighbouring cells, so two valid sides could visually
-    # cover a one-tile corridor and every dig forced a full-map redraw.
-    band = straight.resize((32, 14), Image.Resampling.LANCZOS)
-    band = band.filter(ImageFilter.UnsharpMask(radius=0.38, percent=108, threshold=2))
-    north = Image.new("RGBA", (32, 32))
-    north.alpha_composite(band, (0, 0))
+    scale = min(42 / straight.width, 34 / straight.height)
+    dimensions = (round(straight.width * scale), round(straight.height * scale))
+    band = straight.resize(dimensions, Image.Resampling.LANCZOS)
+    band = band.filter(ImageFilter.UnsharpMask(radius=0.42, percent=112, threshold=2))
+
+    north = Image.new("RGBA", (frame_size, frame_size))
+    # The boundary is y=32. Most of the wall sits in the solid northern tile;
+    # only the lower face crosses into the room, leaving opposing walls apart.
+    north.alpha_composite(band, ((frame_size - band.width) // 2, logical_min - band.height + 6))
     north.save(OUTPUT / "walls" / "north.png", optimize=True)
     built["north"] = north
     for name, transpose in (
@@ -94,20 +100,40 @@ def build_walls() -> dict[str, Image.Image]:
         rotated.save(OUTPUT / "walls" / f"{name}.png", optimize=True)
         built[name] = rotated
 
-    # Corners are deterministic composites of those exact side modules. This
-    # produces closed square joints without a second oversized sprite crossing
-    # the passage.
-    for name, first, second in (
-        ("north-east", "north", "east"),
-        ("east-south", "east", "south"),
-        ("south-west", "south", "west"),
-        ("west-north", "west", "north"),
+    # Reuse one authored brass cap at every deterministic L-joint. The stone
+    # legs remain the exact same pixels as the straight modules, so joins cannot
+    # produce gaps or mismatched thickness.
+    source_corner = crop_cell(sheet, 4, 2, 0, 1, gutter=6)
+    cap = visible_crop(source_corner.crop((
+        round(source_corner.width * 0.54),
+        0,
+        round(source_corner.width * 0.78),
+        round(source_corner.height * 0.28),
+    )))
+    cap = ImageOps.fit(cap, (15, 15), method=Image.Resampling.LANCZOS)
+    cap = cap.filter(ImageFilter.UnsharpMask(radius=0.35, percent=110, threshold=2))
+
+    for name, first, second, joint in (
+        ("north-east", "north", "east", (logical_max, logical_min)),
+        ("east-south", "east", "south", (logical_max, logical_max)),
+        ("south-west", "south", "west", (logical_min, logical_max)),
+        ("west-north", "west", "north", (logical_min, logical_min)),
     ):
-        corner = Image.new("RGBA", (32, 32))
+        corner = Image.new("RGBA", (frame_size, frame_size))
         corner.alpha_composite(built[first])
         corner.alpha_composite(built[second])
+        corner.alpha_composite(cap, (joint[0] - cap.width // 2, joint[1] - cap.height // 2))
         corner.save(OUTPUT / "walls" / f"{name}.png", optimize=True)
         built[name] = corner
+
+    frame_order = (
+        "north", "east", "south", "west",
+        "north-east", "east-south", "south-west", "west-north",
+    )
+    atlas = Image.new("RGBA", (frame_size * 4, frame_size * 2))
+    for index, name in enumerate(frame_order):
+        atlas.alpha_composite(built[name], ((index % 4) * frame_size, (index // 4) * frame_size))
+    atlas.save(OUTPUT / "walls" / "wall-atlas.png", optimize=True)
     return built
 
 

@@ -358,14 +358,21 @@ export class GameScene extends Phaser.Scene {
       }
     }
     if (themeAssets.wallKit) {
-      this.load.image('style-b-wall-north', themeAssets.wallKit.north);
-      this.load.image('style-b-wall-east', themeAssets.wallKit.east);
-      this.load.image('style-b-wall-south', themeAssets.wallKit.south);
-      this.load.image('style-b-wall-west', themeAssets.wallKit.west);
-      this.load.image('style-b-wall-north-east', themeAssets.wallKit.northEast);
-      this.load.image('style-b-wall-east-south', themeAssets.wallKit.eastSouth);
-      this.load.image('style-b-wall-south-west', themeAssets.wallKit.southWest);
-      this.load.image('style-b-wall-west-north', themeAssets.wallKit.westNorth);
+      if (themeAssets.wallKit.atlas) {
+        this.load.spritesheet('style-b-wall-atlas', themeAssets.wallKit.atlas, {
+          frameWidth: 96,
+          frameHeight: 96,
+        });
+      } else {
+        this.load.image('style-b-wall-north', themeAssets.wallKit.north);
+        this.load.image('style-b-wall-east', themeAssets.wallKit.east);
+        this.load.image('style-b-wall-south', themeAssets.wallKit.south);
+        this.load.image('style-b-wall-west', themeAssets.wallKit.west);
+        this.load.image('style-b-wall-north-east', themeAssets.wallKit.northEast);
+        this.load.image('style-b-wall-east-south', themeAssets.wallKit.eastSouth);
+        this.load.image('style-b-wall-south-west', themeAssets.wallKit.southWest);
+        this.load.image('style-b-wall-west-north', themeAssets.wallKit.westNorth);
+      }
     }
     if (themeAssets.groundDecals) {
       this.load.image('style-b-ground-rubble', themeAssets.groundDecals.rubble);
@@ -496,6 +503,7 @@ export class GameScene extends Phaser.Scene {
       wallCorner: 'terrain-v3-wall-corner',
       claimedBorder: 'terrain-v3-claimed-border',
       enemyBorder: 'terrain-v3-enemy-border',
+      wallAtlas: themeAssets.wallKit?.atlas ? 'style-b-wall-atlas' : undefined,
       wallNorth: themeAssets.wallKit ? 'style-b-wall-north' : undefined,
       wallEast: themeAssets.wallKit ? 'style-b-wall-east' : undefined,
       wallSouth: themeAssets.wallKit ? 'style-b-wall-south' : undefined,
@@ -517,7 +525,7 @@ export class GameScene extends Phaser.Scene {
     this.setupAutomation();
 
     this.cameras.main.setBounds(0, 0, W * TILE, H * TILE);
-    this.cameras.main.roundPixels = ACTIVE_VISUAL_THEME.id === 'style-b';
+    this.cameras.main.roundPixels = false;
     this.applyOpeningCamera();
     this.cameras.main.setBackgroundColor(ACTIVE_VISUAL_THEME.palette.void);
 
@@ -541,12 +549,12 @@ export class GameScene extends Phaser.Scene {
     return 1.06;
   }
 
-  /** Keep the illustrated world crisp when the player zooms below 1:1. */
+  /** Painted assets need interpolation; nearest filtering turns zoom-out into pixel art. */
   private configureStyleBTextureSampling(): void {
     if (ACTIVE_VISUAL_THEME.id !== 'style-b') return;
     for (const key of this.textures.getTextureKeys()) {
       if (key !== '__DEFAULT' && key !== '__MISSING') {
-        this.textures.get(key).setFilter(Phaser.Textures.FilterMode.NEAREST);
+        this.textures.get(key).setFilter(Phaser.Textures.FilterMode.LINEAR);
       }
     }
   }

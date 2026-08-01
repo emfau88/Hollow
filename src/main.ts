@@ -16,6 +16,7 @@ const config: Phaser.Types.Core.GameConfig = {
     pixelArt: false,
     antialias: true,
     roundPixels: false,
+    mipmapFilter: 'LINEAR_MIPMAP_LINEAR',
   },
   scale: {
     mode: Phaser.Scale.RESIZE,

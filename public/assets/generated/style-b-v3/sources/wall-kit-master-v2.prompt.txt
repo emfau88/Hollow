@@ -1,0 +1,10 @@
+Use case: stylized-concept
+Asset type: production game asset, high-resolution modular dungeon wall tile sheet
+Input images: Image 1 is the existing Hollow Covenant wall-kit style and material reference.
+Primary request: recreate and refine the same friendly premium fantasy dungeon wall kit as eight isolated modules in an exact 4-column by 2-row grid. Top row from left to right: NORTH horizontal wall, EAST vertical wall, SOUTH horizontal wall, WEST vertical wall. Bottom row from left to right: NORTH-EAST L corner, EAST-SOUTH L corner, SOUTH-WEST L corner, WEST-NORTH L corner.
+Style/medium: polished hand-painted strategy game asset, slightly humorous rather than grim, softly rounded slate blocks, plum masonry faces, tasteful warm brass caps and bolts, strong readable 2.5D depth.
+Composition/framing: every module centered in its equal grid cell with generous separation; identical logical scale; straight pieces span the same length; corners join at perfect right angles; consistent wall thickness and height; consistent upper-left lighting.
+Scene/backdrop: perfectly flat solid #ff00ff chroma-key background for local removal. One uniform color only, no gradient, texture, lighting variation, floor plane, reflection, or background shadow.
+Materials/textures: crisp large stone forms, bevel highlights, restrained cracks, soft ambient occlusion inside the wall itself, premium readable detail that survives downscaling.
+Constraints: preserve the recognizable visual language of Image 1; complete unbroken silhouettes; no missing corner squares; no doors; no gaps; no loose props; no characters; no text; no labels; no watermark; no cast shadow or contact shadow outside the modules; keep every module fully inside its cell with padding; do not use #ff00ff anywhere in the wall artwork.
+Avoid: pixel art, thin grey rails, tiny noisy texture, photorealism, asymmetrical scale, perspective distortion, touching or overlapping cells.
