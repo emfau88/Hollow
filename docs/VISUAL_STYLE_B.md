@@ -1,7 +1,7 @@
 # Visual Style B – Dungeon Administration
 
 **Status:** spielbarer Vertical Slice hinter `?theme=style-b`
-**Stand:** 31. Juli 2026
+**Stand:** 1. August 2026
 
 ## Ziel
 
@@ -134,22 +134,44 @@ verwenden bewusst die bisherigen Assets als Fallback.
 ### Style-B-V3: räumliche Kartenarchitektur
 
 Der dritte Pass ersetzt die flache Kartenwirkung durch ein gerichtetes
-Wandmodul-System. Vier gerade Kanten und vier separat gezeichnete L-Ecken
-besitzen eine helle Steinkappe, eine sichtbare dunkle Wandstirn und einen
-Kontaktschatten. Der Renderer setzt an Sackgassen zwei Ecken und an isolierten
-Feldern vier Ecken, sodass auch Drei- und Vierfachanschlüsse keine transparenten
-Quadrate hinterlassen. Bekannte Style-B-Zielräume verwenden vollständige
-rechteckige Grundrisse; ihre vier Eckfelder werden nicht mehr ausgespart.
+Wandmodul-System. Helle Steinkappen, dunkle Wandstirn und Kontaktschatten geben
+dem 32-Pixel-Raster sichtbare Höhe. Bekannte Style-B-Zielräume verwenden
+vollständige rechteckige Grundrisse; ihre vier Eckfelder werden nicht mehr
+ausgespart.
 
 Großformatige Materialflächen liefern cobaltfarbenen Fels, Grabungsboden,
 pflaumenfarbenen Covenant-Stein und feuchten Grotto-Boden. Das Pilzbiom beginnt
 erst hinter einem blauen Puffer östlich des Herzraums. Bodendecals ergänzen
 Schutt, Werkzeugspuren, Covenant-Einlage, Moos, Sporen und Pfütze, ohne das
-Raster zu betonen. Der Herzraum ist 15 × 11 Felder groß, seine Dekoration folgt
+Raster zu betonen. Der Herzraum ist 15 × 13 Felder groß, seine Dekoration folgt
 dem Rand, und Arbeiter starten auf sicheren Innenfeldern. Der rote Herzkern
 sitzt zwischen fester Rückplatte und Vorderfassung und liest sich dadurch als
 Teil eines Gebäudes statt als aufgesetzte Figur. Die alte orange Besitzkontur
 entfällt in Style B; Material und Architektur vermitteln Besitz bereits klar.
+
+### Style-B-V4: geschlossene Wandtopologie und räumlichere Eröffnung
+
+Der vierte Pass trennt Wandgeometrie vollständig von der bemalten Kachel. Gerade
+Module sitzen auf den vier Rasterkanten; konvexe, konkave und diagonale
+Abschlüsse sitzen auf dem gemeinsamen Rasterknoten. Dadurch teilen zwei
+aufeinandertreffende Wände immer denselben Eckpunkt. Rechteckige Kammern,
+ein Feld breite Gänge, Sackgassen und frisch gegrabene Raumanschlüsse können
+keine fehlenden Eckquadrate oder übereinandergestapelten L-Sprites mehr bilden.
+Konkave Türpfosten sind bewusst kompakt, große äußere Raumecken erhalten einen
+kräftigen Messingpfeiler. Die Topologie wird unabhängig von Phaser getestet.
+
+Das neue Quellblatt besitzt vier separat gemalte Himmelsrichtungen mit einer
+festen Lichtquelle statt gedrehter Kopien. Die Laufzeit verwendet daraus einen
+96-Pixel-Atlas und behält lineare Filterung, Subpixel-Kamera und den lokalen
+Sprite-Pool bei. Eine Grabung aktualisiert nur die betroffenen Kacheln, Kanten
+und angrenzenden Knoten; es gibt keinen zusätzlichen Pro-Frame-Terrainpass.
+
+Karren und Vorräte folgen dem unteren Rand des vergrößerten Herzraums; Boden-
+und Fundamentkontakte erhalten Schatten. Zwischen Herzraum und Pilzgrotte
+liegen fünf geschlossene Felsfelder. Der Tutorialgang mündet mittig in die
+westliche Grottenwand; weitere neutrale Ziele liegen außerhalb des unmittelbaren
+Startclusters. In der Grotte ersetzen organische Moos-, Pfützen- und
+Sporenflächen die rechteckige türkisfarbene Diagnosekontur.
 
 ## Freigabekriterien für den nächsten Produktionsschritt
 

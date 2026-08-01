@@ -43,6 +43,23 @@ def crop_cell(
     return visible_crop(cell) if visible else cell
 
 
+def crop_source_sheet_cell(
+    sheet: Image.Image,
+    columns: int,
+    rows: int,
+    column: int,
+    row: int,
+    *,
+    gutter: int = 10,
+) -> Image.Image:
+    """Crop an ImageGen source cell while removing its authored separators."""
+    left = round(column * sheet.width / columns) + gutter
+    right = round((column + 1) * sheet.width / columns) - gutter
+    top = round(row * sheet.height / rows) + gutter
+    bottom = round((row + 1) * sheet.height / rows) - gutter
+    return visible_crop(sheet.crop((left, top, right, bottom)))
+
+
 def normalise(
     sprite: Image.Image,
     size: tuple[int, int],
@@ -66,74 +83,81 @@ def normalise(
 
 
 def build_walls() -> dict[str, Image.Image]:
-    sheet = Image.open(SOURCE / "wall-kit-master-v2-alpha.png").convert("RGBA")
+    sheet = Image.open(SOURCE / "wall-kit-master-v4-alpha.png").convert("RGBA")
     built: dict[str, Image.Image] = {}
 
-    # A 96px visual frame surrounds one logical 32px terrain tile. The wall can
-    # therefore keep its painted cap and masonry face mostly over the adjacent
-    # rock while intruding only a few pixels into the walkable tile. This is the
-    # key to dimensional walls that do not visually close one-tile corridors.
+    # Every 96px frame is anchored to a grid EDGE or grid VERTEX, never to an
+    # open tile centre. Runtime topology therefore decides geometry, while this
+    # source sheet contributes only the painted material and fixed perspective.
     frame_size = 96
-    logical_min = 32
-    logical_max = 64
-    straight = crop_cell(sheet, 4, 2, 0, 0, gutter=6)
-    left = round(straight.width * 0.20)
-    right = round(straight.width * 0.80)
-    straight = visible_crop(straight.crop((left, 0, right, straight.height)))
-    scale = min(42 / straight.width, 34 / straight.height)
-    dimensions = (round(straight.width * scale), round(straight.height * scale))
-    band = straight.resize(dimensions, Image.Resampling.LANCZOS)
-    band = band.filter(ImageFilter.UnsharpMask(radius=0.42, percent=112, threshold=2))
 
-    north = Image.new("RGBA", (frame_size, frame_size))
-    # The boundary is y=32. Most of the wall sits in the solid northern tile;
-    # only the lower face crosses into the room, leaving opposing walls apart.
-    north.alpha_composite(band, ((frame_size - band.width) // 2, logical_min - band.height + 6))
-    north.save(OUTPUT / "walls" / "north.png", optimize=True)
-    built["north"] = north
-    for name, transpose in (
-        ("east", Image.Transpose.ROTATE_270),
-        ("south", Image.Transpose.ROTATE_180),
-        ("west", Image.Transpose.ROTATE_90),
+    def edge_module(column: int, horizontal: bool) -> Image.Image:
+        source = crop_source_sheet_cell(sheet, 4, 2, column, 0)
+        if horizontal:
+            source = visible_crop(source.crop((
+                round(source.width * 0.39), 0,
+                round(source.width * 0.61), source.height,
+            )))
+            dimensions = (36, 58)
+        else:
+            source = visible_crop(source.crop((
+                0, round(source.height * 0.39),
+                source.width, round(source.height * 0.61),
+            )))
+            dimensions = (42, 36)
+        source = ImageOps.fit(source, dimensions, method=Image.Resampling.LANCZOS)
+        source = source.filter(ImageFilter.UnsharpMask(radius=0.42, percent=116, threshold=2))
+        canvas = Image.new("RGBA", (frame_size, frame_size))
+        # The authored wall face hangs below the edge in screen space. Vertical
+        # modules keep their own left/right face and are never rotated copies.
+        x = (frame_size - source.width) // 2
+        y = 30 if horizontal else (frame_size - source.height) // 2
+        canvas.alpha_composite(source, (x, y))
+        return canvas
+
+    for name, column, horizontal in (
+        ("north", 0, True),
+        ("east", 1, False),
+        ("south", 2, True),
+        ("west", 3, False),
     ):
-        rotated = north.transpose(transpose)
-        rotated.save(OUTPUT / "walls" / f"{name}.png", optimize=True)
-        built[name] = rotated
+        module = edge_module(column, horizontal)
+        module.save(OUTPUT / "walls" / f"{name}-v4.png", optimize=True)
+        built[name] = module
 
-    # Reuse one authored brass cap at every deterministic L-joint. The stone
-    # legs remain the exact same pixels as the straight modules, so joins cannot
-    # produce gaps or mismatched thickness.
-    source_corner = crop_cell(sheet, 4, 2, 0, 1, gutter=6)
-    cap = visible_crop(source_corner.crop((
-        round(source_corner.width * 0.54),
-        0,
-        round(source_corner.width * 0.78),
-        round(source_corner.height * 0.28),
-    )))
-    cap = ImageOps.fit(cap, (15, 15), method=Image.Resampling.LANCZOS)
-    cap = cap.filter(ImageFilter.UnsharpMask(radius=0.35, percent=110, threshold=2))
+    def joint_module(column: int, *, compact: bool = False) -> Image.Image:
+        source = crop_source_sheet_cell(sheet, 4, 2, column, 1)
+        if compact:
+            # Concave vertices occur in pairs only one tile apart at corridor
+            # mouths. Keep their brass cap but remove the tall masonry base so
+            # opposing jambs can never overlap and look like a closed gate.
+            source = visible_crop(source.crop((
+                round(source.width * 0.27), 0,
+                round(source.width * 0.73), round(source.height * 0.54),
+            )))
+            source = ImageOps.contain(source, (34, 38), method=Image.Resampling.LANCZOS)
+        else:
+            source = ImageOps.contain(source, (54, 68), method=Image.Resampling.LANCZOS)
+        source = source.filter(ImageFilter.UnsharpMask(radius=0.42, percent=116, threshold=2))
+        canvas = Image.new("RGBA", (frame_size, frame_size))
+        y = 29 if compact else 16
+        canvas.alpha_composite(source, ((frame_size - source.width) // 2, y))
+        return canvas
 
-    for name, first, second, joint in (
-        ("north-east", "north", "east", (logical_max, logical_min)),
-        ("east-south", "east", "south", (logical_max, logical_max)),
-        ("south-west", "south", "west", (logical_min, logical_max)),
-        ("west-north", "west", "north", (logical_min, logical_min)),
-    ):
-        corner = Image.new("RGBA", (frame_size, frame_size))
-        corner.alpha_composite(built[first])
-        corner.alpha_composite(built[second])
-        corner.alpha_composite(cap, (joint[0] - cap.width // 2, joint[1] - cap.height // 2))
-        corner.save(OUTPUT / "walls" / f"{name}.png", optimize=True)
-        built[name] = corner
+    built["convex"] = joint_module(0)
+    built["concave"] = joint_module(1, compact=True)
+    # Diagonal touch cases are rare but need a solid vertex rather than a
+    # transparent pinhole. The compact convex post is the least intrusive cap.
+    built["diagonal"] = built["concave"].copy()
+    built["empty"] = Image.new("RGBA", (frame_size, frame_size))
+    for name in ("convex", "concave", "diagonal"):
+        built[name].save(OUTPUT / "walls" / f"{name}-v4.png", optimize=True)
 
-    frame_order = (
-        "north", "east", "south", "west",
-        "north-east", "east-south", "south-west", "west-north",
-    )
+    frame_order = ("north", "east", "south", "west", "convex", "concave", "diagonal", "empty")
     atlas = Image.new("RGBA", (frame_size * 4, frame_size * 2))
     for index, name in enumerate(frame_order):
         atlas.alpha_composite(built[name], ((index % 4) * frame_size, (index // 4) * frame_size))
-    atlas.save(OUTPUT / "walls" / "wall-atlas.png", optimize=True)
+    atlas.save(OUTPUT / "walls" / "wall-atlas-v4.png", optimize=True)
     return built
 
 
@@ -255,7 +279,7 @@ def make_preview(
         preview.alpha_composite(walls["north"], (x, 268))
     for y in range(300, 485, 32):
         preview.alpha_composite(walls["west"], (40, y))
-    preview.alpha_composite(walls["west-north"], (40, 268))
+    preview.alpha_composite(walls["convex"], (40, 268))
     preview.alpha_composite(decals["covenant-inlay"].resize((150, 122), Image.Resampling.LANCZOS), (110, 330))
 
     preview.alpha_composite(heart["backplate"].resize((190, 190), Image.Resampling.LANCZOS), (402, 274))

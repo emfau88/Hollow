@@ -1,0 +1,12 @@
+Use case: stylized-concept
+Asset type: production source sheet for modular 2.5D dungeon wall sprites on a 32-pixel game grid
+Input images: Image 1 is the binding visual target for perspective, color, stonework and cheerful dungeon-administration mood; Image 2 is the existing modular wall source and material reference.
+Primary request: create one clean 4-by-2 sprite source sheet containing exactly eight isolated architectural modules, one module centered in each equal cell, with no overlap between cells.
+Top row, left to right: one-tile NORTH horizontal wall segment, one-tile EAST vertical wall segment, one-tile SOUTH horizontal wall segment, one-tile WEST vertical wall segment.
+Bottom row, left to right: convex outer-corner pillar, concave inner-corner pillar, doorway/end jamb, short transition buttress.
+Style/medium: polished hand-painted strategy-game environment art, humorous premium dungeon management, not pixel art; chunky pale stone caps, deep plum-blue masonry faces, restrained warm brass accents, large readable shapes.
+Composition/framing: strict three-quarter top-down orthographic game view; each straight module spans exactly one logical tile and has clean square join planes at both ends; corner modules are compact square posts centered on the grid vertex.
+Lighting/mood: one fixed world-space light from upper-left across every module; north/east/south/west must be separately authored for the same camera, never simple rotations; strong but controlled contact shadows built into the wall object.
+Scene/backdrop: perfectly flat solid #ff00ff chroma-key background. The background must be completely uniform with no texture, gradients, cast shadows, floor plane or lighting variation.
+Color palette: pale warm limestone, cobalt-navy shadow, muted plum masonry, small brass-gold accents; never use #ff00ff inside any module.
+Constraints: exactly eight modules and no extra objects; generous padding inside every cell; crisp silhouettes; no characters; no mushrooms; no props; no labels; no text; no logo; no watermark; no perspective mismatch; no cropped parts.

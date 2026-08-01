@@ -1,5 +1,5 @@
 export type WallSide = 'north' | 'east' | 'south' | 'west';
-export type WallPart = WallSide | 'north-east' | 'east-south' | 'south-west' | 'west-north';
+export type WallJoint = 'convex' | 'concave' | 'diagonal';
 
 export interface WallNeighbours {
   north: boolean;
@@ -8,27 +8,40 @@ export interface WallNeighbours {
   west: boolean;
 }
 
-/**
- * Selects non-overlapping wall art for one open terrain tile.
- *
- * A single L-piece is only safe for an exact two-side corner. Dead ends and
- * isolated tiles must use independent straight sides; stacking multiple large
- * L-pieces otherwise paints apparent barriers across the only open passage.
- */
-export function wallParts(neighbours: WallNeighbours): WallPart[] {
-  const { north, east, south, west } = neighbours;
-  const count = Number(north) + Number(east) + Number(south) + Number(west);
-  if (count === 2) {
-    if (north && east) return ['north-east'];
-    if (east && south) return ['east-south'];
-    if (south && west) return ['south-west'];
-    if (west && north) return ['west-north'];
-  }
+export interface WallVertexCells {
+  northWest: boolean;
+  northEast: boolean;
+  southEast: boolean;
+  southWest: boolean;
+}
 
-  const parts: WallPart[] = [];
-  if (north) parts.push('north');
-  if (east) parts.push('east');
-  if (south) parts.push('south');
-  if (west) parts.push('west');
-  return parts;
+/**
+ * Selects the solid-facing boundary edges of one open terrain tile. Each edge
+ * is positioned on the grid boundary by TerrainRenderer; corners are handled
+ * independently at shared grid vertices so they cannot leave a missing tile.
+ */
+export function wallSides(neighbours: WallNeighbours): WallSide[] {
+  const { north, east, south, west } = neighbours;
+  const sides: WallSide[] = [];
+  if (north) sides.push('north');
+  if (east) sides.push('east');
+  if (south) sides.push('south');
+  if (west) sides.push('west');
+  return sides;
+}
+
+/**
+ * Classifies a grid vertex from the four walkable cells surrounding it.
+ * One open quadrant is a room's outside corner, three open quadrants are an
+ * inward rock corner, and diagonal pairs need a compact cap to avoid pinholes.
+ * Adjacent pairs form a straight wall and deliberately receive no post.
+ */
+export function wallJoint(cells: WallVertexCells): WallJoint | undefined {
+  const { northWest, northEast, southEast, southWest } = cells;
+  const count = Number(northWest) + Number(northEast) + Number(southEast) + Number(southWest);
+  if (count === 1) return 'convex';
+  if (count === 3) return 'concave';
+  if (count !== 2) return undefined;
+  const diagonal = (northWest && southEast) || (northEast && southWest);
+  return diagonal ? 'diagonal' : undefined;
 }

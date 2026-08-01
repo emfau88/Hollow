@@ -223,9 +223,14 @@ interface WorldTile {
 const NORTH_SHIFT = 8;
 const sy = (y: number) => y + NORTH_SHIFT;
 const HEART_TILE = { x: 32, y: sy(22) };
-const STARTING_CHAMBER = { x: 25, y: sy(17), w: 15, h: 11 };
+const STARTING_CHAMBER = { x: 25, y: sy(17), w: 15, h: 13 };
+const IRON_CHAMBER = { x: 15, y: sy(30), w: 5, h: 6 };
+const FUNGUS_CHAMBER = { x: 45, y: sy(24), w: 7, h: 7 };
+const DWARF_CHAMBER = { x: 10, y: sy(14), w: 8, h: 7 };
+const SHRINE_CHAMBER = { x: 45, y: sy(6), w: 8, h: 7 };
+const FUNGUS_TILE = { x: 48, y: sy(27) };
 const TUTORIAL_ROUTE_START: GridPoint = { x: 39, y: sy(26) };
-const TUTORIAL_ROUTE_END: GridPoint = { x: 42, y: sy(26) };
+const TUTORIAL_ROUTE_END: GridPoint = { x: FUNGUS_CHAMBER.x, y: sy(26) };
 const AUTOMATION_OPTIONS = parseAutomationOptions(window.location.search);
 // Heart floor: the 3×3 around the heart uses the dedicated heart floor frame.
 const HEART_FLOOR = { x: 31, y: sy(21), w: 3, h: 3 };
@@ -237,9 +242,9 @@ const TERRAIN_MATERIAL_ANCHORS: ReadonlyArray<{
 }> = [
   { material: 'slate', x: 32, y: sy(22), seed: 3 },
   { material: 'basalt', x: 17, y: sy(19), seed: 11 },
-  { material: 'damp', x: 43, y: sy(25), seed: 19 },
-  { material: 'roots', x: 50, y: sy(34), seed: 29 },
-  { material: 'earth', x: 44, y: sy(8), seed: 37 },
+  { material: 'damp', x: FUNGUS_TILE.x, y: FUNGUS_TILE.y, seed: 19 },
+  { material: 'roots', x: 55, y: sy(34), seed: 29 },
+  { material: 'earth', x: 49, y: sy(7), seed: 37 },
 ];
 
 export class GameScene extends Phaser.Scene {
@@ -565,7 +570,7 @@ export class GameScene extends Phaser.Scene {
     if (ACTIVE_VISUAL_THEME.id === 'style-b') {
       // Frame the headquarters, the short tutorial route and the already
       // excavated grotto as one readable opening composition.
-      camera.centerOn(this.wx(35.4), this.wy(sy(24.7)));
+      camera.centerOn(this.wx(37.6), this.wy(sy(24.7)));
     } else {
       camera.centerOn(this.wx(HEART_TILE.x), this.wy(HEART_TILE.y));
     }
@@ -598,7 +603,7 @@ export class GameScene extends Phaser.Scene {
     if (!fungus?.discovered) {
       this.setTool('dig');
       this.showTutorialGuide();
-      this.cameras.main.pan(this.wx(39), this.wy(TUTORIAL_ROUTE_START.y), 850, 'Sine.easeInOut');
+      this.cameras.main.pan(this.wx(42), this.wy(TUTORIAL_ROUTE_START.y), 850, 'Sine.easeInOut');
       this.hud.toast(
         '1. Verbindung öffnen',
         'Die Pilzgrotte ist bereits ausgegraben und grün markiert. Ziehe mit „Gang“ vom goldenen Ring bis in die Grotte.',
@@ -628,7 +633,7 @@ export class GameScene extends Phaser.Scene {
       this.wy(TUTORIAL_ROUTE_END.y),
       15,
     ).setStrokeStyle(3, COLORS.fungus, 0.95).setDepth(59);
-    const label = this.add.text(this.wx(45), this.wy(sy(25)), 'PILZGROTTE\nAUSGEGRABEN · GANG ÖFFNEN', {
+    const label = this.add.text(this.wx(FUNGUS_TILE.x), this.wy(FUNGUS_CHAMBER.y - 1), 'PILZGROTTE\nAUSGEGRABEN · GANG ÖFFNEN', {
       fontFamily: 'Barlow Condensed, Arial',
       fontSize: '15px',
       fontStyle: 'bold',
@@ -1375,10 +1380,10 @@ export class GameScene extends Phaser.Scene {
 
     // Strategic targets are pre-existing, disconnected caverns. The player can
     // read their silhouette and only needs to dig a connecting tunnel.
-    chart(18, sy(28), 5, 6, 'organic');
-    chart(42, sy(26), 7, 7, 'organic');
-    chart(13, sy(14), 8, 7, 'fortified');
-    chart(40, sy(8), 8, 7, 'ritual');
+    chart(IRON_CHAMBER.x, IRON_CHAMBER.y, IRON_CHAMBER.w, IRON_CHAMBER.h, 'organic');
+    chart(FUNGUS_CHAMBER.x, FUNGUS_CHAMBER.y, FUNGUS_CHAMBER.w, FUNGUS_CHAMBER.h, 'organic');
+    chart(DWARF_CHAMBER.x, DWARF_CHAMBER.y, DWARF_CHAMBER.w, DWARF_CHAMBER.h, 'fortified');
+    chart(SHRINE_CHAMBER.x, SHRINE_CHAMBER.y, SHRINE_CHAMBER.w, SHRINE_CHAMBER.h, 'ritual');
 
     const storage: Room = {
       id: this.nextId++,
@@ -1412,14 +1417,14 @@ export class GameScene extends Phaser.Scene {
         id: 'iron',
         label: 'Kleine Eisenader',
         kind: 'ore',
-        x: 20,
-        y: sy(31),
+        x: 17,
+        y: sy(33),
         amount: 8,
         initial: 8,
         owner: 'natural',
         discovered: false,
         claimed: false,
-        chamber: { x: 18, y: sy(28), w: 5, h: 6 },
+        chamber: { ...IRON_CHAMBER },
         color: nodePalette.iron,
         symbol: '◆',
         mineTimer: 0,
@@ -1428,14 +1433,14 @@ export class GameScene extends Phaser.Scene {
         id: 'fungus',
         label: 'Pilzgrotte',
         kind: 'biomass',
-        x: 45,
-        y: sy(29),
+        x: FUNGUS_TILE.x,
+        y: FUNGUS_TILE.y,
         amount: 16,
         initial: 16,
         owner: 'natural',
         discovered: false,
         claimed: false,
-        chamber: { x: 42, y: sy(26), w: 7, h: 7 },
+        chamber: { ...FUNGUS_CHAMBER },
         color: nodePalette.fungus,
         symbol: '♣',
         mineTimer: 0,
@@ -1444,14 +1449,14 @@ export class GameScene extends Phaser.Scene {
         id: 'dwarf',
         label: 'Zwergen-Claim',
         kind: 'ore',
-        x: 17,
+        x: 14,
         y: sy(17),
         amount: 36,
         initial: 36,
         owner: 'dwarf',
         discovered: false,
         claimed: false,
-        chamber: { x: 13, y: sy(14), w: 8, h: 7 },
+        chamber: { ...DWARF_CHAMBER },
         color: nodePalette.iron,
         symbol: '⚒',
         mineTimer: 0,
@@ -1460,14 +1465,14 @@ export class GameScene extends Phaser.Scene {
         id: 'shrine',
         label: 'Essenzschrein',
         kind: 'essence',
-        x: 44,
-        y: sy(11),
+        x: 49,
+        y: sy(9),
         amount: 16,
         initial: 16,
         owner: 'inquisition',
         discovered: false,
         claimed: false,
-        chamber: { x: 40, y: sy(8), w: 8, h: 7 },
+        chamber: { ...SHRINE_CHAMBER },
         color: nodePalette.essence,
         symbol: '✦',
         mineTimer: 0,
@@ -1484,12 +1489,12 @@ export class GameScene extends Phaser.Scene {
 
     // The first economic objective is intentionally safe. Combat begins only
     // once the player has produced equipment and recruited a second fighter.
-    this.spawnEnemy('dwarf', 16, sy(16), { origin: 'dwarf' });
-    this.spawnEnemy('dwarf', 18, sy(18), { origin: 'dwarf' });
-    this.spawnEnemy('crossbow', 15, sy(18), { origin: 'dwarf' });
-    this.spawnEnemy('adept', 42, sy(10), { origin: 'shrine' });
-    this.spawnEnemy('adept', 46, sy(12), { origin: 'shrine' });
-    this.spawnEnemy('captain', 44, sy(10), { origin: 'shrine' });
+    this.spawnEnemy('dwarf', 12, sy(16), { origin: 'dwarf' });
+    this.spawnEnemy('dwarf', 16, sy(18), { origin: 'dwarf' });
+    this.spawnEnemy('crossbow', 14, sy(18), { origin: 'dwarf' });
+    this.spawnEnemy('adept', 47, sy(8), { origin: 'shrine' });
+    this.spawnEnemy('adept', 51, sy(10), { origin: 'shrine' });
+    this.spawnEnemy('captain', 49, sy(8), { origin: 'shrine' });
   }
 
   private createNodeVisual(node: ResourceNode): Phaser.GameObjects.Container {
@@ -1582,12 +1587,13 @@ export class GameScene extends Phaser.Scene {
       .setDisplaySize(168, 136)
       .setDepth(4.5)
       .setAlpha(0.74);
-    const rubble = this.add.image(this.wx(27.1), this.wy(sy(26.1)), 'style-b-ground-rubble')
+    const rubble = this.add.image(this.wx(27.1), this.wy(sy(27.3)), 'style-b-ground-rubble')
       .setDisplaySize(84, 48)
       .setDepth(4.5)
       .setAlpha(0.72);
-    this.tutorialRouteDecal = this.add.image(this.wx(40), this.wy(TUTORIAL_ROUTE_START.y), 'style-b-ground-excavation')
-      .setDisplaySize(112, 78)
+    const routeMidX = (TUTORIAL_ROUTE_START.x + TUTORIAL_ROUTE_END.x) / 2;
+    this.tutorialRouteDecal = this.add.image(this.wx(routeMidX), this.wy(TUTORIAL_ROUTE_START.y), 'style-b-ground-excavation')
+      .setDisplaySize(218, 78)
       .setDepth(4.5)
       .setAlpha(0.86)
       .setVisible(false);
@@ -1604,12 +1610,14 @@ export class GameScene extends Phaser.Scene {
     const glow = this.add.circle(cx, mountY, 34, ACTIVE_VISUAL_THEME.palette.heartGlow, 0.2)
       .setDepth(7)
       .setBlendMode(Phaser.BlendModes.ADD);
+    const foundationShadow = this.add.ellipse(cx, cy + 55, 202, 46, 0x030713, 0.52).setDepth(4.7);
+    const mountShadow = this.add.ellipse(cx, cy + 18, 146, 78, 0x071020, 0.24).setDepth(4.75);
     const base = this.add.image(cx, cy + 2, 'heart-building-base').setDisplaySize(220, 165).setDepth(5);
     const backplate = this.add.image(cx, mountY, 'heart-building-backplate').setDisplaySize(170, 170).setDepth(6);
     const core = this.add.image(cx, mountY, 'heart-building-core').setDisplaySize(68, 68).setDepth(8);
     const bezel = this.add.image(cx, mountY, 'heart-building-bezel').setDisplaySize(90, 90).setDepth(9);
     const pulpit = this.add.image(cx, cy + 53, 'heart-building-pulpit').setDisplaySize(120, 82).setDepth(10);
-    this.heartSetpieceObjects.push(ambient, glow, base, backplate, core, bezel, pulpit);
+    this.heartSetpieceObjects.push(ambient, glow, foundationShadow, mountShadow, base, backplate, core, bezel, pulpit);
 
     const coreScaleX = core.scaleX;
     const coreScaleY = core.scaleY;
@@ -1637,6 +1645,19 @@ export class GameScene extends Phaser.Scene {
     const image = (key: string, x: number, y: number, width: number, height: number, depth = 7) => (
       this.add.image(this.wx(x), this.wy(y), key).setDisplaySize(width, height).setDepth(depth)
     );
+    const floorImage = (key: string, x: number, y: number, width: number, height: number, depth = 7) => {
+      const shadow = this.add.ellipse(
+        this.wx(x),
+        this.wy(y) + height * 0.31,
+        width * 0.72,
+        Math.max(8, height * 0.18),
+        0x030713,
+        0.44,
+      ).setDepth(depth - 0.2);
+      const prop = image(key, x, y, width, height, depth);
+      this.heartSetpieceObjects.push(shadow, prop);
+      return prop;
+    };
 
     for (const lamp of [{ x: 26.2, y: sy(18.2) }, { x: 38.8, y: sy(18.2) }]) {
       const glow = this.add.circle(this.wx(lamp.x), this.wy(lamp.y), 35, ACTIVE_VISUAL_THEME.palette.torch, 0.1)
@@ -1650,15 +1671,17 @@ export class GameScene extends Phaser.Scene {
     this.heartSetpieceObjects.push(
       image('style-b-banner', 26.2, sy(20.6), 45, 56),
       image('style-b-notice-board', 38.6, sy(20.6), 58, 58),
-      image('style-b-rack', 38.2, sy(23.2), 68, 55),
-      image('style-b-cart', 37.8, sy(26.1), 62, 52),
-      image('style-b-supplies', 26.3, sy(26.1), 60, 54),
     );
+    floorImage('style-b-rack', 38.2, sy(23.2), 68, 55);
+    floorImage('style-b-cart', 37.8, sy(28.1), 62, 52);
+    floorImage('style-b-supplies', 26.3, sy(28.1), 60, 54);
   }
 
   private createStyleBGrottoDressing(): void {
     const fungus = this.nodes.find((node) => node.id === 'fungus');
     if (!fungus) return;
+    const gx = fungus.x;
+    const gy = fungus.y;
     const previewAlpha = Math.min(0.68, ACTIVE_VISUAL_THEME.preDiscoveryResourceAlpha);
     const add = (
       key: string,
@@ -1678,18 +1701,19 @@ export class GameScene extends Phaser.Scene {
       return prop;
     };
 
-    const glow = this.add.circle(this.wx(45), this.wy(sy(29)), 108, 0x55c9a2, 0.075)
-      .setDepth(3)
+    const glow = this.add.circle(this.wx(gx), this.wy(gy), 126, 0x55c9a2, 0.07)
+      .setDepth(1.5)
       .setBlendMode(Phaser.BlendModes.ADD);
     this.tweens.add({ targets: glow, scale: 1.08, alpha: 0.11, yoyo: true, repeat: -1, duration: 1500 });
-    add('style-b-ground-moss', 43.5, sy(28.3), 110, 68, false, 4.5);
-    add('style-b-ground-puddle', 46.2, sy(30.1), 112, 84, false, 4.5);
-    add('style-b-ground-spores', 45.1, sy(27.1), 104, 52, false, 17);
-    add('style-b-fungus-small', 43.1, sy(27.2), 50, 42);
-    add('style-b-fungus-small', 47.2, sy(27.1), 44, 38, true);
-    add('style-b-fungus-medium', 43.1, sy(30.2), 60, 60);
-    add('style-b-fungus-medium', 47.4, sy(30.4), 66, 66, true);
-    add('style-b-grotto-station', 47.2, sy(31.7), 58, 58);
+    add('style-b-ground-moss', gx - 1.5, gy - 0.7, 122, 74, false, 1.7);
+    add('style-b-ground-moss', gx + 1.8, gy + 0.15, 128, 76, true, 1.7);
+    add('style-b-ground-puddle', gx + 1.2, gy + 1.1, 122, 88, false, 1.8);
+    add('style-b-ground-spores', gx + 0.1, gy - 1.9, 116, 58, false, 17);
+    add('style-b-fungus-small', gx - 1.9, gy - 1.8, 50, 42);
+    add('style-b-fungus-small', gx + 2.2, gy - 1.9, 44, 38, true);
+    add('style-b-fungus-medium', gx - 1.9, gy + 1.2, 60, 60);
+    add('style-b-fungus-medium', gx + 2.4, gy + 1.4, 66, 66, true);
+    add('style-b-grotto-station', gx + 2.2, gy + 2.7, 58, 58);
   }
 
   private createWorker(x: number, y: number): Worker {
@@ -3186,10 +3210,9 @@ export class GameScene extends Phaser.Scene {
     let material: TerrainMaterial = 'slate';
     let bestScore = Number.POSITIVE_INFINITY;
     for (const anchor of TERRAIN_MATERIAL_ANCHORS) {
-      // The fungal palette starts beyond a one-tile cobalt buffer east of the
-      // enlarged heart chamber. Its nearest-anchor field must not tint the
-      // player's walls or floor green before the grotto is reached.
-      if (anchor.material === 'damp' && (x < 41 || y < sy(23))) continue;
+      // The fungal palette starts one field before the grotto, after a broad
+      // cobalt excavation buffer. It must never tint the player's room green.
+      if (anchor.material === 'damp' && (x < FUNGUS_CHAMBER.x - 1 || y < sy(23))) continue;
       const dx = x - anchor.x;
       const dy = y - anchor.y;
       const jitter = (((x * 41 + y * 67 + anchor.seed * 23) % 19) - 9) * 1.8;
@@ -3259,22 +3282,28 @@ export class GameScene extends Phaser.Scene {
         const tile = this.tileAt(x, y);
         return tile?.geology === 'excavated' && tile.visibility === 'charted';
       };
-      this.detail.lineStyle(node.id === 'fungus' ? 3 : 2, node.color, node.id === 'fungus' ? 0.92 : 0.66);
+      const organicGrottoPreview = comedy && node.id === 'fungus';
+      if (!organicGrottoPreview) {
+        this.detail.lineStyle(node.id === 'fungus' ? 3 : 2, node.color, node.id === 'fungus' ? 0.92 : 0.66);
+      }
       for (let ty = node.chamber.y; ty < node.chamber.y + node.chamber.h; ty++) {
         for (let tx = node.chamber.x; tx < node.chamber.x + node.chamber.w; tx++) {
           if (!chartedOpen(tx, ty)) continue;
           const left = tx * TILE;
           const top = ty * TILE;
           const chartAlpha = node.id === 'fungus' ? (comedy ? 0.055 : 0.11) : 0.025;
-          if (comedy && node.id === 'fungus') {
-            this.detail.fillStyle(node.color, chartAlpha).fillRect(left, top, TILE, TILE);
+          if (organicGrottoPreview) {
+            const jitterX = ((tx * 17 + ty * 11) % 7) - 3;
+            const jitterY = ((tx * 7 + ty * 19) % 5) - 2;
+            this.detail.fillStyle(node.color, chartAlpha)
+              .fillEllipse(left + TILE / 2 + jitterX, top + TILE / 2 + jitterY, TILE * 1.28, TILE * 1.08);
           } else {
             this.detail.fillStyle(node.color, chartAlpha).fillRect(left + 3, top + 3, TILE - 6, TILE - 6);
+            if (!chartedOpen(tx, ty - 1)) this.detail.lineBetween(left + 4, top + 3, left + TILE - 4, top + 3);
+            if (!chartedOpen(tx + 1, ty)) this.detail.lineBetween(left + TILE - 3, top + 4, left + TILE - 3, top + TILE - 4);
+            if (!chartedOpen(tx, ty + 1)) this.detail.lineBetween(left + 4, top + TILE - 3, left + TILE - 4, top + TILE - 3);
+            if (!chartedOpen(tx - 1, ty)) this.detail.lineBetween(left + 3, top + 4, left + 3, top + TILE - 4);
           }
-          if (!chartedOpen(tx, ty - 1)) this.detail.lineBetween(left + 4, top + 3, left + TILE - 4, top + 3);
-          if (!chartedOpen(tx + 1, ty)) this.detail.lineBetween(left + TILE - 3, top + 4, left + TILE - 3, top + TILE - 4);
-          if (!chartedOpen(tx, ty + 1)) this.detail.lineBetween(left + 4, top + TILE - 3, left + TILE - 4, top + TILE - 3);
-          if (!chartedOpen(tx - 1, ty)) this.detail.lineBetween(left + 3, top + 4, left + 3, top + TILE - 4);
         }
       }
 
