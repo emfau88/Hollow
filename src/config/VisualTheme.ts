@@ -18,7 +18,10 @@ interface ThemeAssetPaths {
   wallKit?: {
     atlas?: string;
     neutralAtlas?: string;
+    naturalAtlas?: string;
     corridorAtlas?: string;
+    builtThresholdAtlas?: string;
+    naturalThresholdAtlas?: string;
     north: string;
     east: string;
     south: string;
@@ -131,9 +134,12 @@ const STYLE_B_THEME: VisualTheme = {
       bezel: 'assets/generated/style-b-v3/heart/bezel.png',
     },
     wallKit: {
-      atlas: 'assets/generated/style-b-v3/walls/wall-atlas-v5.png',
-      neutralAtlas: 'assets/generated/style-b-v3/walls/wall-atlas-neutral-v5.png',
-      corridorAtlas: 'assets/generated/style-b-v3/walls/corridor-wall-atlas-v6.png',
+      atlas: 'assets/generated/style-b-v3/walls/wall-atlas-built-v7.png',
+      neutralAtlas: 'assets/generated/style-b-v3/walls/wall-atlas-fortified-v7.png',
+      naturalAtlas: 'assets/generated/style-b-v3/walls/wall-atlas-natural-v7.png',
+      corridorAtlas: 'assets/generated/style-b-v3/walls/wall-atlas-corridor-v7.png',
+      builtThresholdAtlas: 'assets/generated/style-b-v3/walls/threshold-built-v7.png',
+      naturalThresholdAtlas: 'assets/generated/style-b-v3/walls/threshold-natural-v7.png',
       north: 'assets/generated/style-b-v3/walls/north.png',
       east: 'assets/generated/style-b-v3/walls/east.png',
       south: 'assets/generated/style-b-v3/walls/south.png',

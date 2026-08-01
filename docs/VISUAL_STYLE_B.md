@@ -205,6 +205,35 @@ komprimiert. An Gangmündungen und Knicken entstehen keine freistehenden
 Raumpfosten. Das großflächige braune Tutorial-Grabungsdecal wurde aus der
 Laufzeit entfernt; der tatsächliche Boden bleibt unverdeckt.
 
+### Style-B-V7: vollständiger Projektions- und Übergangsvertrag
+
+Der siebte Pass ersetzt die vier alleinstehenden Ganggeraden durch einen
+vollständigen, für alle Architekturfamilien identischen 4-mal-4-Atlasvertrag:
+vier gerichtete Kanten, vier orientierte Außenecken, vier Innenecken, zwei
+Diagonalkontakte und zwei freie Reservefelder. Gerade, Sackgasse, L-Knick,
+T-Anschluss, Kreuzung und mehrspuriger Durchbruch werden dadurch aus derselben
+getesteten Topologie zusammengesetzt. Ein Gangknick verwendet nun ein eigenes
+kompaktes Eckmodul statt zufällig überlagerter Geraden.
+
+Die semantischen Rollen unterscheiden jetzt gebauten Covenant-Raum, natürliche
+Höhle, befestigte Kammer und gegrabenen Gang. Übergänge von einem Gang zu einer
+dieser gebauten oder natürlichen Flächen erhalten eine eigene bodennahe
+Schwelle. Die Pilzgrotte bleibt deshalb nach der Beanspruchung eine Naturhöhle
+und wird nicht zu Covenant-Mauerwerk umgefärbt.
+
+Der Projektionsvertrag setzt alle Module weiterhin auf exakte Rasterkanten und
+-knoten, gibt ihnen aber eine gemeinsame Lichtquelle von links oben. Nordwände
+bleiben niedrige Kappen, Südwände erhalten eine sichtbare Vorderfläche und
+Ost-/Westseiten klar definierte Seitenwangen. Natur- und Gangwände sind flacher
+als gebaute Architektur. Die Formen sind deterministisch; nur das malerische
+Material der Naturhöhle stammt aus dem ImageGen-Master
+`sources/natural-cavern-material-v7.png`.
+
+Für den Eröffnungsslice wurde die Pilzgrotte auf eine organische 9-mal-9-Höhle
+erweitert und zwei Felder weiter nach Osten gesetzt. Der Einstieg bleibt
+bereits kartiert, wird aber über einen längeren, klar lesbaren Durchbruch mit
+dem Herzraum verbunden.
+
 ## Freigabekriterien für den nächsten Produktionsschritt
 
 1. Herz-Hauptquartier, Dienerrollen und Pilzgrotte sind innerhalb von fünf

@@ -1,7 +1,12 @@
 import type { TerrainArchitecture } from './TerrainArchitecture';
 
 export type WallSide = 'north' | 'east' | 'south' | 'west';
-export type WallJoint = 'convex' | 'concave' | 'diagonal';
+export type WallQuadrant = 'northWest' | 'northEast' | 'southEast' | 'southWest';
+export type WallDiagonal = 'northWestSouthEast' | 'northEastSouthWest';
+export type WallJoint =
+  | { kind: 'convex'; quadrant: WallQuadrant }
+  | { kind: 'concave'; quadrant: WallQuadrant }
+  | { kind: 'diagonal'; diagonal: WallDiagonal };
 
 export interface WallNeighbours {
   north: boolean;
@@ -41,11 +46,20 @@ export function wallSides(neighbours: WallNeighbours): WallSide[] {
 export function wallJoint(cells: WallVertexCells): WallJoint | undefined {
   const { northWest, northEast, southEast, southWest } = cells;
   const count = Number(northWest) + Number(northEast) + Number(southEast) + Number(southWest);
-  if (count === 1) return 'convex';
-  if (count === 3) return 'concave';
+  if (count === 1) {
+    const quadrant = (Object.entries(cells) as Array<[WallQuadrant, boolean]>)
+      .find(([, open]) => open)?.[0];
+    return quadrant ? { kind: 'convex', quadrant } : undefined;
+  }
+  if (count === 3) {
+    const quadrant = (Object.entries(cells) as Array<[WallQuadrant, boolean]>)
+      .find(([, open]) => !open)?.[0];
+    return quadrant ? { kind: 'concave', quadrant } : undefined;
+  }
   if (count !== 2) return undefined;
-  const diagonal = (northWest && southEast) || (northEast && southWest);
-  return diagonal ? 'diagonal' : undefined;
+  if (northWest && southEast) return { kind: 'diagonal', diagonal: 'northWestSouthEast' };
+  if (northEast && southWest) return { kind: 'diagonal', diagonal: 'northEastSouthWest' };
+  return undefined;
 }
 
 /** Frame indices shared by all modular wall families. */
@@ -53,7 +67,26 @@ export function wallEdgeFrame(side: WallSide): number {
   return ({ north: 0, east: 1, south: 2, west: 3 } as const)[side];
 }
 
-/** Corridor edges overlap cleanly and never receive freestanding room posts. */
-export function shouldRenderWallPost(kind: WallJoint, architecture: TerrainArchitecture): boolean {
-  return kind === 'convex' && architecture !== 'corridor';
+/**
+ * All wall families own complete vertex modules. Corridor modules are subtle
+ * caps rather than room posts, so bends and T-junctions no longer depend on
+ * overlapping straight sprites.
+ */
+export function wallJointFrame(joint: WallJoint): number {
+  if (joint.kind === 'convex') {
+    return ({ northWest: 4, northEast: 5, southEast: 6, southWest: 7 } as const)[joint.quadrant];
+  }
+  if (joint.kind === 'concave') {
+    return ({ northWest: 8, northEast: 9, southEast: 10, southWest: 11 } as const)[joint.quadrant];
+  }
+  return joint.diagonal === 'northWestSouthEast' ? 12 : 13;
+}
+
+export function architecturePriority(architecture: TerrainArchitecture): number {
+  return ({
+    corridor: 0,
+    'natural-cavern': 1,
+    'fortified-chamber': 2,
+    'built-room': 3,
+  } as const)[architecture];
 }

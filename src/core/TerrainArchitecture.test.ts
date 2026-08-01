@@ -1,36 +1,41 @@
 import { describe, expect, it } from 'vitest';
-import { classifyTerrainArchitecture } from './TerrainArchitecture';
+import { architectureTransition, classifyTerrainArchitecture } from './TerrainArchitecture';
 
 describe('classifyTerrainArchitecture', () => {
   it('keeps the fixed headquarters on the room architecture', () => {
     expect(classifyTerrainArchitecture({
       inStartingChamber: true,
       hasCompletedRoom: false,
-      inStrategicChamber: false,
-    })).toBe('room');
+    })).toBe('built-room');
   });
 
   it('promotes completed functional rooms to room architecture', () => {
     expect(classifyTerrainArchitecture({
       inStartingChamber: false,
       hasCompletedRoom: true,
-      inStrategicChamber: false,
-    })).toBe('room');
+    })).toBe('built-room');
   });
 
-  it('keeps natural and strategic caverns on chamber architecture', () => {
+  it('keeps natural resource caverns on their own architecture', () => {
     expect(classifyTerrainArchitecture({
       inStartingChamber: false,
       hasCompletedRoom: false,
-      inStrategicChamber: true,
-    })).toBe('chamber');
+      strategicChamber: 'natural',
+    })).toBe('natural-cavern');
+  });
+
+  it('keeps enemy strongholds on fortified architecture', () => {
+    expect(classifyTerrainArchitecture({
+      inStartingChamber: false,
+      hasCompletedRoom: false,
+      strategicChamber: 'fortified',
+    })).toBe('fortified-chamber');
   });
 
   it('keeps every unassigned excavation on corridor architecture', () => {
     expect(classifyTerrainArchitecture({
       inStartingChamber: false,
       hasCompletedRoom: false,
-      inStrategicChamber: false,
     })).toBe('corridor');
   });
 
@@ -45,7 +50,6 @@ describe('classifyTerrainArchitecture', () => {
     const roles = cells.map(() => classifyTerrainArchitecture({
       inStartingChamber: false,
       hasCompletedRoom: false,
-      inStrategicChamber: false,
     }));
     expect(new Set(roles)).toEqual(new Set(['corridor']));
   });
@@ -54,13 +58,32 @@ describe('classifyTerrainArchitecture', () => {
     const corridor = classifyTerrainArchitecture({
       inStartingChamber: false,
       hasCompletedRoom: false,
-      inStrategicChamber: false,
     });
     const chamber = classifyTerrainArchitecture({
       inStartingChamber: false,
       hasCompletedRoom: false,
-      inStrategicChamber: true,
+      strategicChamber: 'natural',
     });
-    expect([corridor, chamber]).toEqual(['corridor', 'chamber']);
+    expect([corridor, chamber]).toEqual(['corridor', 'natural-cavern']);
+  });
+});
+
+describe('architectureTransition', () => {
+  it('creates a built threshold in either corridor direction', () => {
+    expect(architectureTransition('corridor', 'built-room')).toBe('built-room');
+    expect(architectureTransition('built-room', 'corridor')).toBe('built-room');
+  });
+
+  it('creates a natural threshold without converting the cavern', () => {
+    expect(architectureTransition('corridor', 'natural-cavern')).toBe('natural-cavern');
+  });
+
+  it('does not add seams inside one architecture family', () => {
+    expect(architectureTransition('corridor', 'corridor')).toBeUndefined();
+    expect(architectureTransition('built-room', 'built-room')).toBeUndefined();
+  });
+
+  it('does not invent a doorway between adjacent authored spaces', () => {
+    expect(architectureTransition('built-room', 'natural-cavern')).toBeUndefined();
   });
 });

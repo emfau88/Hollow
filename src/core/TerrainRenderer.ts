@@ -1,13 +1,13 @@
 import Phaser from 'phaser';
 import {
-  shouldRenderWallPost,
+  architecturePriority,
   wallEdgeFrame,
   wallJoint,
+  wallJointFrame,
   wallSides,
-  type WallJoint,
   type WallSide,
 } from './WallLayout';
-import type { TerrainArchitecture } from './TerrainArchitecture';
+import { architectureTransition, type TerrainArchitecture } from './TerrainArchitecture';
 
 export type TerrainControl = 'neutral' | 'claiming' | 'owned' | 'enemy';
 export type TerrainVisibility = 'hidden' | 'charted' | 'revealed';
@@ -44,7 +44,10 @@ export interface TerrainAssetKeys {
   enemyBorder: string;
   wallAtlas?: string;
   neutralWallAtlas?: string;
+  naturalWallAtlas?: string;
   corridorWallAtlas?: string;
+  builtThresholdAtlas?: string;
+  naturalThresholdAtlas?: string;
   wallNorth?: string;
   wallEast?: string;
   wallSouth?: string;
@@ -56,15 +59,6 @@ export interface TerrainAssetKeys {
 }
 
 const SURFACE_SHEET_TILES = 16;
-const WALL_ATLAS_FRAMES: Record<WallSide | WallJoint, number> = {
-  north: 0,
-  east: 1,
-  south: 2,
-  west: 3,
-  convex: 4,
-  concave: 5,
-  diagonal: 6,
-};
 /**
  * Asset-backed terrain renderer. Every visible world surface and edge comes
  * from a PNG source; code only selects frames and rotates modular overlays.
@@ -75,6 +69,7 @@ export class TerrainRenderer {
   private overlayStamp: Phaser.GameObjects.Image;
   private wallEdgeSprites = new Map<string, Phaser.GameObjects.Image>();
   private wallJointSprites = new Map<string, Phaser.GameObjects.Image>();
+  private transitionSprites = new Map<string, Phaser.GameObjects.Image>();
   private wallSpritePool: Phaser.GameObjects.Image[] = [];
 
   constructor(
@@ -227,10 +222,22 @@ export class TerrainRenderer {
   }
 
   private wallTexture(q: TerrainQuery, x: number, y: number): string {
-    if (q.architectureAt(x, y) === 'corridor' && this.assets.corridorWallAtlas) {
+    return this.wallTextureForArchitecture(q.architectureAt(x, y), q.controlAt(x, y));
+  }
+
+  private wallTextureForArchitecture(
+    architecture: TerrainArchitecture,
+    control: TerrainControl,
+  ): string {
+    if (architecture === 'corridor' && this.assets.corridorWallAtlas) {
       return this.assets.corridorWallAtlas;
     }
-    const neutral = q.controlAt(x, y) === 'neutral' && this.assets.neutralWallAtlas;
+    if (architecture === 'natural-cavern' && this.assets.naturalWallAtlas) {
+      return this.assets.naturalWallAtlas;
+    }
+    const neutral = architecture === 'fortified-chamber'
+      && control !== 'owned'
+      && this.assets.neutralWallAtlas;
     return neutral || this.assets.wallAtlas!;
   }
 
@@ -286,22 +293,66 @@ export class TerrainRenderer {
       [x, y, cells.southEast],
       [x - 1, y, cells.southWest],
     ] as const;
-    // Deep posts belong to authored room/chamber corners. Corridor mouths and
-    // bends join their low edge modules directly, independent of route width.
-    const openCell = visibleCells.find(([, , open]) => open);
-    const architecture = openCell ? q.architectureAt(openCell[0], openCell[1]) : 'corridor';
-    if (!openCell || !shouldRenderWallPost(kind, architecture)) return;
+    // Mixed vertices use the most-authored adjacent family. A room mouth gets
+    // a built jamb, a cavern mouth gets a rock cap, and a pure tunnel bend gets
+    // the corridor's compact corner module.
+    const openCells = visibleCells
+      .filter(([, , open]) => open)
+      .map(([cellX, cellY]) => ({
+        x: cellX,
+        y: cellY,
+        architecture: q.architectureAt(cellX, cellY),
+        control: q.controlAt(cellX, cellY),
+      }))
+      .sort((a, b) => architecturePriority(b.architecture) - architecturePriority(a.architecture));
+    const openCell = openCells[0];
+    if (!openCell) return;
     const revealed = visibleCells.some(([cellX, cellY, open]) => open && q.visibilityAt(cellX, cellY) === 'revealed');
-    const texture = this.wallTexture(q, openCell[0], openCell[1]);
+    const texture = this.wallTextureForArchitecture(openCell.architecture, openCell.control);
     this.wallJointSprites.set(
       key,
-      this.acquireWallSprite(texture, WALL_ATLAS_FRAMES[kind], x * this.tile, y * this.tile, revealed ? 1 : 0.66, 2.1),
+      this.acquireWallSprite(texture, wallJointFrame(kind), x * this.tile, y * this.tile, revealed ? 1 : 0.66, 2.1),
+    );
+  }
+
+  private transitionKey(x: number, y: number, side: 'east' | 'south'): string {
+    return `${x},${y}:${side}`;
+  }
+
+  /** Draws a floor-level sill where a cut passage enters authored architecture. */
+  private updateArchitectureTransition(
+    q: TerrainQuery,
+    x: number,
+    y: number,
+    side: 'east' | 'south',
+  ): void {
+    const key = this.transitionKey(x, y, side);
+    this.releaseSprite(this.transitionSprites, key);
+    if (!this.isVisibleOpen(q, x, y)) return;
+    const nx = side === 'east' ? x + 1 : x;
+    const ny = side === 'south' ? y + 1 : y;
+    if (!this.isVisibleOpen(q, nx, ny)) return;
+    const current = q.architectureAt(x, y);
+    const neighbour = q.architectureAt(nx, ny);
+    const destination = architectureTransition(current, neighbour);
+    if (!destination) return;
+    const texture = destination === 'natural-cavern'
+      ? this.assets.naturalThresholdAtlas
+      : this.assets.builtThresholdAtlas;
+    if (!texture) return;
+    const alpha = q.visibilityAt(x, y) === 'revealed' && q.visibilityAt(nx, ny) === 'revealed' ? 1 : 0.72;
+    const worldX = side === 'east' ? (x + 1) * this.tile : x * this.tile + this.tile / 2;
+    const worldY = side === 'south' ? (y + 1) * this.tile : y * this.tile + this.tile / 2;
+    this.transitionSprites.set(
+      key,
+      this.acquireWallSprite(texture, wallEdgeFrame(side), worldX, worldY, alpha, 1.9),
     );
   }
 
   private clearWallSprites(): void {
     for (const key of [...this.wallEdgeSprites.keys()]) this.releaseSprite(this.wallEdgeSprites, key);
     for (const key of [...this.wallJointSprites.keys()]) this.releaseSprite(this.wallJointSprites, key);
+    for (const key of [...this.transitionSprites.keys()]) this.releaseSprite(this.transitionSprites, key);
   }
 
   private hasSameControl(q: TerrainQuery, x: number, y: number, control: TerrainControl): boolean {
@@ -392,6 +443,12 @@ export class TerrainRenderer {
       for (let y = 0; y <= this.height; y++) {
         for (let x = 0; x <= this.width; x++) this.updateWallJoint(q, x, y);
       }
+      for (let y = 0; y < this.height; y++) {
+        for (let x = 0; x < this.width; x++) {
+          this.updateArchitectureTransition(q, x, y, 'east');
+          this.updateArchitectureTransition(q, x, y, 'south');
+        }
+      }
     }
 
     // Pass 3: faction trims communicate ownership independently of floor hue.
@@ -427,6 +484,8 @@ export class TerrainRenderer {
         const x = index % this.width;
         const y = Math.floor(index / this.width);
         this.updateWallEdges(q, x, y);
+        this.updateArchitectureTransition(q, x, y, 'east');
+        this.updateArchitectureTransition(q, x, y, 'south');
         dirtyVertices.add(this.jointKey(x, y));
         dirtyVertices.add(this.jointKey(x + 1, y));
         dirtyVertices.add(this.jointKey(x, y + 1));

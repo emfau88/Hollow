@@ -1,0 +1,12 @@
+Use case: stylized-concept
+Asset type: reusable painted game-terrain material master for a deterministic 2.5D atlas
+Input images: HOLLOW_COVENANT_STYLE_B_PRODUCTION_FRAME.png is the binding style, palette, stone-scale, brushwork, and upper-left lighting reference
+Primary request: create one seamless square field of rounded blue-green natural cavern rim stones and compact mossy pebbles, matching the friendly humorous dungeon-management mockup
+Scene/backdrop: no scene and no objects; material continues edge-to-edge
+Style/medium: polished painterly mobile/desktop strategy-game environment art; bold readable forms; restrained micro-detail
+Composition/framing: strict orthographic top-down material swatch; evenly distributed medium and small stones; no focal point
+Lighting/mood: warm soft upper-left light, cool lower-right contact shadows; inviting rather than gloomy
+Color palette: slate blue, desaturated teal, muted mint highlights, deep navy crevices
+Materials/textures: rounded hand-cut cavern stones, soft moss in crevices, dry readable surface
+Constraints: seamless-looking edges; no wall shape, no room, no corridor, no props, no characters, no mushrooms, no UI, no text, no symbols, no border, no grid, no magenta, no watermark
+Avoid: photorealism, pixel art, isometric diamond projection, perspective horizon, harsh white highlights, tiny noisy gravel

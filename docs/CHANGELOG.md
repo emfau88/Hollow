@@ -1,5 +1,18 @@
 # Changelog
 
+## Style B V7 – vollständiger 2.5D-Architekturbausatz – 1. August 2026
+
+- gemeinsamen 16-Frame-Projektionsvertrag für gebaute Räume, befestigte
+  Kammern, natürliche Höhlen und gegrabene Gänge eingeführt
+- orientierte Außen- und Innenecken sowie Diagonalkontakte ergänzt; L-, T- und
+  mehrspurige Gänge benötigen keine überlagerten Geraden mehr
+- eigene Covenant- und Natursteinschwellen für Gangmündungen ergänzt
+- Pilzgrotte als größere organische Naturhöhle rekonstruiert und räumlich vom
+  Herzraum entzerrt
+- neues, am Produktionsmockup ausgerichtetes Naturstein-Material per ImageGen
+  erstellt; die spielrelevante Geometrie bleibt vollständig deterministisch
+- Atlasdateien, semantische Rollen und Übergangsregeln automatisiert geprüft
+
 ## Style B V6 – semantisches 2.5D-System – 1. August 2026
 
 - Darstellungsrollen `room`, `chamber` und `corridor` vom offenen Grundriss

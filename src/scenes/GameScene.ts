@@ -226,10 +226,10 @@ const sy = (y: number) => y + NORTH_SHIFT;
 const HEART_TILE = { x: 32, y: sy(22) };
 const STARTING_CHAMBER = { x: 25, y: sy(17), w: 15, h: 13 };
 const IRON_CHAMBER = { x: 15, y: sy(30), w: 5, h: 6 };
-const FUNGUS_CHAMBER = { x: 45, y: sy(24), w: 7, h: 7 };
+const FUNGUS_CHAMBER = { x: 47, y: sy(23), w: 9, h: 9 };
 const DWARF_CHAMBER = { x: 10, y: sy(14), w: 8, h: 7 };
 const SHRINE_CHAMBER = { x: 45, y: sy(6), w: 8, h: 7 };
-const FUNGUS_TILE = { x: 48, y: sy(27) };
+const FUNGUS_TILE = { x: 51, y: sy(27) };
 const TUTORIAL_ROUTE_START: GridPoint = { x: 39, y: sy(26) };
 const TUTORIAL_ROUTE_END: GridPoint = { x: FUNGUS_CHAMBER.x, y: sy(26) };
 const AUTOMATION_OPTIONS = parseAutomationOptions(window.location.search);
@@ -380,6 +380,24 @@ export class GameScene extends Phaser.Scene {
             frameHeight: 96,
           });
         }
+        if (themeAssets.wallKit.naturalAtlas) {
+          this.load.spritesheet('style-b-natural-wall-atlas', themeAssets.wallKit.naturalAtlas, {
+            frameWidth: 96,
+            frameHeight: 96,
+          });
+        }
+        if (themeAssets.wallKit.builtThresholdAtlas) {
+          this.load.spritesheet('style-b-built-threshold-atlas', themeAssets.wallKit.builtThresholdAtlas, {
+            frameWidth: 96,
+            frameHeight: 96,
+          });
+        }
+        if (themeAssets.wallKit.naturalThresholdAtlas) {
+          this.load.spritesheet('style-b-natural-threshold-atlas', themeAssets.wallKit.naturalThresholdAtlas, {
+            frameWidth: 96,
+            frameHeight: 96,
+          });
+        }
       } else {
         this.load.image('style-b-wall-north', themeAssets.wallKit.north);
         this.load.image('style-b-wall-east', themeAssets.wallKit.east);
@@ -521,7 +539,10 @@ export class GameScene extends Phaser.Scene {
       enemyBorder: 'terrain-v3-enemy-border',
       wallAtlas: themeAssets.wallKit?.atlas ? 'style-b-wall-atlas' : undefined,
       neutralWallAtlas: themeAssets.wallKit?.neutralAtlas ? 'style-b-neutral-wall-atlas' : undefined,
+      naturalWallAtlas: themeAssets.wallKit?.naturalAtlas ? 'style-b-natural-wall-atlas' : undefined,
       corridorWallAtlas: themeAssets.wallKit?.corridorAtlas ? 'style-b-corridor-wall-atlas' : undefined,
+      builtThresholdAtlas: themeAssets.wallKit?.builtThresholdAtlas ? 'style-b-built-threshold-atlas' : undefined,
+      naturalThresholdAtlas: themeAssets.wallKit?.naturalThresholdAtlas ? 'style-b-natural-threshold-atlas' : undefined,
       wallNorth: themeAssets.wallKit ? 'style-b-wall-north' : undefined,
       wallEast: themeAssets.wallKit ? 'style-b-wall-east' : undefined,
       wallSouth: themeAssets.wallKit ? 'style-b-wall-south' : undefined,
@@ -1361,8 +1382,11 @@ export class GameScene extends Phaser.Scene {
           const nearCorner = (lx <= 1 || lx >= w - 2) && (ly <= 1 || ly >= h - 2);
           const edge = lx === 0 || lx === w - 1 || ly === 0 || ly === h - 1;
           const stableNoise = Math.abs((tx * 37 + ty * 61 + w * 11) % 13);
+          const centeredX = (lx - (w - 1) / 2) / Math.max(1, w / 2);
+          const centeredY = (ly - (h - 1) / 2) / Math.max(1, h / 2);
+          const roundedCavern = centeredX * centeredX + centeredY * centeredY <= 1.04;
           const keep = ACTIVE_VISUAL_THEME.id === 'style-b'
-            ? true
+            ? shape === 'organic' ? roundedCavern : true
             : shape === 'ritual'
               ? !corner && !(nearCorner && (lx + ly) % 2 === 0)
               : shape === 'fortified'
@@ -3208,13 +3232,16 @@ export class GameScene extends Phaser.Scene {
       && y < STARTING_CHAMBER.y + STARTING_CHAMBER.h;
     const hasCompletedRoom = tile?.roomKind === 'heart'
       || (tile?.roomId !== undefined && tile.construction === 'complete');
-    const inStrategicChamber = this.nodes.some((node) => (
+    const strategicNode = this.nodes.find((node) => (
       x >= node.chamber.x
       && x < node.chamber.x + node.chamber.w
       && y >= node.chamber.y
       && y < node.chamber.y + node.chamber.h
     ));
-    return classifyTerrainArchitecture({ inStartingChamber, hasCompletedRoom, inStrategicChamber });
+    const strategicChamber = strategicNode
+      ? strategicNode.id === 'fungus' || strategicNode.id === 'iron' ? 'natural' : 'fortified'
+      : undefined;
+    return classifyTerrainArchitecture({ inStartingChamber, hasCompletedRoom, strategicChamber });
   }
 
   private terrainFloorAt(x: number, y: number): TerrainFloor {
