@@ -131,6 +131,8 @@ const [
   furnaceMap,
   workbenchMap,
   prisonMap,
+  generatedWallSideMap,
+  generatedWallCapMap,
 ] = await Promise.all([
   loadMap(`${terrainRoot}/claimed-floor.png`),
   loadMap(`${terrainRoot}/claimed-corridor.png`),
@@ -152,6 +154,8 @@ const [
   loadMap('assets/generated/room-props-v3/furnace.png'),
   loadMap(theme.assets.props.workbench),
   loadMap('assets/generated/room-props-v3/prison-gate.png'),
+  loadMap('assets/generated/geometry-sandbox-v2/walls/wall-side-masonry-v1.png', { x: 0.5, y: 0.5 }),
+  loadMap('assets/generated/geometry-sandbox-v2/walls/wall-cap-limestone-v1.png', { x: 0.42, y: 0.42 }),
 ]);
 
 const pixelMaps = [
@@ -197,16 +201,16 @@ const wallAssets = createProceduralWallAssets();
 type WallFamily = { side: THREE.MeshStandardMaterial; cap: THREE.MeshStandardMaterial; base: THREE.MeshStandardMaterial; post: THREE.MeshStandardMaterial };
 const wallFamilies: Record<SurfaceStyle, WallFamily> = {
   clean: {
-    side: standardMaterial({ color: 0xffffff, map: wallAssets.clean.side, roughness: 0.8 }),
-    cap: standardMaterial({ color: 0xffffff, map: wallAssets.clean.cap, roughness: 0.76 }),
-    base: standardMaterial({ color: 0x251e29, roughness: 0.94 }),
-    post: standardMaterial({ color: 0x665667, roughness: 0.8 }),
+    side: standardMaterial({ color: 0xffffff, map: generatedWallSideMap, roughness: 0.86 }),
+    cap: standardMaterial({ color: 0xffffff, map: generatedWallCapMap, roughness: 0.78 }),
+    base: standardMaterial({ color: 0xb8aa99, map: generatedWallCapMap, roughness: 0.9 }),
+    post: standardMaterial({ color: 0xd1c4b2, map: generatedWallCapMap, roughness: 0.82 }),
   },
   project: {
-    side: standardMaterial({ color: 0xffffff, map: wallAssets.project.side, roughness: 0.82 }),
-    cap: standardMaterial({ color: 0xffffff, map: wallAssets.project.cap, roughness: 0.76 }),
-    base: standardMaterial({ color: 0x132235, roughness: 0.92 }),
-    post: standardMaterial({ color: 0x586d7c, roughness: 0.74 }),
+    side: standardMaterial({ color: 0x90a6c1, map: generatedWallSideMap, roughness: 0.88 }),
+    cap: standardMaterial({ color: 0xc6b487, map: generatedWallCapMap, roughness: 0.8 }),
+    base: standardMaterial({ color: 0x8a734d, map: generatedWallCapMap, roughness: 0.94 }),
+    post: standardMaterial({ color: 0xc39a43, map: generatedWallCapMap, roughness: 0.72, metalness: 0.08 }),
   },
   natural: {
     side: standardMaterial({ color: 0xffffff, map: wallAssets.natural.side, roughness: 0.98 }),
