@@ -65,6 +65,10 @@ noch kein Ersatz für den vollständigen Vertical Slice. Nachgewiesen ist:
   zunächst roh und werden anschließend als eigene priorisierbare Arbeitskette
   Feld für Feld beansprucht; Boden und Randarchitektur wechseln dabei sichtbar
   von Natur zu Covenant;
+- Claiming ist nicht mehr zeitgesteuert unsichtbar: Ein zweiter Arbeiter läuft
+  über das echte Wegenetz zum nächsten claimbaren Feld, arbeitet dort sichtbar
+  und löst erst danach den Boden- und Wandwechsel aus. Weitere Arbeiter suchen
+  reale Bau-, Abbau- oder zusätzliche Grabziele statt dekorativ zu kreisen;
 - vier vorbereitete neutrale Orte können durch einen Durchbruch entdeckt und
   danach eingenommen werden: zwei Pilzgrotten, eine Eisengalerie und ein altes
   Vorratsgewölbe. Verdeckte Ressourcen werden vorher nicht mehr auf der Karte
@@ -72,6 +76,18 @@ noch kein Ersatz für den vollständigen Vertical Slice. Nachgewiesen ist:
 - Pilzvorkommen und fertige Funktionsräume verwenden kuratierte Kompositionen
   aus vorhandenen Style-B-Assets, Boden-Decals, Licht, Randintarsien und
   asymmetrisch verteilten Requisiten statt gleichförmig gestapelter Symbole;
+- die geschlossene Karte besitzt nun eine reliefartige, deterministisch
+  variierte Felsdecke statt einer flachen Texturmatte. Ressourcenregionen sind
+  wie im Hauptspiel schon vor dem Durchbruch über geologische Farbzonen,
+  einzelne lesbare Vorkommensmarker und sichtbare Landmark-Kammern erkennbar;
+- die Pilzgrotte und eine neue, direkt aus den Style-B-Zielbildern abgeleitete
+  Erzmine bilden zwei bewusst komponierte Hero-Orte mit eigenen Lichtfarben,
+  Boden-Decals, Requisiten und klarer Ressourcensilhouette;
+- Erz und Pilze bleiben trotz der großen Environment-Komposition echte
+  einzelne Lagerstätten: Ein Arbeiter läuft zum Vorkommen, spielt dort seine
+  Arbeitsanimation, entnimmt eine Einheit und trägt ein sichtbares Bündel zum
+  Dungeon-Herz beziehungsweise in ein fertiges Lager. Erst die Ablieferung
+  erhöht den Bestand; erschöpfte Hotspots verschwinden aus der Szene;
 - Grabaufträge öffnen den Fels nicht sofort: Der sichtbare Arbeiter läuft zum
   exakt angrenzenden Feld, richtet sich zum Ziel aus und beendet dort erst seine
   Grabanimation samt Fortschrittsanzeige;
@@ -92,10 +108,10 @@ Noch klar fehlend oder vereinfacht sind:
 - vollständige Übernahme der Kampagne mit Fog of War,
   Gegenstandstransport, Hunger, Kampf, Fallen, Rekrutierung, Wellen,
   Gefangenenablauf, Sieg/Niederlage und Speichern;
-- individuelle Wegfindung und Jobanimation für jeden Arbeiter. Alle drei
-  Startarbeiter sind sichtbar, aber nur der Grabarbeiter führt seinen Auftrag
-  bereits vollständig ortsgenau aus; Claiming, Bauen und Abbau werden noch
-  teilweise zusammengefasst simuliert;
+- vollständig individuelle Fortschrittsberechnung für den Raum-Bau. Graben,
+  Claiming sowie Ressourcenabbau und -transport sind bereits an die Ankunft
+  konkreter Arbeiter gebunden; der Raum-Bau wird am korrekten Ziel visualisiert,
+  sein Fortschritt läuft intern aber noch über die zusammengefasste Simulation;
 - dieselbe robuste Jobreservierung, Weg-Neuberechnung und Fehlerbehandlung wie
   im Hauptspiel sowie echtes Geräte-QA auf mehreren Smartphones und Tablets;
 - finale 3D-/2.5D-Assets, Animationen, Effekte, Audio, Balancing und ein

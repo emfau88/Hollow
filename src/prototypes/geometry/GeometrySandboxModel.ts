@@ -69,6 +69,7 @@ export interface SandboxState {
   produced: Record<'kitchen' | 'smelter' | 'workshop', number>;
   productionClock: Record<'kitchen' | 'smelter' | 'workshop', number>;
   miningClock: number;
+  activeMine?: { depositId: number; progress: number };
   diggingClock: number;
   activeDig?: { x: number; z: number; progress: number };
   claimingClock: number;
@@ -93,6 +94,8 @@ export interface SandboxTickResult {
 
 export interface SandboxTickOptions {
   autonomousDigging?: boolean;
+  autonomousClaiming?: boolean;
+  autonomousMining?: boolean;
 }
 
 function addRect(
@@ -190,6 +193,72 @@ function claimableSandboxCells(state: SandboxState): Array<{ x: number; z: numbe
     .filter((cell) => !state.claimedCells.has(proofCellKey(cell.x, cell.z)))
     .filter((cell) => neighbours(cell.x, cell.z).some((neighbour) => state.claimedCells.has(proofCellKey(neighbour.x, neighbour.z))))
     .map(({ x, z }) => ({ x, z }));
+}
+
+export function nextSandboxClaimTarget(state: SandboxState): { x: number; z: number } | undefined {
+  return claimableSandboxCells(state)[0];
+}
+
+export function advanceSandboxClaiming(
+  state: SandboxState,
+  target: { x: number; z: number },
+  deltaSeconds: number,
+): { completed: boolean; progress: number } {
+  const key = proofCellKey(target.x, target.z);
+  const valid = claimableSandboxCells(state).some((cell) => cell.x === target.x && cell.z === target.z);
+  if (!valid || state.workerJobs.claim < 1) {
+    state.activeClaim = undefined;
+    state.claimingClock = 0;
+    return { completed: false, progress: 0 };
+  }
+  if (!state.activeClaim || state.activeClaim.x !== target.x || state.activeClaim.z !== target.z) {
+    state.activeClaim = { ...target, progress: 0 };
+    state.claimingClock = 0;
+  }
+  state.claimingClock += deltaSeconds / 1.15;
+  state.activeClaim.progress = Math.min(1, state.claimingClock);
+  if (state.claimingClock < 1) return { completed: false, progress: state.activeClaim.progress };
+  state.claimedCells.add(key);
+  state.activeClaim = undefined;
+  state.claimingClock = 0;
+  return { completed: true, progress: 1 };
+}
+
+export function advanceSandboxMining(
+  state: SandboxState,
+  depositId: number,
+  deltaSeconds: number,
+): { completed: boolean; progress: number; item?: 'ore' | 'biomass'; resourcesChanged: boolean } {
+  const deposit = state.deposits.find((candidate) => candidate.id === depositId);
+  if (!deposit || deposit.remaining <= 0 || !state.claimedCells.has(proofCellKey(deposit.x, deposit.z)) || state.workerJobs.mine < 1) {
+    state.activeMine = undefined;
+    state.miningClock = 0;
+    return { completed: false, progress: 0, resourcesChanged: false };
+  }
+  if (!state.activeMine || state.activeMine.depositId !== depositId) {
+    state.activeMine = { depositId, progress: 0 };
+    state.miningClock = 0;
+  }
+  state.miningClock += deltaSeconds / 1.05;
+  state.activeMine.progress = Math.min(1, state.miningClock);
+  if (state.miningClock < 1) return { completed: false, progress: state.activeMine.progress, resourcesChanged: false };
+  deposit.remaining -= 1;
+  state.activeMine = undefined;
+  state.miningClock = 0;
+  return {
+    completed: true,
+    progress: 1,
+    item: deposit.kind === 'iron' ? 'ore' : 'biomass',
+    resourcesChanged: deposit.remaining === 0,
+  };
+}
+
+export function deliverSandboxResource(state: SandboxState, item: 'ore' | 'biomass'): SandboxActionResult {
+  if (totalStock(state) >= storageCapacity(state)) return { ok: false, message: 'Das Lager ist voll.' };
+  state.stock[item] += 1;
+  if (item === 'ore') state.minedIron += 1;
+  else state.minedBiomass += 1;
+  return { ok: true, message: item === 'ore' ? 'Roherz eingelagert.' : 'Biomasse eingelagert.' };
 }
 
 export function sandboxInBounds(x: number, z: number): boolean {
@@ -451,21 +520,26 @@ export function tickSandboxEconomy(
     }
   }
 
-  const nextClaim = claimableSandboxCells(state)[0];
-  if (jobs.claim > 0 && nextClaim) {
-    if (!state.activeClaim || state.activeClaim.x !== nextClaim.x || state.activeClaim.z !== nextClaim.z) {
-      state.activeClaim = { ...nextClaim, progress: 0 };
+  if (options.autonomousClaiming !== false) {
+    const nextClaim = claimableSandboxCells(state)[0];
+    if (jobs.claim > 0 && nextClaim) {
+      if (!state.activeClaim || state.activeClaim.x !== nextClaim.x || state.activeClaim.z !== nextClaim.z) {
+        state.activeClaim = { ...nextClaim, progress: 0 };
+        state.claimingClock = 0;
+      }
+      state.claimingClock += deltaSeconds * jobs.claim * 0.35;
+      state.activeClaim.progress = Math.min(1, state.claimingClock);
+      if (state.claimingClock >= 1) {
+        state.claimedCells.add(proofCellKey(nextClaim.x, nextClaim.z));
+        state.claimingClock = 0;
+        state.activeClaim = undefined;
+        terrainChanged = true;
+      }
+    } else {
+      state.activeClaim = undefined;
       state.claimingClock = 0;
     }
-    state.claimingClock += deltaSeconds * jobs.claim * 0.75;
-    state.activeClaim.progress = Math.min(1, state.claimingClock);
-    if (state.claimingClock >= 1) {
-      state.claimedCells.add(proofCellKey(nextClaim.x, nextClaim.z));
-      state.claimingClock -= 1;
-      state.activeClaim = undefined;
-      terrainChanged = true;
-    }
-  } else {
+  } else if (jobs.claim === 0) {
     state.activeClaim = undefined;
     state.claimingClock = 0;
   }
@@ -479,23 +553,25 @@ export function tickSandboxEconomy(
     roomsChanged = true;
   }
 
-  const mineable = (): SandboxDeposit | undefined => state.deposits.find((deposit) => (
-    deposit.remaining > 0 && state.claimedCells.has(proofCellKey(deposit.x, deposit.z))
-  ));
-  state.miningClock += deltaSeconds * jobs.mine * 0.7;
-  while (state.miningClock >= 1 && totalStock(state) < storageCapacity(state)) {
-    const deposit = mineable();
-    if (!deposit) break;
-    state.miningClock -= 1;
-    deposit.remaining -= 1;
-    if (deposit.kind === 'iron') {
-      state.stock.ore += 1;
-      state.minedIron += 1;
-    } else {
-      state.stock.biomass += 1;
-      state.minedBiomass += 1;
+  if (options.autonomousMining !== false) {
+    const mineable = (): SandboxDeposit | undefined => state.deposits.find((deposit) => (
+      deposit.remaining > 0 && state.claimedCells.has(proofCellKey(deposit.x, deposit.z))
+    ));
+    state.miningClock += deltaSeconds * jobs.mine * 0.7;
+    while (state.miningClock >= 1 && totalStock(state) < storageCapacity(state)) {
+      const deposit = mineable();
+      if (!deposit) break;
+      state.miningClock -= 1;
+      deposit.remaining -= 1;
+      if (deposit.kind === 'iron') {
+        state.stock.ore += 1;
+        state.minedIron += 1;
+      } else {
+        state.stock.biomass += 1;
+        state.minedBiomass += 1;
+      }
+      if (deposit.remaining === 0) resourcesChanged = true;
     }
-    if (deposit.remaining === 0) resourcesChanged = true;
   }
 
   for (const kind of ['kitchen', 'smelter', 'workshop'] as const) {

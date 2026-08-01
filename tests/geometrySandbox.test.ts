@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
+  advanceSandboxClaiming,
   advanceSandboxDigging,
+  advanceSandboxMining,
   createSandboxState,
+  deliverSandboxResource,
   excavateSandboxChamber,
+  nextSandboxClaimTarget,
   planSandboxDigCell,
   placeSandboxRoom,
   remainingDepositUnits,
@@ -31,7 +35,11 @@ describe('playable geometry sandbox', () => {
     tickSandboxEconomy(state, 0.1, { autonomousDigging: false });
     expect(advanceSandboxDigging(state, { x: 14, z: 25 }, 1.3).completed).toBe(true);
     expect(state.claimedCells.has('14,25')).toBe(false);
-    tickSandboxEconomy(state, 1.5, { autonomousDigging: false });
+    tickSandboxEconomy(state, 3, { autonomousDigging: false, autonomousClaiming: false });
+    expect(state.claimedCells.has('14,25')).toBe(false);
+    const target = nextSandboxClaimTarget(state);
+    expect(target).toEqual({ x: 14, z: 25 });
+    expect(advanceSandboxClaiming(state, target!, 1.2).completed).toBe(true);
     expect(state.claimedCells.has('14,25')).toBe(true);
   });
 
@@ -43,6 +51,21 @@ describe('playable geometry sandbox', () => {
     expect(state.discoveredSites.has('fungus-grotto')).toBe(true);
     expect(state.openCells.has('20,10')).toBe(true);
     expect(state.openCells.has('26,16')).toBe(true);
+  });
+
+  it('credits manually mined resources only after a worker delivers them', () => {
+    const state = createSandboxState();
+    const deposit = state.deposits.find((candidate) => candidate.kind === 'iron')!;
+    const key = `${deposit.x},${deposit.z}`;
+    state.openCells.set(key, { x: deposit.x, z: deposit.z, zone: 'corridor' });
+    state.claimedCells.add(key);
+    const initialOre = state.stock.ore;
+    tickSandboxEconomy(state, 0.1, { autonomousMining: false });
+    const mined = advanceSandboxMining(state, deposit.id, 1.1);
+    expect(mined).toMatchObject({ completed: true, item: 'ore' });
+    expect(state.stock.ore).toBe(initialOre);
+    expect(deliverSandboxResource(state, mined.item!).ok).toBe(true);
+    expect(state.stock.ore).toBe(initialOre + 1);
   });
 
   it('digs connected tunnels and rejects remote rock', () => {
