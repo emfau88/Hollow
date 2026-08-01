@@ -173,6 +173,22 @@ westliche Grottenwand; weitere neutrale Ziele liegen außerhalb des unmittelbare
 Startclusters. In der Grotte ersetzen organische Moos-, Pfützen- und
 Sporenflächen die rechteckige türkisfarbene Diagnosekontur.
 
+### Style-B-V5: getrennte Raum- und Gangarchitektur
+
+Der fünfte Pass beseitigt die perspektivische Überlagerung in nur ein Feld
+breiten Grabgängen. Kammern behalten ihre tiefen 2.5D-Wandstirnen; gerade
+Gänge, Knicke und Sackgassen verwenden automatisch einen flacheren Satz aus
+vier gerichteten Wangen. Dadurch bleiben Grabungsboden und Durchgang über die
+gesamte Breite lesbar. Gangmündungen erhalten keine zusätzlichen konkaven
+Pfosten mehr, weil sich dort bereits zwei Wandkanten überlappen.
+
+Äußere Kammerwinkel verwenden einen quadratischen 90-Grad-Pfeiler aus demselben
+Material wie die Geraden, ohne die früheren diagonalen Steinflügel. Neutrale
+Kammern besitzen einen eigenen graugrünen Steinatlas ohne Covenant-Messing;
+beim Beanspruchen wechseln sie in die Spielerarchitektur. Die Auswahl zwischen
+Raum- und Gangwand wird aus offenen 2-mal-2-Flächen abgeleitet und durch Tests
+für horizontale, vertikale und L-förmige Verläufe abgesichert.
+
 ## Freigabekriterien für den nächsten Produktionsschritt
 
 1. Herz-Hauptquartier, Dienerrollen und Pilzgrotte sind innerhalb von fünf

@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { wallJoint, wallSides } from './WallLayout';
+import {
+  isNarrowPassage,
+  shouldRenderWallPost,
+  wallEdgeFrame,
+  wallJoint,
+  wallSides,
+} from './WallLayout';
 
 describe('wallSides', () => {
   it('keeps a vertical corridor open with symmetric side walls', () => {
@@ -64,5 +70,60 @@ describe('wallJoint', () => {
       { x: 0, y: 2, kind: 'convex' },
       { x: 3, y: 2, kind: 'convex' },
     ]);
+  });
+});
+
+describe('isNarrowPassage', () => {
+  it('keeps a rectangular room corner on the deep room-wall set', () => {
+    expect(isNarrowPassage({
+      north: false,
+      northEast: false,
+      east: true,
+      southEast: true,
+      south: true,
+      southWest: false,
+      west: false,
+      northWest: false,
+    })).toBe(false);
+  });
+
+  it('uses compact walls for a one-cell horizontal tunnel', () => {
+    expect(isNarrowPassage({
+      north: false,
+      northEast: false,
+      east: true,
+      southEast: false,
+      south: false,
+      southWest: false,
+      west: true,
+      northWest: false,
+    })).toBe(true);
+  });
+
+  it('uses compact walls for an L-shaped tunnel bend', () => {
+    expect(isNarrowPassage({
+      north: true,
+      northEast: false,
+      east: true,
+      southEast: false,
+      south: false,
+      southWest: false,
+      west: false,
+      northWest: false,
+    })).toBe(true);
+  });
+});
+
+describe('wall rendering policy', () => {
+  it('selects shallow atlas frames for every narrow passage direction', () => {
+    expect((['north', 'east', 'south', 'west'] as const).map((side) => wallEdgeFrame(side, true)))
+      .toEqual([8, 9, 10, 11]);
+  });
+
+  it('never places posts at tunnel mouths, diagonals or narrow bends', () => {
+    expect(shouldRenderWallPost('concave', false)).toBe(false);
+    expect(shouldRenderWallPost('diagonal', false)).toBe(false);
+    expect(shouldRenderWallPost('convex', true)).toBe(false);
+    expect(shouldRenderWallPost('convex', false)).toBe(true);
   });
 });

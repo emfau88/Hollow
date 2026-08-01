@@ -15,6 +15,17 @@ export interface WallVertexCells {
   southWest: boolean;
 }
 
+export interface WallAdjacentCells {
+  north: boolean;
+  northEast: boolean;
+  east: boolean;
+  southEast: boolean;
+  south: boolean;
+  southWest: boolean;
+  west: boolean;
+  northWest: boolean;
+}
+
 /**
  * Selects the solid-facing boundary edges of one open terrain tile. Each edge
  * is positioned on the grid boundary by TerrainRenderer; corners are handled
@@ -44,4 +55,31 @@ export function wallJoint(cells: WallVertexCells): WallJoint | undefined {
   if (count !== 2) return undefined;
   const diagonal = (northWest && southEast) || (northEast && southWest);
   return diagonal ? 'diagonal' : undefined;
+}
+
+/**
+ * A cell is room-like when it belongs to at least one fully open 2x2 block.
+ * Everything else is a narrow passage, bend or dead end. This lets the
+ * renderer keep deep 2.5D wall faces around chambers without letting opposite
+ * faces overlap across a one-tile tunnel.
+ */
+export function isNarrowPassage(cells: WallAdjacentCells): boolean {
+  const { north, northEast, east, southEast, south, southWest, west, northWest } = cells;
+  const belongsToOpenSquare = (north && northEast && east)
+    || (east && southEast && south)
+    || (south && southWest && west)
+    || (west && northWest && north);
+  return !belongsToOpenSquare;
+}
+
+/** Frame indices shared by both Style B wall atlases. */
+export function wallEdgeFrame(side: WallSide, narrow: boolean): number {
+  const normal: Record<WallSide, number> = { north: 0, east: 1, south: 2, west: 3 };
+  const compact: Record<WallSide, number> = { north: 8, east: 9, south: 10, west: 11 };
+  return (narrow ? compact : normal)[side];
+}
+
+/** Only broad chamber corners receive a freestanding post. */
+export function shouldRenderWallPost(kind: WallJoint, narrow: boolean): boolean {
+  return kind === 'convex' && !narrow;
 }

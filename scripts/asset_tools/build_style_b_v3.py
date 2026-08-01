@@ -122,42 +122,82 @@ def build_walls() -> dict[str, Image.Image]:
         ("west", 3, False),
     ):
         module = edge_module(column, horizontal)
-        module.save(OUTPUT / "walls" / f"{name}-v4.png", optimize=True)
+        module.save(OUTPUT / "walls" / f"{name}-v5.png", optimize=True)
         built[name] = module
 
-    def joint_module(column: int, *, compact: bool = False) -> Image.Image:
-        source = crop_source_sheet_cell(sheet, 4, 2, column, 1)
-        if compact:
-            # Concave vertices occur in pairs only one tile apart at corridor
-            # mouths. Keep their brass cap but remove the tall masonry base so
-            # opposing jambs can never overlap and look like a closed gate.
-            source = visible_crop(source.crop((
-                round(source.width * 0.27), 0,
-                round(source.width * 0.73), round(source.height * 0.54),
-            )))
-            source = ImageOps.contain(source, (34, 38), method=Image.Resampling.LANCZOS)
-        else:
-            source = ImageOps.contain(source, (54, 68), method=Image.Resampling.LANCZOS)
+    # The generated V-shaped corner looked attractive in isolation but cannot
+    # meet orthogonal grid edges without two diagonal stone wings protruding.
+    # Extract the square end pillar from the straight authored wall instead.
+    horizontal_strip = crop_source_sheet_cell(sheet, 4, 2, 0, 0)
+    pillar_source = visible_crop(horizontal_strip.crop((
+        0,
+        0,
+        round(horizontal_strip.width * 0.205),
+        horizontal_strip.height,
+    )))
+
+    def joint_module() -> Image.Image:
+        source = ImageOps.fit(pillar_source, (32, 58), method=Image.Resampling.LANCZOS)
         source = source.filter(ImageFilter.UnsharpMask(radius=0.42, percent=116, threshold=2))
         canvas = Image.new("RGBA", (frame_size, frame_size))
-        y = 29 if compact else 16
-        canvas.alpha_composite(source, ((frame_size - source.width) // 2, y))
+        canvas.alpha_composite(source, ((frame_size - source.width) // 2, 30))
         return canvas
 
-    built["convex"] = joint_module(0)
-    built["concave"] = joint_module(1, compact=True)
-    # Diagonal touch cases are rare but need a solid vertex rather than a
-    # transparent pinhole. The compact convex post is the least intrusive cap.
-    built["diagonal"] = built["concave"].copy()
+    built["convex"] = joint_module()
+    # Inward corners and diagonal contacts are sealed by the overlapping edge
+    # modules. A second post at each one-field passage mouth created the
+    # doubled columns and apparent barriers visible in excavation screenshots.
+    built["concave"] = Image.new("RGBA", (frame_size, frame_size))
+    built["diagonal"] = Image.new("RGBA", (frame_size, frame_size))
     built["empty"] = Image.new("RGBA", (frame_size, frame_size))
     for name in ("convex", "concave", "diagonal"):
-        built[name].save(OUTPUT / "walls" / f"{name}-v4.png", optimize=True)
+        built[name].save(OUTPUT / "walls" / f"{name}-v5.png", optimize=True)
 
-    frame_order = ("north", "east", "south", "west", "convex", "concave", "diagonal", "empty")
-    atlas = Image.new("RGBA", (frame_size * 4, frame_size * 2))
-    for index, name in enumerate(frame_order):
-        atlas.alpha_composite(built[name], ((index % 4) * frame_size, (index // 4) * frame_size))
-    atlas.save(OUTPUT / "walls" / "wall-atlas-v4.png", optimize=True)
+    # Compact passage walls keep their stone lip but use less than half the
+    # visual depth. Opposing sides of a 32px tunnel therefore retain a clear
+    # walkable strip instead of overlapping into a solid masonry platform.
+    for name in ("north", "east", "south", "west"):
+        source = visible_crop(built[name])
+        horizontal = name in ("north", "south")
+        dimensions = (36, 25) if horizontal else (25, 36)
+        source = ImageOps.fit(source, dimensions, method=Image.Resampling.LANCZOS)
+        source = source.filter(ImageFilter.UnsharpMask(radius=0.36, percent=118, threshold=2))
+        canvas = Image.new("RGBA", (frame_size, frame_size))
+        x = (frame_size - source.width) // 2
+        y = 37 if horizontal else (frame_size - source.height) // 2
+        canvas.alpha_composite(source, (x, y))
+        built[f"compact-{name}"] = canvas
+        canvas.save(OUTPUT / "walls" / f"compact-{name}-v5.png", optimize=True)
+
+    frame_order = (
+        "north", "east", "south", "west",
+        "convex", "concave", "diagonal", "empty",
+        "compact-north", "compact-east", "compact-south", "compact-west",
+    )
+
+    def make_atlas(frames: dict[str, Image.Image], path: Path) -> None:
+        atlas = Image.new("RGBA", (frame_size * 4, frame_size * 3))
+        for index, name in enumerate(frame_order):
+            atlas.alpha_composite(frames[name], ((index % 4) * frame_size, (index // 4) * frame_size))
+        atlas.save(path, optimize=True)
+
+    make_atlas(built, OUTPUT / "walls" / "wall-atlas-v5.png")
+
+    def neutralise(sprite: Image.Image) -> Image.Image:
+        alpha = sprite.getchannel("A")
+        luminance = ImageOps.grayscale(sprite.convert("RGB"))
+        neutral = ImageOps.colorize(
+            luminance,
+            black="#0b1720",
+            mid="#4f6267",
+            white="#b4c2bc",
+            midpoint=126,
+        ).convert("RGBA")
+        neutral.putalpha(alpha)
+        return ImageEnhance.Contrast(neutral).enhance(1.06)
+
+    neutral_frames = {name: neutralise(image) for name, image in built.items()}
+    make_atlas(neutral_frames, OUTPUT / "walls" / "wall-atlas-neutral-v5.png")
     return built
 
 

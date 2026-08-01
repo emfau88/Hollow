@@ -1,5 +1,16 @@
 # Changelog
 
+## Style B V5 – robuste Raum- und Gangwände – 1. August 2026
+
+- quadratische 90-Grad-Raumpfeiler ohne diagonale Steinflügel eingeführt
+- kompakte gerichtete Wandwangen für ein Feld breite Horizontal-, Vertikal-
+  und L-Gänge ergänzt, damit Boden und Durchgang nicht mehr überdeckt werden
+- zusätzliche Pfosten an Gangmündungen entfernt; keine Doppelpfosten oder
+  scheinbar zugemauerten Anschlüsse mehr
+- neutrale Kammern mit eigenem graugrünem Wandatlas von der goldenen
+  Covenant-Architektur getrennt
+- Topologie- und Auswahlregressionen mit 45 automatischen Tests abgesichert
+
 ## Style B V3 – räumliche Kartenarchitektur – 31. Juli 2026
 
 - gerichteten 2.5D-Wandbausatz mit vier geraden Modulen, vier echten L-Ecken,

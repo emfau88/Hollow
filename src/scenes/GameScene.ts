@@ -368,6 +368,12 @@ export class GameScene extends Phaser.Scene {
           frameWidth: 96,
           frameHeight: 96,
         });
+        if (themeAssets.wallKit.neutralAtlas) {
+          this.load.spritesheet('style-b-neutral-wall-atlas', themeAssets.wallKit.neutralAtlas, {
+            frameWidth: 96,
+            frameHeight: 96,
+          });
+        }
       } else {
         this.load.image('style-b-wall-north', themeAssets.wallKit.north);
         this.load.image('style-b-wall-east', themeAssets.wallKit.east);
@@ -509,6 +515,7 @@ export class GameScene extends Phaser.Scene {
       claimedBorder: 'terrain-v3-claimed-border',
       enemyBorder: 'terrain-v3-enemy-border',
       wallAtlas: themeAssets.wallKit?.atlas ? 'style-b-wall-atlas' : undefined,
+      neutralWallAtlas: themeAssets.wallKit?.neutralAtlas ? 'style-b-neutral-wall-atlas' : undefined,
       wallNorth: themeAssets.wallKit ? 'style-b-wall-north' : undefined,
       wallEast: themeAssets.wallKit ? 'style-b-wall-east' : undefined,
       wallSouth: themeAssets.wallKit ? 'style-b-wall-south' : undefined,

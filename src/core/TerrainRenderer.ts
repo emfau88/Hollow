@@ -1,5 +1,13 @@
 import Phaser from 'phaser';
-import { wallJoint, wallSides, type WallJoint, type WallSide } from './WallLayout';
+import {
+  isNarrowPassage,
+  shouldRenderWallPost,
+  wallEdgeFrame,
+  wallJoint,
+  wallSides,
+  type WallJoint,
+  type WallSide,
+} from './WallLayout';
 
 export type TerrainControl = 'neutral' | 'claiming' | 'owned' | 'enemy';
 export type TerrainVisibility = 'hidden' | 'charted' | 'revealed';
@@ -34,6 +42,7 @@ export interface TerrainAssetKeys {
   claimedBorder: string;
   enemyBorder: string;
   wallAtlas?: string;
+  neutralWallAtlas?: string;
   wallNorth?: string;
   wallEast?: string;
   wallSouth?: string;
@@ -54,7 +63,6 @@ const WALL_ATLAS_FRAMES: Record<WallSide | WallJoint, number> = {
   concave: 5,
   diagonal: 6,
 };
-
 /**
  * Asset-backed terrain renderer. Every visible world surface and edge comes
  * from a PNG source; code only selects frames and rotates modular overlays.
@@ -189,11 +197,18 @@ export class TerrainRenderer {
     map.delete(key);
   }
 
-  private acquireWallSprite(frame: number, x: number, y: number, alpha: number, depth: number): Phaser.GameObjects.Image {
+  private acquireWallSprite(
+    texture: string,
+    frame: number,
+    x: number,
+    y: number,
+    alpha: number,
+    depth: number,
+  ): Phaser.GameObjects.Image {
     const sprite = this.wallSpritePool.pop()
-      ?? this.scene.add.image(0, 0, this.assets.wallAtlas!, frame).setOrigin(0.5);
+      ?? this.scene.add.image(0, 0, texture, frame).setOrigin(0.5);
     return sprite
-      .setTexture(this.assets.wallAtlas!, frame)
+      .setTexture(texture, frame)
       .setPosition(x, y)
       .setAlpha(alpha)
       .setDepth(depth)
@@ -209,6 +224,25 @@ export class TerrainRenderer {
     return `${x},${y}`;
   }
 
+  private isNarrowAt(q: TerrainQuery, x: number, y: number): boolean {
+    if (!this.isVisibleOpen(q, x, y)) return false;
+    return isNarrowPassage({
+      north: this.isVisibleOpen(q, x, y - 1),
+      northEast: this.isVisibleOpen(q, x + 1, y - 1),
+      east: this.isVisibleOpen(q, x + 1, y),
+      southEast: this.isVisibleOpen(q, x + 1, y + 1),
+      south: this.isVisibleOpen(q, x, y + 1),
+      southWest: this.isVisibleOpen(q, x - 1, y + 1),
+      west: this.isVisibleOpen(q, x - 1, y),
+      northWest: this.isVisibleOpen(q, x - 1, y - 1),
+    });
+  }
+
+  private wallTexture(q: TerrainQuery, x: number, y: number): string {
+    const neutral = q.controlAt(x, y) === 'neutral' && this.assets.neutralWallAtlas;
+    return neutral || this.assets.wallAtlas!;
+  }
+
   private updateWallEdges(q: TerrainQuery, x: number, y: number): void {
     if (!this.assets.wallAtlas) return;
     for (const side of ['north', 'east', 'south', 'west'] as const) {
@@ -218,7 +252,10 @@ export class TerrainRenderer {
     if (!q.isOpen(x, y) || visibility === 'hidden') return;
 
     const alpha = visibility === 'charted' ? 0.66 : 1;
-    for (const side of this.sidesAt(q, x, y)) {
+    const sides = this.sidesAt(q, x, y);
+    const narrow = this.isNarrowAt(q, x, y);
+    const texture = this.wallTexture(q, x, y);
+    for (const side of sides) {
       let worldX = x * this.tile + this.tile / 2;
       let worldY = y * this.tile + this.tile / 2;
       if (side === 'north') worldY = y * this.tile;
@@ -228,7 +265,14 @@ export class TerrainRenderer {
       const key = this.edgeKey(x, y, side);
       this.wallEdgeSprites.set(
         key,
-        this.acquireWallSprite(WALL_ATLAS_FRAMES[side], worldX, worldY, alpha, 2),
+        this.acquireWallSprite(
+          texture,
+          wallEdgeFrame(side, narrow),
+          worldX,
+          worldY,
+          alpha,
+          2,
+        ),
       );
     }
   }
@@ -252,10 +296,17 @@ export class TerrainRenderer {
       [x, y, cells.southEast],
       [x - 1, y, cells.southWest],
     ] as const;
+    // Deep posts belong to room corners. Concave tunnel mouths already join
+    // two edge modules and extra posts create the double-column/barrier bug.
+    // Narrow bends likewise rely on their compact overlapping edge modules.
+    const openCell = visibleCells.find(([, , open]) => open);
+    const narrow = openCell ? this.isNarrowAt(q, openCell[0], openCell[1]) : false;
+    if (!openCell || !shouldRenderWallPost(kind, narrow)) return;
     const revealed = visibleCells.some(([cellX, cellY, open]) => open && q.visibilityAt(cellX, cellY) === 'revealed');
+    const texture = this.wallTexture(q, openCell[0], openCell[1]);
     this.wallJointSprites.set(
       key,
-      this.acquireWallSprite(WALL_ATLAS_FRAMES[kind], x * this.tile, y * this.tile, revealed ? 1 : 0.66, 2.1),
+      this.acquireWallSprite(texture, WALL_ATLAS_FRAMES[kind], x * this.tile, y * this.tile, revealed ? 1 : 0.66, 2.1),
     );
   }
 
