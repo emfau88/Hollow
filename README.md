@@ -46,6 +46,71 @@ Prototyp-/Diagnoseseiten bleiben als getrennte Einstiege erhalten.
 Die technischen Hintergründe und der beschlossene Migrationspfad stehen in der
 [Renderer-Entscheidung](docs/GEOMETRY_RENDERER_DECISION.md).
 
+#### Technischer Stand der 2.5D-Sandbox
+
+Die Sandbox ist derzeit ein **spielbarer Architektur- und Gameplay-Proof**, aber
+noch kein Ersatz für den vollständigen Vertical Slice. Nachgewiesen ist:
+
+- echte Boden- und Wandgeometrie wird aus offenen Feldern erzeugt; Geraden,
+  Innen-/Außenecken, T-Stücke und Kreuzungen benötigen keine überlappenden
+  Komplettsprites mehr;
+- Grabaufträge öffnen den Fels nicht sofort: Der sichtbare Arbeiter läuft zum
+  exakt angrenzenden Feld, richtet sich zum Ziel aus und beendet dort erst seine
+  Grabanimation samt Fortschrittsanzeige;
+- große 48 × 32-Karte, umfangreiche Erz- und Pilzvorkommen, sechs Raumtypen,
+  Baukosten, Raumgrößen, Kapazitäten und die drei Produktionsrezepte des
+  Hauptspiels funktionieren in einer fortlaufenden Sandbox;
+- Arbeitsprioritäten verteilen Graben, Bauen und Abbau; Geometrie und
+  Ressourcen werden ereignisbasiert statt in jedem Frame vollständig neu
+  aufgebaut;
+- mobile Steuerung mit mindestens 44 px großen Zielen, kompakter
+  Ressourcenleiste, unterer Werkzeugleiste, aufklappbaren Bau-/Arbeitsmenüs,
+  Pinch-Zoom, Vollbild und einer bestmöglichen Querformat-Anforderung ist
+  vorhanden. Eine erzwungene Bildschirmdrehung bleibt von Browser und Gerät
+  abhängig; insbesondere iOS kann sie verweigern.
+
+Noch klar fehlend oder vereinfacht sind:
+
+- vollständige Übernahme der Kampagne mit Fog of War, Beanspruchen,
+  Gegenstandstransport, Hunger, Kampf, Fallen, Rekrutierung, Wellen,
+  Gefangenenablauf, Sieg/Niederlage und Speichern;
+- individuelle Simulation und sichtbare Darstellung aller Arbeiter. Aktuell
+  gräbt ein sichtbarer Arbeiter feldgenau, während Bauen, Abbau und weitere
+  Arbeiter noch zusammengefasst simuliert werden;
+- dieselbe robuste Jobreservierung, Weg-Neuberechnung und Fehlerbehandlung wie
+  im Hauptspiel sowie echtes Geräte-QA auf mehreren Smartphones und Tablets;
+- finale 3D-/2.5D-Assets, Animationen, Effekte, Audio, Balancing und ein
+  durchgängiger visueller Qualitätsdurchlauf.
+
+#### Warum die Sandbox noch spartanisch aussieht
+
+Der Prototyp sollte zuerst die zuvor problematische **Topologie, Verdeckung und
+Interaktion** beweisen. Deshalb bestehen Wände momentan aus einfachen
+Geometriequadern mit Testmaterialien; Bodenflächen sind große wiederholte
+Texturen, Erz und Pilze stehen als flache Sprites in der Welt und viele
+Raumobjekte stammen weiterhin aus der alten Top-down-Perspektive. Es fehlen
+kleinteilige Felsformen, Materialvariation, saubere Übergänge, Schattenarbeit,
+Dekoration und ein gemeinsamer Maßstab. Der nüchterne Eindruck ist daher vor
+allem ein noch fehlender Art- und Asset-Pass – nicht erneut das alte
+Ecken-/Kantenproblem des Renderers.
+
+Die größten Hebel für Mockup-Nähe wären, in dieser Reihenfolge:
+
+1. eine kleine, konsistente modulare Wand- und Felsfamilie für die neue Kamera
+   (Sockel, Wandkörper, Kappe, Pfeiler, Türschwelle und 3–5 Materialvarianten);
+2. organische Felsränder und Böden mit Übergangsblends, Decals, Geröll,
+   Pilzbewuchs und gezielter Variation statt großer sichtbarer Farbflächen;
+3. Dungeon-Herz und zentrale Raumausstattung als perspektivisch passende
+   2.5D-Sprites oder einfache 3D-Modelle in einheitlichem Maßstab;
+4. kontrollierte Beleuchtung mit warmen Raumlichtern, kühlem Fels, Kontakt-
+   und Tiefenschatten sowie besser abgestimmter Kamera und Wandhöhe;
+5. vollständige Arbeiter-, Grab-, Bau- und Produktionsanimationen mit Staub,
+   Splittern, Licht- und Audiofeedback.
+
+Damit ist der technische Weg weiterhin sinnvoll, die sichtbare Qualität muss
+aber durch eine gezielt für diesen Renderer produzierte Assetfamilie entstehen;
+die alten Top-down-Komplettbilder allein können diesen Schritt nicht leisten.
+
 ## Vision
 
 Der Vertical Slice soll eine zentrale These beweisen:
