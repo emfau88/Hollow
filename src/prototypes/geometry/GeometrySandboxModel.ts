@@ -135,6 +135,10 @@ function depositCluster(
 export function createSandboxState(): SandboxState {
   const openCells = new Map<string, ProofCell>();
   addRect(openCells, 3, 13, 22, 28, 'start');
+  const claimedCells = new Set(openCells.keys());
+  for (const site of SANDBOX_DISCOVERY_SITES) {
+    addRect(openCells, site.x, site.x + site.w - 1, site.z, site.z + site.h - 1, 'target');
+  }
   const deposits = [
     ...depositCluster('iron', 18, 25, 12, 0),
     ...depositCluster('iron', 30, 20, 15, 20),
@@ -146,10 +150,10 @@ export function createSandboxState(): SandboxState {
   ];
   return {
     openCells,
-    claimedCells: new Set(openCells.keys()),
+    claimedCells,
     plannedDig: new Map(),
     discoveredSites: new Set(),
-    rooms: [],
+    rooms: [{ id: 1, kind: 'storage', x: 3, z: 22, w: 3, h: 2, buildProgress: 6 }],
     deposits,
     stock: { ore: 0, biomass: 8, essence: 4, metal: 24, ration: 4, armour: 0 },
     minedIron: 0,
@@ -160,7 +164,7 @@ export function createSandboxState(): SandboxState {
     diggingClock: 0,
     claimingClock: 0,
     buildingClock: 0,
-    nextRoomId: 1,
+    nextRoomId: 2,
     workerJobs: { dig: 0, build: 0, claim: 0, mine: 0, idle: 3 },
     workPriorities: { ...DEFAULT_WORK_PRIORITIES },
     workerCount: 3,
@@ -176,13 +180,11 @@ function siteCells(site: SandboxDiscoverySite): Array<{ x: number; z: number }> 
 }
 
 function revealConnectedSites(state: SandboxState): boolean {
+  const reachable = reachableSandboxOpenCells(state);
   let revealed = false;
   for (const site of SANDBOX_DISCOVERY_SITES) {
-    if (state.discoveredSites.has(site.id) || !state.openCells.has(proofCellKey(site.entry.x, site.entry.z))) continue;
+    if (state.discoveredSites.has(site.id) || !siteCells(site).some((cell) => reachable.has(proofCellKey(cell.x, cell.z)))) continue;
     state.discoveredSites.add(site.id);
-    for (const cell of siteCells(site)) {
-      state.openCells.set(proofCellKey(cell.x, cell.z), { ...cell, zone: 'target' });
-    }
     revealed = true;
   }
   return revealed;
@@ -277,17 +279,37 @@ function neighbours(x: number, z: number): Array<{ x: number; z: number }> {
   ];
 }
 
+function reachableSandboxOpenCells(state: SandboxState): Set<string> {
+  const startKey = proofCellKey(SANDBOX_START.x, SANDBOX_START.z);
+  const visited = new Set<string>();
+  if (!state.openCells.has(startKey)) return visited;
+  const queue: Array<{ x: number; z: number }> = [{ ...SANDBOX_START }];
+  visited.add(startKey);
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    for (const neighbour of neighbours(current.x, current.z)) {
+      const key = proofCellKey(neighbour.x, neighbour.z);
+      if (!state.openCells.has(key) || visited.has(key)) continue;
+      visited.add(key);
+      queue.push(neighbour);
+    }
+  }
+  return visited;
+}
+
 export function canDigSandboxCell(state: SandboxState, x: number, z: number): boolean {
   if (!sandboxInBounds(x, z) || state.openCells.has(proofCellKey(x, z))) return false;
-  return neighbours(x, z).some((cell) => state.openCells.has(proofCellKey(cell.x, cell.z)));
+  const reachable = reachableSandboxOpenCells(state);
+  return neighbours(x, z).some((cell) => reachable.has(proofCellKey(cell.x, cell.z)));
 }
 
 export function canPlanSandboxCell(state: SandboxState, x: number, z: number): boolean {
   const key = proofCellKey(x, z);
   if (!sandboxInBounds(x, z) || state.openCells.has(key) || state.plannedDig.has(key)) return false;
+  const reachable = reachableSandboxOpenCells(state);
   return neighbours(x, z).some((cell) => {
     const neighbourKey = proofCellKey(cell.x, cell.z);
-    return state.openCells.has(neighbourKey) || state.plannedDig.has(neighbourKey);
+    return reachable.has(neighbourKey) || state.plannedDig.has(neighbourKey);
   });
 }
 

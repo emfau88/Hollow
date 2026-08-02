@@ -58,13 +58,13 @@ const canvasHost = canvasHostElement;
 const theme = resolveVisualTheme('?theme=style-b');
 const mobileProfile = window.matchMedia('(max-width: 900px), (pointer: coarse)').matches;
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x06111f);
-scene.fog = new THREE.FogExp2(0x06111f, 0.009);
+scene.background = new THREE.Color(0x10283a);
+scene.fog = new THREE.FogExp2(0x10283a, 0.006);
 
 const renderer = new THREE.WebGLRenderer({ antialias: !mobileProfile, powerPreference: 'high-performance' });
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.08;
+renderer.toneMappingExposure = 1.22;
 renderer.shadowMap.enabled = !mobileProfile;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, mobileProfile ? 1 : 1.25));
@@ -163,10 +163,10 @@ const [
   loadMap(`${terrainRoot}/raw-floor.png`),
   loadMap(theme.assets.dampFloor ?? `${terrainRoot}/raw-floor.png`),
   loadMap(`${terrainRoot}/rock-top.png`, { x: 24, y: 16 }),
-  loadMap(`${terrainRoot}/rock-basalt.png`, { x: 2.5, y: 2.5 }),
-  loadMap(`${terrainRoot}/rock-roots.png`, { x: 2.5, y: 2.5 }),
-  loadMap(`${terrainRoot}/rock-damp.png`, { x: 2.5, y: 2.5 }),
-  loadMap(`${terrainRoot}/rock-earth.png`, { x: 2.5, y: 2.5 }),
+  loadMap(`${terrainRoot}/rock-basalt.png`, { x: 1.25, y: 1.25 }),
+  loadMap(`${terrainRoot}/rock-roots.png`, { x: 1.25, y: 1.25 }),
+  loadMap(`${terrainRoot}/rock-damp.png`, { x: 1.25, y: 1.25 }),
+  loadMap(`${terrainRoot}/rock-earth.png`, { x: 1.25, y: 1.25 }),
   loadMap(theme.assets.workerAnimation ?? theme.assets.worker),
   loadMap(heartBuilding?.backplate ?? theme.assets.heart),
   loadMap(heartBuilding?.core ?? theme.assets.heart),
@@ -226,25 +226,32 @@ function standardMaterial(options: { color: number; map?: THREE.Texture; roughne
 const floorMaterials = {
   start: standardMaterial({ color: 0xd7c9bb, map: floorMap, roughness: 0.84 }),
   claimed: standardMaterial({ color: 0xd0c4b8, map: corridorMap, roughness: 0.9 }),
-  raw: standardMaterial({ color: 0x71879a, map: rawFloorMap, roughness: 0.98 }),
-  cavern: standardMaterial({ color: 0x5d8275, map: dampFloorMap, roughness: 0.98 }),
+  raw: standardMaterial({ color: 0x829aaa, map: rawFloorMap, roughness: 0.98 }),
+  cavern: standardMaterial({ color: 0x70a18c, map: dampFloorMap, roughness: 0.98 }),
 };
-const bedrockMaterial = standardMaterial({ color: 0x39566d, map: rockMap, roughness: 0.98 });
+const bedrockMaterial = standardMaterial({ color: 0x56778d, map: rockMap, roughness: 0.98 });
 const geologyMaterials = {
-  basalt: standardMaterial({ color: 0x718092, map: rockBasaltMap, roughness: 1 }),
-  roots: standardMaterial({ color: 0x65768a, map: rockRootsMap, roughness: 1 }),
-  damp: standardMaterial({ color: 0x6e9a8c, map: rockDampMap, roughness: 1 }),
-  earth: standardMaterial({ color: 0x7e6a67, map: rockEarthMap, roughness: 1 }),
+  basalt: standardMaterial({ color: 0x8da4b6, map: rockBasaltMap, roughness: 1 }),
+  roots: standardMaterial({ color: 0x8f887c, map: rockRootsMap, roughness: 1 }),
+  damp: standardMaterial({ color: 0x83b6a0, map: rockDampMap, roughness: 1 }),
+  earth: standardMaterial({ color: 0xaa8975, map: rockEarthMap, roughness: 1 }),
 };
 const closedRockMaterials = [
-  standardMaterial({ color: 0x7890a4, map: rockBasaltMap, roughness: 1 }),
-  standardMaterial({ color: 0x627c76, map: rockDampMap, roughness: 1 }),
-  standardMaterial({ color: 0x75696a, map: rockEarthMap, roughness: 1 }),
-  standardMaterial({ color: 0x667878, map: rockRootsMap, roughness: 1 }),
+  standardMaterial({ color: 0x91aabd, map: rockBasaltMap, roughness: 1 }),
+  standardMaterial({ color: 0x789b8c, map: rockDampMap, roughness: 1 }),
+  standardMaterial({ color: 0xa17f70, map: rockEarthMap, roughness: 1 }),
+  standardMaterial({ color: 0x8a9088, map: rockRootsMap, roughness: 1 }),
 ];
+bedrockMaterial.emissive.setHex(0x243946);
+bedrockMaterial.emissiveIntensity = 0.42;
+const closedRockGlow = [0x354954, 0x2f4a3f, 0x513a31, 0x3d433d];
+closedRockMaterials.forEach((material, index) => {
+  material.emissive.setHex(closedRockGlow[index]);
+  material.emissiveIntensity = 0.46;
+});
 for (const material of Object.values(geologyMaterials)) {
   material.transparent = true;
-  material.opacity = 0.82;
+  material.opacity = 0.72;
   material.depthWrite = false;
 }
 const wallAssets = createProceduralWallAssets();
@@ -341,6 +348,11 @@ world.add(digPlane);
 const tileGeometry = new THREE.PlaneGeometry(1.01, 1.01).rotateX(-Math.PI / 2);
 const unitBox = new THREE.BoxGeometry(1, 1, 1);
 const naturalRockGeometry = new THREE.DodecahedronGeometry(0.5, 0);
+const closedRockGeometries = [
+  naturalRockGeometry,
+  new THREE.IcosahedronGeometry(0.5, 0),
+  new THREE.OctahedronGeometry(0.5, 1),
+];
 const lightOrbGeometry = new THREE.SphereGeometry(0.11, 10, 8);
 const actorShadowGeometry = new THREE.CircleGeometry(0.42, 24).rotateX(-Math.PI / 2);
 const selectionGeometry = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
@@ -536,10 +548,16 @@ const roomFloorMaterials = Object.fromEntries(
     }),
   ]),
 ) as Record<RoomKind, THREE.MeshStandardMaterial>;
+const roomAccentMaterials = Object.fromEntries(
+  (Object.keys(ROOM_DEFINITIONS) as RoomKind[]).map((kind) => {
+    const color = new THREE.Color(ROOM_DEFINITIONS[kind].color).offsetHSL(0, 0.12, 0.18);
+    return [kind, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.72, depthWrite: false })];
+  }),
+) as Record<RoomKind, THREE.MeshBasicMaterial>;
 
-const ambient = new THREE.AmbientLight(0x8290a2, 0.72);
-const hemisphere = new THREE.HemisphereLight(0x9fc7df, 0x101725, 1.9);
-const keyLight = new THREE.DirectionalLight(0xffd68b, 3.8);
+const ambient = new THREE.AmbientLight(0xaabeca, 1.02);
+const hemisphere = new THREE.HemisphereLight(0xc3e0e9, 0x263746, 2.15);
+const keyLight = new THREE.DirectionalLight(0xffe1a3, 4.25);
 keyLight.position.set(-8, 22, 15);
 keyLight.target.position.set(18, 0, 18);
 keyLight.castShadow = !mobileProfile;
@@ -578,21 +596,25 @@ function rebuildClosedRockField(): void {
   world.remove(closedRockGroup);
   closedRockGroup.clear();
   closedRockGroup = new THREE.Group();
-  const matrices: THREE.Matrix4[][] = closedRockMaterials.map(() => []);
+  const matrices: THREE.Matrix4[][][] = closedRockMaterials.map(() => closedRockGeometries.map(() => []));
   for (let z = SANDBOX_BOUNDS.minZ; z <= SANDBOX_BOUNDS.maxZ; z += 1) {
     for (let x = SANDBOX_BOUNDS.minX; x <= SANDBOX_BOUNDS.maxX; x += 1) {
       if (state.openCells.has(proofCellKey(x, z)) || SANDBOX_DISCOVERY_SITES.some((site) => siteContains(site, x, z))) continue;
       const seed = x * 92821 + z * 68917;
-      const scale = 0.9 + seededUnit(seed + 7) * 0.15;
+      const scaleX = 0.82 + seededUnit(seed + 7) * 0.23;
+      const scaleZ = 0.82 + seededUnit(seed + 9) * 0.23;
+      const shapeIndex = Math.min(closedRockGeometries.length - 1, Math.floor(seededUnit(seed + 17) * closedRockGeometries.length));
       const matrix = new THREE.Matrix4().compose(
-        new THREE.Vector3(x + 0.5 + (seededUnit(seed + 3) - 0.5) * 0.08, 0.055, z + 0.5 + (seededUnit(seed + 5) - 0.5) * 0.08),
+        new THREE.Vector3(x + 0.5 + (seededUnit(seed + 3) - 0.5) * 0.16, 0.13, z + 0.5 + (seededUnit(seed + 5) - 0.5) * 0.16),
         new THREE.Quaternion().setFromEuler(new THREE.Euler(0, seededUnit(seed + 11) * Math.PI, 0)),
-        new THREE.Vector3(0.57 * scale, 0.17 + seededUnit(seed + 13) * 0.08, 0.57 * scale),
+        new THREE.Vector3(scaleX, 0.34 + seededUnit(seed + 13) * 0.18, scaleZ),
       );
-      matrices[rockMaterialIndex(x, z)].push(matrix);
+      matrices[rockMaterialIndex(x, z)][shapeIndex].push(matrix);
     }
   }
-  matrices.forEach((entries, index) => addInstances(naturalRockGeometry, closedRockMaterials[index], entries, closedRockGroup));
+  matrices.forEach((forms, materialIndex) => forms.forEach((entries, shapeIndex) => (
+    addInstances(closedRockGeometries[shapeIndex], closedRockMaterials[materialIndex], entries, closedRockGroup)
+  )));
   world.add(closedRockGroup);
 }
 
@@ -848,15 +870,15 @@ function addFloorDecal(
 function addRoomArchitecture(room: SandboxRoom): void {
   const cx = room.x + room.w / 2;
   const cz = room.z + room.h / 2;
-  addInstances(unitBox, brassDetailMaterial, [
-    matrixAt(cx, 0.09, room.z + 0.08, room.w - 0.32, 0.055, 0.08),
-    matrixAt(cx, 0.09, room.z + room.h - 0.08, room.w - 0.32, 0.055, 0.08),
-    matrixAt(room.x + 0.08, 0.09, cz, 0.08, 0.055, room.h - 0.32),
-    matrixAt(room.x + room.w - 0.08, 0.09, cz, 0.08, 0.055, room.h - 0.32),
+  addInstances(unitBox, roomAccentMaterials[room.kind], [
+    matrixAt(cx, 0.092, room.z + 0.11, room.w - 0.44, 0.025, 0.035),
+    matrixAt(cx, 0.092, room.z + room.h - 0.11, room.w - 0.44, 0.025, 0.035),
+    matrixAt(room.x + 0.11, 0.092, cz, 0.035, 0.025, room.h - 0.44),
+    matrixAt(room.x + room.w - 0.11, 0.092, cz, 0.035, 0.025, room.h - 0.44),
   ], roomGroup);
   if (room.kind === 'kitchen') addFloorDecal(roomGroup, decalMaterials.moss, cx, cz, Math.max(1.4, room.w * 0.68), Math.max(1.5, room.h * 0.66), 0.17);
   if (room.kind === 'smelter') addFloorDecal(roomGroup, decalMaterials.rubble, cx, cz, Math.max(1.2, room.w * 0.56), Math.max(1.1, room.h * 0.5), -0.12);
-  if (room.kind === 'storage' || room.kind === 'workshop') addFloorDecal(roomGroup, decalMaterials.rubble, cx, cz, Math.max(1.1, room.w * 0.48), Math.max(0.9, room.h * 0.42), 0.08);
+  if (room.kind === 'workshop') addFloorDecal(roomGroup, decalMaterials.rubble, cx, cz, Math.max(1.1, room.w * 0.48), Math.max(0.9, room.h * 0.42), 0.08);
   addSprite(roomGroup, spriteMaterials.banner, cx, 0.7, room.z + 0.26, 0.62, 0.82, 7);
   if (room.w * room.h >= 8) addSprite(roomGroup, spriteMaterials.lamp, room.x + 0.52, 0.55, room.z + 0.52, 0.58, 0.74, 8);
 }
@@ -936,6 +958,11 @@ function siteContains(site: SandboxDiscoverySite, x: number, z: number): boolean
   return x >= site.x && x < site.x + site.w && z >= site.z && z < site.z + site.h;
 }
 
+function depositIsVisible(deposit: { x: number; z: number }): boolean {
+  const site = SANDBOX_DISCOVERY_SITES.find((candidate) => siteContains(candidate, deposit.x, deposit.z));
+  return !site || state.discoveredSites.has(site.id);
+}
+
 function addDiscoveredSiteDressing(site: SandboxDiscoverySite): void {
   const cx = site.x + site.w / 2;
   const cz = site.z + site.h / 2;
@@ -1008,6 +1035,7 @@ function rebuildResources(): void {
   for (const kind of ['iron', 'fungus'] as const) {
     const matrices = state.deposits
       .filter((deposit) => deposit.kind === kind && deposit.remaining > 0 && state.openCells.has(proofCellKey(deposit.x, deposit.z)))
+      .filter(depositIsVisible)
       .filter((deposit) => deposit.id % 3 === 0)
       .map((deposit, index) => {
         const size = kind === 'iron' ? 0.58 + seededUnit(deposit.id + 17) * 0.22 : 0.66 + seededUnit(deposit.id + 31) * 0.18;
@@ -1169,8 +1197,8 @@ function updateActor(delta: number): { terrainChanged: boolean } {
   const animationRow = (working ? 3 : 0) + row;
   const frame = working || actorMoving ? Math.floor(workerAnimationTime * (working ? 9 : 8)) % 4 : 1;
   workerMap.offset.set(frame / 4, 1 - (animationRow + 1) / 6);
-  // The source side frame faces left. Flip only while moving right.
-  actor.scale.x = (dx > 0 && row === 2 ? -1 : 1) * 1.55;
+  // The source side frame faces right. Mirror it only for leftward movement.
+  actor.scale.x = (dx < 0 && row === 2 ? -1 : 1) * 1.55;
   return { terrainChanged };
 }
 
@@ -1294,6 +1322,7 @@ function updateSupportWorkers(delta: number): { terrainChanged: boolean } {
       if (cargo) {
         const delivered = deliverSandboxResource(state, cargo);
         if (delivered.ok) {
+          showStoragePopup(cargo);
           supportCargo.delete(index);
           updateUi();
         }
@@ -1312,7 +1341,7 @@ function updateSupportWorkers(delta: number): { terrainChanged: boolean } {
       const animationRow = (working ? 3 : 0) + row;
       const frame = Math.floor(workerAnimationTime * (working ? 9 : 8) + index * 1.7) % 4;
       visual.map.offset.set(frame / 4, 1 - (animationRow + 1) / 6);
-      visual.sprite.scale.x = (dx > 0 && row === 2 ? -1 : 1) * 1.55;
+      visual.sprite.scale.x = (dx < 0 && row === 2 ? -1 : 1) * 1.55;
     }
   }
   return { terrainChanged };
@@ -1340,6 +1369,7 @@ ui.innerHTML = `
     <span><b data-stock="essence">0</b><i>Essenz</i></span>
     <span><b data-workers>3/5</b><i>Arbeiter</i><em data-worker-jobs>G0 K0 B0 A0</em></span>
   </div>
+  <div class="geometry-resource-popups" aria-live="polite" aria-atomic="false"></div>
   <div class="geometry-view-actions" aria-label="Ansicht">
     <button type="button" data-action="fit" title="Karte einpassen">⌖</button>
     <button type="button" data-action="orientation" title="Querformat anfordern">↻</button>
@@ -1398,11 +1428,21 @@ root.append(ui);
 
 const statusTitle = ui.querySelector<HTMLElement>('[data-status-title]');
 const statusCopy = ui.querySelector<HTMLElement>('[data-status-copy]');
+const resourcePopups = ui.querySelector<HTMLElement>('.geometry-resource-popups');
 let activeTool: SandboxTool = 'dig';
 
 function showStatus(result: SandboxActionResult): void {
   if (statusTitle) statusTitle.textContent = result.ok ? 'Aktion abgeschlossen' : 'Aktion nicht möglich';
   if (statusCopy) statusCopy.textContent = result.message;
+}
+
+function showStoragePopup(item: 'ore' | 'biomass', amount = 1): void {
+  if (!resourcePopups) return;
+  const popup = document.createElement('div');
+  popup.className = `geometry-resource-popup is-${item}`;
+  popup.innerHTML = `<b>${item === 'ore' ? '⛏' : '✦'} +${amount}</b><span>${item === 'ore' ? 'Erz' : 'Biomasse'} eingelagert</span>`;
+  popup.addEventListener('animationend', () => popup.remove(), { once: true });
+  resourcePopups.append(popup);
 }
 
 function updateUi(): void {
@@ -1820,6 +1860,7 @@ window.addEventListener('beforeunload', () => {
   renderer.dispose();
   tileGeometry.dispose();
   unitBox.dispose();
+  closedRockGeometries.forEach((geometry) => geometry.dispose());
   actorShadowGeometry.dispose();
   selectionGeometry.dispose();
   resourceGeometry.dispose();

@@ -65,19 +65,26 @@ noch kein Ersatz für den vollständigen Vertical Slice. Nachgewiesen ist:
   zunächst roh und werden anschließend als eigene priorisierbare Arbeitskette
   Feld für Feld beansprucht; Boden und Randarchitektur wechseln dabei sichtbar
   von Natur zu Covenant;
+- die Startkammer enthält ein kleines, bereits fertiges Lager. Funktionsräume
+  besitzen dezente, raumtypische Farbakzente statt eines dicken einheitlichen
+  Goldrahmens; das Lager verwendet keine unpassende Felsreihen-Dekoration mehr;
 - Claiming ist nicht mehr zeitgesteuert unsichtbar: Ein zweiter Arbeiter läuft
   über das echte Wegenetz zum nächsten claimbaren Feld, arbeitet dort sichtbar
   und löst erst danach den Boden- und Wandwechsel aus. Weitere Arbeiter suchen
   reale Bau-, Abbau- oder zusätzliche Grabziele statt dekorativ zu kreisen;
-- vier vorbereitete neutrale Orte können durch einen Durchbruch entdeckt und
-  danach eingenommen werden: zwei Pilzgrotten, eine Eisengalerie und ein altes
-  Vorratsgewölbe. Verdeckte Ressourcen werden vorher nicht mehr auf der Karte
-  verraten;
+- vier vorbereitete neutrale Orte existieren von Beginn an als echte, vom
+  Dungeon getrennte Kammern mit eigenem Boden, geschlossenen Wänden und realen
+  Ressourcenvorkommen: zwei Pilzgrotten, eine Eisengalerie und ein altes
+  Vorratsgewölbe. Sie sind keine Bilder auf grabbaren Felsfeldern. Erst ein vom
+  Dungeon aus gegrabener Durchbruch verbindet und entdeckt sie; anschließend
+  werden sie Feld für Feld beansprucht. Die getrennten Kammern können weder als
+  entfernter Startpunkt für Grabaufträge benutzt noch einfach durchgraben werden;
 - Pilzvorkommen und fertige Funktionsräume verwenden kuratierte Kompositionen
   aus vorhandenen Style-B-Assets, Boden-Decals, Licht, Randintarsien und
   asymmetrisch verteilten Requisiten statt gleichförmig gestapelter Symbole;
-- die geschlossene Karte besitzt nun eine reliefartige, deterministisch
-  variierte Felsdecke statt einer flachen Texturmatte. Ressourcenregionen sind
+- die geschlossene Karte besitzt nun eine hellere, reliefartige Felsdecke aus
+  mehreren günstigen Form-, Höhen-, Farb- und Texturvarianten statt einer
+  dunklen, sichtbar gekachelten Texturmatte. Ressourcenregionen sind
   wie im Hauptspiel schon vor dem Durchbruch über geologische Farbzonen,
   einzelne lesbare Vorkommensmarker und sichtbare Landmark-Kammern erkennbar;
 - die Pilzgrotte und eine neue, direkt aus den Style-B-Zielbildern abgeleitete
@@ -88,6 +95,9 @@ noch kein Ersatz für den vollständigen Vertical Slice. Nachgewiesen ist:
   Arbeitsanimation, entnimmt eine Einheit und trägt ein sichtbares Bündel zum
   Dungeon-Herz beziehungsweise in ein fertiges Lager. Erst die Ablieferung
   erhöht den Bestand; erschöpfte Hotspots verschwinden aus der Szene;
+- bei jeder tatsächlichen Lagerlieferung erscheint ein deutliches, kurzlebiges
+  HUD-Popup mit Art und Menge der eingelagerten Ressource. Die seitlichen
+  Arbeiterframes werden abhängig von der realen Bewegungsrichtung gespiegelt;
 - Grabaufträge öffnen den Fels nicht sofort: Der sichtbare Arbeiter läuft zum
   exakt angrenzenden Feld, richtet sich zum Ziel aus und beendet dort erst seine
   Grabanimation samt Fortschrittsanzeige;
