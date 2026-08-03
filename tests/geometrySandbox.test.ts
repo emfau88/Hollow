@@ -1,18 +1,24 @@
 import { describe, expect, it } from 'vitest';
 import {
   advanceSandboxClaiming,
+  advanceSandboxCombat,
   advanceSandboxDigging,
   advanceSandboxMining,
   createSandboxState,
   deliverSandboxResource,
+  deliverSandboxKitchenBiomass,
+  feedSandboxCreature,
   excavateSandboxChamber,
   nextSandboxClaimTarget,
   planSandboxDigCell,
   placeSandboxRoom,
+  pickupSandboxKitchenBiomass,
+  pickupSandboxKitchenRation,
   remainingDepositUnits,
   sandboxBedCapacity,
   sandboxPrisonCapacity,
   sandboxRoomComplete,
+  sandboxLoopProgress,
   storageCapacity,
   summonSandboxWorker,
   tickSandboxEconomy,
@@ -83,6 +89,7 @@ describe('playable geometry sandbox', () => {
     tickSandboxEconomy(state, 0.1, { autonomousDigging: false, autonomousClaiming: false, autonomousMining: false });
     route.forEach((cell) => expect(advanceSandboxDigging(state, cell, 1.3).completed).toBe(true));
     expect(state.discoveredSites.has('fungus-grotto')).toBe(true);
+    expect(advanceSandboxCombat(state, 'grotto-crawler', 3).defeated).toBe(true);
 
     const fungus = state.deposits.find((deposit) => deposit.kind === 'fungus' && deposit.x === 23 && deposit.z === 13)!;
     expect(state.claimedCells.has(`${fungus.x},${fungus.z}`)).toBe(false);
@@ -100,6 +107,49 @@ describe('playable geometry sandbox', () => {
     expect(state.stock.biomass).toBe(biomassBefore);
     expect(deliverSandboxResource(state, mined.item!).ok).toBe(true);
     expect(state.stock.biomass).toBe(biomassBefore + 1);
+  });
+
+  it('completes the discovery, combat, fungus, kitchen and feeding loop with physical handoffs', () => {
+    const state = createSandboxState();
+    expect(placeSandboxRoom(state, 'kitchen', { x: 9, z: 22 }, { x: 10, z: 24 }).ok).toBe(true);
+    const kitchen = state.rooms.find((room) => room.kind === 'kitchen')!;
+    kitchen.buildProgress = kitchen.w * kitchen.h;
+    const route = [
+      ...Array.from({ length: 10 }, (_, index) => ({ x: 14 + index, z: 22 })),
+      ...Array.from({ length: 5 }, (_, index) => ({ x: 23, z: 21 - index })),
+    ];
+    route.forEach((cell) => expect(planSandboxDigCell(state, cell.x, cell.z).ok).toBe(true));
+    tickSandboxEconomy(state, 0.1, { autonomousDigging: false, autonomousClaiming: false, autonomousMining: false });
+    route.forEach((cell) => expect(advanceSandboxDigging(state, cell, 1.3).completed).toBe(true));
+    expect(sandboxLoopProgress(state)).toMatchObject({ discovered: true, cleared: false });
+
+    expect(advanceSandboxCombat(state, 'grotto-crawler', 3).defeated).toBe(true);
+    expect(sandboxLoopProgress(state).cleared).toBe(true);
+    const fungus = state.deposits.find((deposit) => deposit.kind === 'fungus' && deposit.x === 23 && deposit.z === 13)!;
+    for (let index = 0; index < 160 && !state.claimedCells.has(`${fungus.x},${fungus.z}`); index += 1) {
+      tickSandboxEconomy(state, 0.01, { autonomousDigging: false, autonomousClaiming: false, autonomousMining: false });
+      const claimTarget = nextSandboxClaimTarget(state);
+      if (claimTarget) advanceSandboxClaiming(state, claimTarget, 1.2);
+    }
+    expect(state.claimedCells.has(`${fungus.x},${fungus.z}`)).toBe(true);
+
+    tickSandboxEconomy(state, 0.1, { autonomousDigging: false, autonomousClaiming: false, autonomousMining: false });
+    const mined = advanceSandboxMining(state, fungus.id, 1.1);
+    expect(mined.item).toBe('biomass');
+    expect(deliverSandboxResource(state, 'biomass').ok).toBe(true);
+    const minedAgain = advanceSandboxMining(state, fungus.id, 1.1);
+    expect(minedAgain.item).toBe('biomass');
+    expect(deliverSandboxResource(state, 'biomass').ok).toBe(true);
+    expect(pickupSandboxKitchenBiomass(state).ok).toBe(true);
+    expect(deliverSandboxKitchenBiomass(state).ok).toBe(true);
+    expect(pickupSandboxKitchenBiomass(state).ok).toBe(true);
+    expect(deliverSandboxKitchenBiomass(state).ok).toBe(true);
+    tickSandboxEconomy(state, 5.1, { autonomousDigging: false, autonomousClaiming: false, autonomousMining: false });
+    expect(state.kitchenFlow.outputRations).toBe(2);
+    state.creature.hunger = 1;
+    expect(pickupSandboxKitchenRation(state).ok).toBe(true);
+    expect(feedSandboxCreature(state).ok).toBe(true);
+    expect(sandboxLoopProgress(state).completed).toBe(true);
   });
 
   it('digs connected tunnels and rejects remote rock', () => {

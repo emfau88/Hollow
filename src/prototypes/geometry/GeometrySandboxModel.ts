@@ -49,6 +49,31 @@ export interface SandboxDiscoverySite {
   entry: { x: number; z: number };
 }
 
+export interface SandboxEnemy {
+  id: string;
+  siteId: string;
+  x: number;
+  z: number;
+  hp: number;
+  maxHp: number;
+  defeated: boolean;
+}
+
+export interface SandboxCreature {
+  id: string;
+  x: number;
+  z: number;
+  hunger: number;
+  meals: number;
+}
+
+export interface SandboxKitchenFlow {
+  inputBiomass: number;
+  outputRations: number;
+  rationsProduced: number;
+  rationsFed: number;
+}
+
 export const SANDBOX_DISCOVERY_SITES: SandboxDiscoverySite[] = [
   { id: 'fungus-grotto', label: 'Leuchtende Pilzgrotte', kind: 'fungus', x: 20, z: 10, w: 7, h: 7, entry: { x: 23, z: 17 } },
   { id: 'iron-gallery', label: 'Alte Eisengalerie', kind: 'iron', x: 27, z: 17, w: 7, h: 6, entry: { x: 26, z: 20 } },
@@ -61,6 +86,10 @@ export interface SandboxState {
   claimedCells: Set<string>;
   plannedDig: Map<string, { x: number; z: number }>;
   discoveredSites: Set<string>;
+  clearedSites: Set<string>;
+  enemies: SandboxEnemy[];
+  creature: SandboxCreature;
+  kitchenFlow: SandboxKitchenFlow;
   rooms: SandboxRoom[];
   deposits: SandboxDeposit[];
   stock: Stock;
@@ -96,6 +125,17 @@ export interface SandboxTickOptions {
   autonomousDigging?: boolean;
   autonomousClaiming?: boolean;
   autonomousMining?: boolean;
+}
+
+export interface SandboxLoopProgress {
+  discovered: boolean;
+  cleared: boolean;
+  claimed: boolean;
+  biomassStored: boolean;
+  kitchenReady: boolean;
+  rationProduced: boolean;
+  creatureFed: boolean;
+  completed: boolean;
 }
 
 function addRect(
@@ -153,9 +193,13 @@ export function createSandboxState(): SandboxState {
     claimedCells,
     plannedDig: new Map(),
     discoveredSites: new Set(),
+    clearedSites: new Set(),
+    enemies: [{ id: 'grotto-crawler', siteId: 'fungus-grotto', x: 24, z: 15, hp: 30, maxHp: 30, defeated: false }],
+    creature: { id: 'covenant-adept', x: 10, z: 26, hunger: 0.42, meals: 0 },
+    kitchenFlow: { inputBiomass: 0, outputRations: 0, rationsProduced: 0, rationsFed: 0 },
     rooms: [{ id: 1, kind: 'storage', x: 3, z: 22, w: 3, h: 2, buildProgress: 6 }],
     deposits,
-    stock: { ore: 0, biomass: 8, essence: 4, metal: 24, ration: 4, armour: 0 },
+    stock: { ore: 0, biomass: 0, essence: 4, metal: 24, ration: 0, armour: 0 },
     minedIron: 0,
     minedBiomass: 0,
     produced: { kitchen: 0, smelter: 0, workshop: 0 },
@@ -179,6 +223,17 @@ function siteCells(site: SandboxDiscoverySite): Array<{ x: number; z: number }> 
   return cells;
 }
 
+function sandboxSiteAt(x: number, z: number): SandboxDiscoverySite | undefined {
+  return SANDBOX_DISCOVERY_SITES.find((site) => x >= site.x && x < site.x + site.w && z >= site.z && z < site.z + site.h);
+}
+
+function siteBlockedByEnemy(state: SandboxState, x: number, z: number): boolean {
+  const site = sandboxSiteAt(x, z);
+  return Boolean(site
+    && state.discoveredSites.has(site.id)
+    && state.enemies.some((enemy) => enemy.siteId === site.id && !enemy.defeated));
+}
+
 function revealConnectedSites(state: SandboxState): boolean {
   const reachable = reachableSandboxOpenCells(state);
   let revealed = false;
@@ -193,8 +248,96 @@ function revealConnectedSites(state: SandboxState): boolean {
 function claimableSandboxCells(state: SandboxState): Array<{ x: number; z: number }> {
   return [...state.openCells.values()]
     .filter((cell) => !state.claimedCells.has(proofCellKey(cell.x, cell.z)))
+    .filter((cell) => !siteBlockedByEnemy(state, cell.x, cell.z))
     .filter((cell) => neighbours(cell.x, cell.z).some((neighbour) => state.claimedCells.has(proofCellKey(neighbour.x, neighbour.z))))
     .map(({ x, z }) => ({ x, z }));
+}
+
+export function activeSandboxEnemy(state: SandboxState, siteId = 'fungus-grotto'): SandboxEnemy | undefined {
+  return state.enemies.find((enemy) => enemy.siteId === siteId && !enemy.defeated);
+}
+
+export function advanceSandboxCombat(
+  state: SandboxState,
+  enemyId: string,
+  deltaSeconds: number,
+): { attacked: boolean; defeated: boolean; hp: number } {
+  const enemy = state.enemies.find((candidate) => candidate.id === enemyId);
+  if (!enemy || enemy.defeated || !state.discoveredSites.has(enemy.siteId)) {
+    return { attacked: false, defeated: Boolean(enemy?.defeated), hp: enemy?.hp ?? 0 };
+  }
+  enemy.hp = Math.max(0, enemy.hp - deltaSeconds * 12);
+  if (enemy.hp <= 0) {
+    enemy.defeated = true;
+    state.clearedSites.add(enemy.siteId);
+  }
+  return { attacked: true, defeated: enemy.defeated, hp: enemy.hp };
+}
+
+export function sandboxCreatureHungry(state: SandboxState): boolean {
+  return state.creature.hunger >= 0.55;
+}
+
+export function advanceSandboxCreatureNeeds(state: SandboxState, deltaSeconds: number): void {
+  state.creature.hunger = Math.min(1, state.creature.hunger + deltaSeconds / 75);
+}
+
+function completedKitchen(state: SandboxState): SandboxRoom | undefined {
+  return state.rooms.find((room) => room.kind === 'kitchen' && sandboxRoomComplete(room));
+}
+
+export function pickupSandboxKitchenBiomass(state: SandboxState): SandboxActionResult {
+  if (!completedKitchen(state)) return { ok: false, message: 'Es gibt noch keine fertige Pilzküche.' };
+  if (state.kitchenFlow.inputBiomass >= 4) return { ok: false, message: 'Der Kücheneingang ist bereits gefüllt.' };
+  if (state.stock.biomass < 1) return { ok: false, message: 'Im Lager liegt keine Biomasse.' };
+  state.stock.biomass -= 1;
+  return { ok: true, message: 'Biomasse aus dem Lager aufgenommen.' };
+}
+
+export function deliverSandboxKitchenBiomass(state: SandboxState): SandboxActionResult {
+  if (!completedKitchen(state)) return { ok: false, message: 'Es gibt noch keine fertige Pilzküche.' };
+  state.kitchenFlow.inputBiomass += 1;
+  return { ok: true, message: 'Biomasse an die Pilzküche geliefert.' };
+}
+
+export function pickupSandboxKitchenRation(state: SandboxState): SandboxActionResult {
+  if (state.kitchenFlow.outputRations < 1) return { ok: false, message: 'An der Küche wartet keine Ration.' };
+  state.kitchenFlow.outputRations -= 1;
+  return { ok: true, message: 'Frische Ration an der Küche aufgenommen.' };
+}
+
+export function feedSandboxCreature(state: SandboxState): SandboxActionResult {
+  if (!sandboxCreatureHungry(state)) return { ok: false, message: 'Die Kreatur ist noch nicht hungrig.' };
+  state.creature.hunger = 0;
+  state.creature.meals += 1;
+  state.kitchenFlow.rationsFed += 1;
+  return { ok: true, message: 'Die Kreatur wurde mit einer frischen Ration versorgt.' };
+}
+
+export function sandboxLoopProgress(state: SandboxState): SandboxLoopProgress {
+  const fungusSite = SANDBOX_DISCOVERY_SITES.find((site) => site.id === 'fungus-grotto')!;
+  const fungusCells = siteCells(fungusSite);
+  const discovered = state.discoveredSites.has(fungusSite.id);
+  const cleared = state.clearedSites.has(fungusSite.id);
+  const claimed = fungusCells.some((cell) => state.claimedCells.has(proofCellKey(cell.x, cell.z)));
+  const progress = {
+    discovered,
+    cleared,
+    claimed,
+    biomassStored: state.minedBiomass > 0,
+    kitchenReady: Boolean(completedKitchen(state)),
+    rationProduced: state.kitchenFlow.rationsProduced > 0,
+    creatureFed: state.kitchenFlow.rationsFed > 0,
+    completed: false,
+  };
+  progress.completed = progress.discovered
+    && progress.cleared
+    && progress.claimed
+    && progress.biomassStored
+    && progress.kitchenReady
+    && progress.rationProduced
+    && progress.creatureFed;
+  return progress;
 }
 
 export function nextSandboxClaimTarget(state: SandboxState): { x: number; z: number } | undefined {
@@ -508,6 +651,7 @@ export function tickSandboxEconomy(
   let terrainChanged = false;
   let roomsChanged = false;
   let resourcesChanged = false;
+  advanceSandboxCreatureNeeds(state, deltaSeconds);
   const workers = Math.max(1, workerCapacity(state));
   const executableDig = [...state.plannedDig.values()].filter((cell) => canDigSandboxCell(state, cell.x, cell.z)).length;
   const claimable = claimableSandboxCells(state).length;
@@ -603,6 +747,21 @@ export function tickSandboxEconomy(
     if (stationCount === 0) continue;
     state.productionClock[kind] += deltaSeconds * stationCount;
     const recipe = RECIPES[kind];
+    if (kind === 'kitchen') {
+      while (
+        state.productionClock.kitchen >= recipe.seconds
+        && state.kitchenFlow.inputBiomass >= recipe.inputAmount
+        && state.kitchenFlow.outputRations <= 4
+      ) {
+        state.productionClock.kitchen -= recipe.seconds;
+        state.kitchenFlow.inputBiomass -= recipe.inputAmount;
+        state.kitchenFlow.outputRations += recipe.outputAmount;
+        state.kitchenFlow.rationsProduced += recipe.outputAmount;
+        state.produced.kitchen += recipe.outputAmount;
+        resourcesChanged = true;
+      }
+      continue;
+    }
     while (state.productionClock[kind] >= recipe.seconds && canStartRecipe(kind, state.stock)) {
       state.productionClock[kind] -= recipe.seconds;
       state.stock = applyRecipe(kind, state.stock);

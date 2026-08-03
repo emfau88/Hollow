@@ -15,6 +15,8 @@ import {
   SANDBOX_DISCOVERY_SITES,
   SANDBOX_HEART,
   SANDBOX_START,
+  activeSandboxEnemy,
+  advanceSandboxCombat,
   advanceSandboxClaiming,
   advanceSandboxDigging,
   advanceSandboxMining,
@@ -22,16 +24,22 @@ import {
   canPlanSandboxCell,
   createSandboxState,
   deliverSandboxResource,
+  deliverSandboxKitchenBiomass,
   excavateSandboxChamber,
   normalizedRect,
   nextSandboxClaimTarget,
+  feedSandboxCreature,
   planSandboxDigCell,
   placeSandboxRoom,
+  pickupSandboxKitchenBiomass,
+  pickupSandboxKitchenRation,
   remainingDepositUnits,
   sandboxBedCapacity,
   sandboxPrisonCapacity,
   storageCapacity,
   sandboxRoomComplete,
+  sandboxCreatureHungry,
+  sandboxLoopProgress,
   summonSandboxWorker,
   tickSandboxEconomy,
   validateSandboxRoom,
@@ -129,6 +137,10 @@ const [
   rockDampMap,
   rockEarthMap,
   workerMap,
+  guardMap,
+  crawlerMap,
+  adeptMap,
+  rationMap,
   heartBackplateMap,
   heartCoreMap,
   heartBezelMap,
@@ -168,6 +180,10 @@ const [
   loadMap(`${terrainRoot}/rock-damp.png`, { x: 1.25, y: 1.25 }),
   loadMap(`${terrainRoot}/rock-earth.png`, { x: 1.25, y: 1.25 }),
   loadMap(theme.assets.workerAnimation ?? theme.assets.worker),
+  loadMap('assets/generated/units-v1/guard.png'),
+  loadMap('assets/generated/units-v1/crawler.png'),
+  loadMap('assets/generated/units-v1/adept.png'),
+  loadMap('assets/generated/units-v1/item-ration.png'),
   loadMap(heartBuilding?.backplate ?? theme.assets.heart),
   loadMap(heartBuilding?.core ?? theme.assets.heart),
   loadMap(heartBuilding?.bezel ?? theme.assets.heart),
@@ -199,7 +215,7 @@ const [
 ]);
 
 const pixelMaps = [
-  workerMap, heartBackplateMap, heartCoreMap, heartBezelMap, heartPulpitMap,
+  workerMap, guardMap, crawlerMap, adeptMap, rationMap, heartBackplateMap, heartCoreMap, heartBezelMap, heartPulpitMap,
   ironMap, fungusMap, storageMap, bedMap, cauldronMap, furnaceMap, workbenchMap, prisonMap,
   fungusGrottoMap, ironMineHeroMap, fungusMediumMap, fungusSmallMap, grottoStationMap, suppliesMap,
   cartMap, rackMap, lampMap, bannerMap, mossMap, sporesMap, puddleMap, rubbleMap,
@@ -437,6 +453,10 @@ const spriteMaterials = {
   smelter: spriteMaterial(furnaceMap),
   workshop: spriteMaterial(workbenchMap),
   prison: spriteMaterial(prisonMap),
+  guard: spriteMaterial(guardMap),
+  enemy: spriteMaterial(crawlerMap),
+  creature: spriteMaterial(adeptMap),
+  ration: spriteMaterial(rationMap),
   fungusGrotto: spriteMaterial(fungusGrottoMap),
   ironMineHero: spriteMaterial(ironMineHeroMap),
   fungusMedium: spriteMaterial(fungusMediumMap),
@@ -461,6 +481,7 @@ const hintMaterials = {
 const cargoMaterials = {
   ore: new THREE.SpriteMaterial({ map: ironMap, transparent: true, alphaTest: 0.035, depthWrite: false, toneMapped: false }),
   biomass: new THREE.SpriteMaterial({ map: fungusMap, transparent: true, alphaTest: 0.035, depthWrite: false, toneMapped: false }),
+  ration: new THREE.SpriteMaterial({ map: rationMap, transparent: true, alphaTest: 0.035, depthWrite: false, toneMapped: false }),
 };
 const decalMaterials = {
   moss: new THREE.MeshBasicMaterial({ map: mossMap, transparent: true, alphaTest: 0.035, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }),
@@ -573,6 +594,7 @@ scene.add(heartLight);
 
 let state = createSandboxState();
 let knownDiscoveryCount = 0;
+let knownRationsProduced = 0;
 let surfaceStyle: SurfaceStyle = 'clean';
 let geometryGroup = new THREE.Group();
 let resourceGroup = new THREE.Group();
@@ -581,6 +603,47 @@ let lightingGroup = new THREE.Group();
 let closedRockGroup = new THREE.Group();
 let lastRockOpenCount = -1;
 world.add(closedRockGroup, geometryGroup, resourceGroup, roomGroup, lightingGroup);
+
+const guardian = addSprite(world, spriteMaterials.guard, SANDBOX_START.x + 1.5, 0.88, SANDBOX_START.z + 0.5, 1.62, 1.62, 24);
+const guardianShadow = new THREE.Mesh(
+  actorShadowGeometry,
+  new THREE.MeshBasicMaterial({ color: 0x01050b, transparent: true, opacity: 0.5, depthWrite: false }),
+);
+guardianShadow.position.set(guardian.position.x, 0.045, guardian.position.z + 0.06);
+world.add(guardianShadow);
+const grottoEnemy = addSprite(world, spriteMaterials.enemy, 24.5, 0.9, 15.5, 1.72, 1.72, 25);
+grottoEnemy.visible = false;
+const enemyHealthBack = new THREE.Mesh(
+  new THREE.PlaneGeometry(1.05, 0.11),
+  new THREE.MeshBasicMaterial({ color: 0x230b14, transparent: true, opacity: 0.92, depthTest: false }),
+);
+const enemyHealthFill = new THREE.Mesh(
+  new THREE.PlaneGeometry(1, 0.07),
+  new THREE.MeshBasicMaterial({ color: 0xe75d61, depthTest: false }),
+);
+enemyHealthBack.renderOrder = 40;
+enemyHealthFill.renderOrder = 41;
+world.add(enemyHealthBack, enemyHealthFill);
+const covenantCreature = addSprite(
+  world,
+  spriteMaterials.creature,
+  state.creature.x + 0.5,
+  0.88,
+  state.creature.z + 0.5,
+  1.58,
+  1.58,
+  23,
+);
+const creatureNeedIcon = addSprite(
+  world,
+  spriteMaterials.ration,
+  state.creature.x + 0.95,
+  1.55,
+  state.creature.z + 0.15,
+  0.44,
+  0.44,
+  35,
+);
 
 function rockMaterialIndex(x: number, z: number): number {
   const fungal = SANDBOX_DISCOVERY_SITES.some((site) => site.kind === 'fungus' && Math.hypot(x - (site.x + site.w / 2), z - (site.z + site.h / 2)) < 6.5);
@@ -1063,6 +1126,17 @@ function rebuildResources(): void {
     const kind = deposits[0].kind;
     addSprite(resourceGroup, hintMaterials[kind], cx, kind === 'fungus' ? 0.58 : 0.52, cz, kind === 'fungus' ? 1.18 : 1.06, kind === 'fungus' ? 1.18 : 1.06, 11);
   }
+  const kitchen = state.rooms.find((room) => room.kind === 'kitchen' && sandboxRoomComplete(room));
+  if (kitchen) {
+    const cx = kitchen.x + kitchen.w / 2;
+    const cz = kitchen.z + kitchen.h / 2;
+    for (let index = 0; index < Math.min(4, state.kitchenFlow.inputBiomass); index += 1) {
+      addSprite(resourceGroup, spriteMaterials.fungusSmall, cx - 0.52 + index * 0.24, 0.28, cz + 0.62, 0.34, 0.34, 15 + index);
+    }
+    for (let index = 0; index < Math.min(4, state.kitchenFlow.outputRations); index += 1) {
+      addSprite(resourceGroup, spriteMaterials.ration, cx + 0.36 + index * 0.2, 0.3, cz - 0.55, 0.34, 0.34, 15 + index);
+    }
+  }
   world.add(resourceGroup);
 }
 
@@ -1202,7 +1276,93 @@ function updateActor(delta: number): { terrainChanged: boolean } {
   return { terrainChanged };
 }
 
-type SupportTaskKind = 'claim' | 'dig' | 'build' | 'mine' | 'haul' | 'maintain';
+let guardianPath = [{ x: guardian.position.x, z: guardian.position.z }];
+let guardianSegment = 0;
+let guardianProgress = 0;
+let guardianDestinationKey = '';
+let enemyDefeatAnnounced = false;
+
+function updateGuardian(delta: number): void {
+  const enemy = activeSandboxEnemy(state);
+  const discovered = Boolean(enemy && state.discoveredSites.has(enemy.siteId));
+  const targetCell = discovered && enemy
+    ? [
+        { x: enemy.x, z: enemy.z + 1 },
+        { x: enemy.x - 1, z: enemy.z },
+        { x: enemy.x + 1, z: enemy.z },
+        { x: enemy.x, z: enemy.z - 1 },
+      ].find((cell) => state.openCells.has(proofCellKey(cell.x, cell.z))) ?? { x: enemy.x, z: enemy.z }
+    : { x: SANDBOX_START.x + 1, z: SANDBOX_START.z };
+  const destinationKey = discovered && enemy ? `fight:${enemy.id}` : 'home';
+  if (destinationKey !== guardianDestinationKey) {
+    guardianDestinationKey = destinationKey;
+    const current = { x: Math.floor(guardian.position.x), z: Math.floor(guardian.position.z) };
+    const routeStart = state.openCells.has(proofCellKey(current.x, current.z)) ? current : SANDBOX_START;
+    const route = findOpenPath([...state.openCells.values()], routeStart, targetCell);
+    guardianPath = route.length > 0
+      ? route.map((cell) => ({ x: cell.x + 0.5, z: cell.z + 0.5 }))
+      : [{ x: guardian.position.x, z: guardian.position.z }];
+    guardianSegment = 0;
+    guardianProgress = 0;
+  }
+  let remaining = delta * 2.35;
+  while (remaining > 0 && guardianSegment < guardianPath.length - 1) {
+    const from = guardianPath[guardianSegment];
+    const to = guardianPath[guardianSegment + 1];
+    const length = Math.max(0.001, Math.hypot(to.x - from.x, to.z - from.z));
+    const available = (1 - guardianProgress) * length;
+    if (remaining < available) {
+      guardianProgress += remaining / length;
+      remaining = 0;
+    } else {
+      remaining -= available;
+      guardianSegment += 1;
+      guardianProgress = 0;
+    }
+  }
+  const from = guardianPath[Math.min(guardianSegment, guardianPath.length - 1)];
+  const to = guardianPath[Math.min(guardianSegment + 1, guardianPath.length - 1)];
+  guardian.position.set(
+    THREE.MathUtils.lerp(from.x, to.x, guardianProgress),
+    0.88,
+    THREE.MathUtils.lerp(from.z, to.z, guardianProgress),
+  );
+  guardianShadow.position.set(guardian.position.x, 0.045, guardian.position.z + 0.06);
+  const moving = guardianSegment < guardianPath.length - 1;
+  if (discovered && enemy && !moving) {
+    const result = advanceSandboxCombat(state, enemy.id, delta);
+    guardian.scale.setScalar(1.62 + Math.sin(workerAnimationTime * 9) * 0.07);
+    grottoEnemy.scale.setScalar(1.72 + Math.sin(workerAnimationTime * 11) * 0.08);
+    if (result.defeated && !enemyDefeatAnnounced) {
+      enemyDefeatAnnounced = true;
+      showLoopPopup('⚔', 'Pilzgrotte gesichert');
+      showStatus({ ok: true, message: 'Der Höhlenkriecher ist besiegt. Arbeiter können die Pilzgrotte jetzt claimen.' });
+      guardianDestinationKey = '';
+      updateUi();
+    }
+  } else {
+    guardian.scale.setScalar(1.62);
+  }
+
+  const visibleEnemy = state.enemies.find((candidate) => candidate.siteId === 'fungus-grotto');
+  const showEnemy = Boolean(visibleEnemy && state.discoveredSites.has('fungus-grotto') && !visibleEnemy.defeated);
+  grottoEnemy.visible = showEnemy;
+  enemyHealthBack.visible = showEnemy;
+  enemyHealthFill.visible = showEnemy;
+  if (visibleEnemy) {
+    grottoEnemy.position.set(visibleEnemy.x + 0.5, 0.9, visibleEnemy.z + 0.5);
+    const ratio = THREE.MathUtils.clamp(visibleEnemy.hp / visibleEnemy.maxHp, 0, 1);
+    enemyHealthBack.position.set(visibleEnemy.x + 0.5, 1.73, visibleEnemy.z + 0.35);
+    enemyHealthFill.position.set(visibleEnemy.x + 0.5 - (1 - ratio) * 0.5, 1.73, visibleEnemy.z + 0.34);
+    enemyHealthBack.quaternion.copy(camera.quaternion);
+    enemyHealthFill.quaternion.copy(camera.quaternion);
+    enemyHealthFill.scale.x = ratio;
+  }
+  creatureNeedIcon.visible = sandboxCreatureHungry(state);
+  creatureNeedIcon.position.y = 1.55 + Math.sin(workerAnimationTime * 4) * 0.08;
+}
+
+type SupportTaskKind = 'claim' | 'dig' | 'build' | 'mine' | 'haul' | 'supply-pickup' | 'supply-deliver' | 'ration-pickup' | 'feed' | 'maintain';
 interface SupportTask {
   kind: SupportTaskKind;
   key: string;
@@ -1217,21 +1377,57 @@ interface SupportMotion {
   progress: number;
 }
 const supportMotions = new Map<number, SupportMotion>();
-const supportCargo = new Map<number, 'ore' | 'biomass'>();
+type SupportCargo = {
+  item: 'ore' | 'biomass' | 'ration';
+  destination: 'storage' | 'kitchen' | 'creature';
+};
+const supportCargo = new Map<number, SupportCargo>();
 
 function supportTask(index: number): SupportTask {
   const cargo = supportCargo.get(index);
   if (cargo) {
+    if (cargo.destination === 'kitchen') {
+      const kitchen = state.rooms.find((room) => room.kind === 'kitchen' && sandboxRoomComplete(room));
+      const stand = kitchen
+        ? { x: kitchen.x + Math.floor(kitchen.w / 2), z: kitchen.z + Math.floor(kitchen.h / 2) }
+        : { x: SANDBOX_HEART.x + 2, z: SANDBOX_HEART.z };
+      return { kind: 'supply-deliver', key: `supply-deliver:${proofCellKey(stand.x, stand.z)}`, target: stand, stand };
+    }
+    if (cargo.destination === 'creature') {
+      const stand = { x: state.creature.x, z: state.creature.z };
+      return { kind: 'feed', key: `feed:${state.creature.id}`, target: stand, stand };
+    }
     const storage = state.rooms.find((room) => room.kind === 'storage' && sandboxRoomComplete(room));
     const stand = storage
       ? { x: storage.x + Math.floor(storage.w / 2), z: storage.z + Math.floor(storage.h / 2) }
       : { x: SANDBOX_HEART.x + 2, z: SANDBOX_HEART.z };
-    return { kind: 'haul', key: `haul:${cargo}:${proofCellKey(stand.x, stand.z)}`, target: stand, stand };
+    return { kind: 'haul', key: `haul:${cargo.item}:${proofCellKey(stand.x, stand.z)}`, target: stand, stand };
   }
+  const taskReserved = (prefix: string): boolean => [...supportMotions.entries()]
+    .some(([otherIndex, motion]) => otherIndex !== index && motion.taskKey.startsWith(prefix));
+  const kitchen = state.rooms.find((room) => room.kind === 'kitchen' && sandboxRoomComplete(room));
+  const storage = state.rooms.find((room) => room.kind === 'storage' && sandboxRoomComplete(room));
+  const storageStand = storage
+    ? { x: storage.x + Math.floor(storage.w / 2), z: storage.z + Math.floor(storage.h / 2) }
+    : { x: SANDBOX_HEART.x + 2, z: SANDBOX_HEART.z };
+  const kitchenStand = kitchen
+    ? { x: kitchen.x + Math.floor(kitchen.w / 2), z: kitchen.z + Math.floor(kitchen.h / 2) }
+    : undefined;
+  const rationPickupTask = kitchenStand && sandboxCreatureHungry(state) && state.kitchenFlow.outputRations > 0 && !taskReserved('ration-pickup:')
+    ? { kind: 'ration-pickup' as const, key: `ration-pickup:${proofCellKey(kitchenStand.x, kitchenStand.z)}`, target: kitchenStand, stand: kitchenStand }
+    : undefined;
+  const supplyPickupTask = kitchenStand
+    && state.kitchenFlow.inputBiomass < 2
+    && state.stock.biomass > 0
+    && !taskReserved('supply-pickup:')
+    ? { kind: 'supply-pickup' as const, key: `supply-pickup:${proofCellKey(storageStand.x, storageStand.z)}`, target: storageStand, stand: storageStand }
+    : undefined;
   const claim = state.workerJobs.claim > 0 ? nextSandboxClaimTarget(state) : undefined;
   const unfinishedRoom = state.workerJobs.build > 0 ? state.rooms.find((room) => !sandboxRoomComplete(room)) : undefined;
   const mine = state.workerJobs.mine > 0
-    ? state.deposits.find((deposit) => deposit.remaining > 0 && state.claimedCells.has(proofCellKey(deposit.x, deposit.z)))
+    ? state.deposits
+        .filter((deposit) => deposit.remaining > 0 && state.claimedCells.has(proofCellKey(deposit.x, deposit.z)))
+        .sort((a, b) => Number(b.kind === 'fungus') - Number(a.kind === 'fungus'))[0]
     : undefined;
   const dig = actorDigTarget && state.workerJobs.dig > index ? actorDigTarget : undefined;
   const claimTask = claim ? { kind: 'claim' as const, key: `claim:${proofCellKey(claim.x, claim.z)}`, target: claim, stand: claim } : undefined;
@@ -1248,8 +1444,8 @@ function supportTask(index: number): SupportTask {
   ].find((cell) => state.openCells.has(proofCellKey(cell.x, cell.z))) : undefined;
   const digTask = dig && digApproach ? { kind: 'dig' as const, key: `dig:${proofCellKey(dig.x, dig.z)}`, target: dig, stand: digApproach } : undefined;
   const selected = index === 1
-    ? claimTask ?? digTask ?? buildTask ?? mineTask
-    : buildTask ?? mineTask ?? digTask ?? (state.workerJobs.claim > 1 ? claimTask : undefined);
+    ? rationPickupTask ?? supplyPickupTask ?? claimTask ?? digTask ?? buildTask ?? mineTask
+    : rationPickupTask ?? supplyPickupTask ?? buildTask ?? mineTask ?? digTask ?? (state.workerJobs.claim > 1 ? claimTask : undefined);
   if (selected) return selected;
   const stand = index === 1 ? { x: SANDBOX_HEART.x + 2, z: SANDBOX_HEART.z - 1 } : { x: SANDBOX_HEART.x - 2, z: SANDBOX_HEART.z + 1 };
   return { kind: 'maintain', key: `maintain:${index}`, target: { ...stand }, stand };
@@ -1313,25 +1509,62 @@ function updateSupportWorkers(delta: number): { terrainChanged: boolean } {
       const depositId = Number(task.key.slice('mine:'.length));
       const result = advanceSandboxMining(state, depositId, delta);
       if (result.completed && result.item) {
-        supportCargo.set(index, result.item);
+        supportCargo.set(index, { item: result.item, destination: 'storage' });
         rebuildResources();
       }
     }
     if (working && task.kind === 'haul') {
       const cargo = supportCargo.get(index);
       if (cargo) {
-        const delivered = deliverSandboxResource(state, cargo);
+        const delivered = cargo.item === 'ore' || cargo.item === 'biomass'
+          ? deliverSandboxResource(state, cargo.item)
+          : { ok: false, message: 'Diese Fracht gehört nicht ins Lager.' };
         if (delivered.ok) {
-          showStoragePopup(cargo);
+          showStoragePopup(cargo.item as 'ore' | 'biomass');
           supportCargo.delete(index);
           updateUi();
         }
       }
     }
+    if (working && task.kind === 'supply-pickup') {
+      const pickedUp = pickupSandboxKitchenBiomass(state);
+      if (pickedUp.ok) {
+        supportCargo.set(index, { item: 'biomass', destination: 'kitchen' });
+        rebuildResources();
+        updateUi();
+      }
+    }
+    if (working && task.kind === 'supply-deliver') {
+      const delivered = deliverSandboxKitchenBiomass(state);
+      if (delivered.ok) {
+        supportCargo.delete(index);
+        showLoopPopup('✦', 'Biomasse an Küche geliefert');
+        rebuildResources();
+        updateUi();
+      }
+    }
+    if (working && task.kind === 'ration-pickup') {
+      const pickedUp = pickupSandboxKitchenRation(state);
+      if (pickedUp.ok) {
+        supportCargo.set(index, { item: 'ration', destination: 'creature' });
+        rebuildResources();
+        updateUi();
+      }
+    }
+    if (working && task.kind === 'feed') {
+      const fed = feedSandboxCreature(state);
+      if (fed.ok) {
+        supportCargo.delete(index);
+        showLoopPopup('♥', 'Kreatur gefüttert');
+        showStatus(fed);
+        rebuildResources();
+        updateUi();
+      }
+    }
     const cargo = supportCargo.get(index);
     visual.cargo.visible = Boolean(cargo);
     if (cargo) {
-      visual.cargo.material = cargoMaterials[cargo];
+      visual.cargo.material = cargoMaterials[cargo.item];
       visual.cargo.position.set(x, 1.42, z + 0.02);
     }
     if (workerAnimated) {
@@ -1361,6 +1594,12 @@ const ui = document.createElement('div');
 ui.className = 'geometry-ui';
 ui.innerHTML = `
   <div class="geometry-badge">Spielbare 2.5D-Sandbox</div>
+  <div class="geometry-loop-card" aria-live="polite">
+    <small>VERTIKALER SPIELLOOP</small>
+    <strong data-loop-title>Pilzgrotte erschließen</strong>
+    <span data-loop-copy>Grabe vom Startraum zur leuchtenden Grotte im Norden.</span>
+    <i data-loop-progress>○ ○ ○ ○ ○ ○ ○</i>
+  </div>
   <div class="geometry-resource-bar" aria-label="Ressourcen">
     <span><b data-stock="ore">0</b><i>Erz</i></span>
     <span><b data-stock="metal">0</b><i>Metall</i></span>
@@ -1445,10 +1684,55 @@ function showStoragePopup(item: 'ore' | 'biomass', amount = 1): void {
   resourcePopups.append(popup);
 }
 
+function showLoopPopup(icon: string, label: string): void {
+  if (!resourcePopups) return;
+  const popup = document.createElement('div');
+  popup.className = 'geometry-resource-popup is-loop';
+  popup.innerHTML = `<b>${icon}</b><span>${label}</span>`;
+  popup.addEventListener('animationend', () => popup.remove(), { once: true });
+  resourcePopups.append(popup);
+}
+
+function updateLoopUi(): void {
+  const progress = sandboxLoopProgress(state);
+  const steps = [
+    progress.discovered,
+    progress.cleared,
+    progress.claimed,
+    progress.biomassStored,
+    progress.kitchenReady,
+    progress.rationProduced,
+    progress.creatureFed,
+  ];
+  const title = ui.querySelector<HTMLElement>('[data-loop-title]');
+  const copy = ui.querySelector<HTMLElement>('[data-loop-copy]');
+  const meter = ui.querySelector<HTMLElement>('[data-loop-progress]');
+  const current = !progress.discovered
+    ? ['Pilzgrotte erschließen', 'Grabe vom Startraum zur leuchtenden Grotte im Norden.']
+    : !progress.cleared
+      ? ['Grotte sichern', 'Der Covenant-Wächter läuft selbst zum Höhlenkriecher und bekämpft ihn.']
+      : !progress.claimed
+        ? ['Pilzboden claimen', 'Ein Arbeiter beansprucht die gesicherte Grotte Feld für Feld.']
+        : !progress.biomassStored
+          ? ['Pilze ernten', 'Ein Arbeiter hackt Biomasse ab und trägt sie sichtbar ins Lager.']
+          : !progress.kitchenReady
+            ? ['Pilzküche bauen', 'Baue in der Startkammer eine Pilzküche, mindestens 2 × 3 Felder.']
+            : !progress.rationProduced
+              ? ['Küche versorgen', 'Ein Arbeiter holt Biomasse aus dem Lager; die Küche kocht daraus Rationen.']
+              : !progress.creatureFed
+                ? ['Kreatur versorgen', 'Ein Arbeiter holt die fertige Ration und bringt sie zur hungrigen Kreatur.']
+                : ['Gameplay-Loop bestanden', 'Entdecken, Kampf, Claiming, Abbau, Transport, Produktion und Versorgung funktionieren.'];
+  if (title) title.textContent = current[0];
+  if (copy) copy.textContent = current[1];
+  if (meter) meter.textContent = steps.map((done) => done ? '●' : '○').join(' ');
+  root.dataset.loopComplete = String(progress.completed);
+  root.dataset.loopStep = String(steps.filter(Boolean).length);
+}
+
 function updateUi(): void {
   for (const [kind, amount] of Object.entries(state.stock)) {
     const output = ui.querySelector<HTMLElement>(`[data-stock="${kind}"]`);
-    if (output) output.textContent = String(amount);
+    if (output) output.textContent = String(kind === 'ration' ? amount + state.kitchenFlow.outputRations : amount);
   }
   const workers = ui.querySelector<HTMLElement>('[data-workers]');
   if (workers) workers.textContent = `${workerCapacity(state)}/5`;
@@ -1475,6 +1759,7 @@ function updateUi(): void {
   }
   root.dataset.rooms = String(state.rooms.length);
   root.dataset.ironRemaining = String(summary.iron);
+  updateLoopUi();
 }
 
 function syncWorld(): void {
@@ -1495,7 +1780,12 @@ function syncTerrain(): void {
   updateUi();
   if (state.discoveredSites.size > knownDiscoveryCount) {
     const newest = SANDBOX_DISCOVERY_SITES.find((site) => state.discoveredSites.has(site.id) && ![...state.discoveredSites].slice(0, knownDiscoveryCount).includes(site.id));
-    if (newest) showStatus({ ok: true, message: `${newest.label} entdeckt. Der neutrale Boden wird nun Feld für Feld beansprucht.` });
+    if (newest) showStatus({
+      ok: true,
+      message: newest.id === 'fungus-grotto'
+        ? `${newest.label} entdeckt. Ein Höhlenkriecher blockiert das Gebiet; der Covenant-Wächter ist unterwegs.`
+        : `${newest.label} entdeckt. Der neutrale Boden wird nun Feld für Feld beansprucht.`,
+    });
     knownDiscoveryCount = state.discoveredSites.size;
   }
 }
@@ -1578,6 +1868,13 @@ ui.querySelector<HTMLButtonElement>('[data-action="reset"]')?.addEventListener('
   workerVisuals.forEach((visual) => { visual.cargo.visible = false; });
   ensureWorkerVisuals(state.workerCount);
   actorDestinationKey = '';
+  guardianDestinationKey = '';
+  guardianSegment = 0;
+  guardianProgress = 0;
+  enemyDefeatAnnounced = false;
+  knownRationsProduced = 0;
+  guardian.position.set(SANDBOX_START.x + 1.5, 0.88, SANDBOX_START.z + 0.5);
+  covenantCreature.position.set(state.creature.x + 0.5, 0.88, state.creature.z + 0.5);
   cameraTarget.set(SANDBOX_START.x, 0, SANDBOX_START.z);
   viewHeight = mobileProfile ? 15 : 20;
   updateCamera();
@@ -1830,6 +2127,7 @@ function animate(timestamp: number): void {
   const actorTick = updateActor(delta);
   const tick = tickSandboxEconomy(state, delta, { autonomousDigging: false, autonomousClaiming: false, autonomousMining: false });
   const supportTick = updateSupportWorkers(delta);
+  updateGuardian(delta);
   updateClaimFx();
   if (actorTick.terrainChanged) scheduleTerrainSync();
   if (supportTick.terrainChanged) scheduleTerrainSync();
@@ -1838,7 +2136,13 @@ function animate(timestamp: number): void {
     rebuildRooms();
     updateUi();
   }
-  if (tick.resourcesChanged) rebuildResources();
+  if (tick.resourcesChanged) {
+    rebuildResources();
+    if (state.kitchenFlow.rationsProduced > knownRationsProduced) {
+      showLoopPopup('♨', `+${state.kitchenFlow.rationsProduced - knownRationsProduced} Rationen gekocht`);
+      knownRationsProduced = state.kitchenFlow.rationsProduced;
+    }
+  }
   uiClock += delta;
   if (uiClock >= 0.25) {
     updateUi();

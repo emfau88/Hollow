@@ -95,6 +95,18 @@ noch kein Ersatz für den vollständigen Vertical Slice. Nachgewiesen ist:
   Arbeitsanimation, entnimmt eine Einheit und trägt ein sichtbares Bündel zum
   Dungeon-Herz beziehungsweise in ein fertiges Lager. Erst die Ablieferung
   erhöht den Bestand; erschöpfte Hotspots verschwinden aus der Szene;
+- die Pilzgrotte bildet nun einen ersten vollständigen vertikalen Gameplay-Loop:
+  Der Durchbruch entdeckt einen sichtbaren Höhlenkriecher, ein vorhandener
+  Covenant-Wächter läuft über das echte Wegenetz zur Grotte und bekämpft ihn.
+  Solange der Gegner lebt, kann der Grottenboden nicht beansprucht werden. Nach
+  dem Kampf claimen Arbeiter den Ort, bauen Pilze ab und tragen Biomasse ins
+  Lager;
+- eine fertige Pilzküche verwendet für diesen Loop keine direkte globale
+  Bestandsumrechnung mehr. Ein Arbeiter nimmt Biomasse sichtbar aus dem Lager,
+  liefert sie an den Kücheneingang, die Station erzeugt nach Arbeitszeit einen
+  sichtbaren Rationsstapel und ein Arbeiter bringt eine Ration zur hungrigen
+  Covenant-Kreatur. Ein kompaktes HUD-Ziel zeigt die sieben nachgewiesenen
+  Schritte von Entdeckung bis Fütterung;
 - bei jeder tatsächlichen Lagerlieferung erscheint ein deutliches, kurzlebiges
   HUD-Popup mit Art und Menge der eingelagerten Ressource. Die seitlichen
   Arbeiterframes werden abhängig von der realen Bewegungsrichtung gespiegelt;
@@ -115,9 +127,12 @@ noch kein Ersatz für den vollständigen Vertical Slice. Nachgewiesen ist:
 
 Noch klar fehlend oder vereinfacht sind:
 
-- vollständige Übernahme der Kampagne mit Fog of War,
-  Gegenstandstransport, Hunger, Kampf, Fallen, Rekrutierung, Wellen,
-  Gefangenenablauf, Sieg/Niederlage und Speichern;
+- vollständige Übernahme der Kampagne mit Fog of War, allgemeiner physischer
+  Logistik für alle Raumrezepte, Bedürfnissen für mehrere Kreaturen,
+  steuerbaren Kampfverbänden, Fallen, Rekrutierung, Wellen,
+  Gefangenenablauf, Sieg/Niederlage und Speichern. Kampf, Hunger und
+  Produktionslogistik sind bislang bewusst nur im beschriebenen Pilzgrotten-
+  Loop nachgewiesen;
 - vollständig individuelle Fortschrittsberechnung für den Raum-Bau. Graben,
   Claiming sowie Ressourcenabbau und -transport sind bereits an die Ankunft
   konkreter Arbeiter gebunden; der Raum-Bau wird am korrekten Ziel visualisiert,
