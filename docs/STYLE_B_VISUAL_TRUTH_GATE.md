@@ -66,8 +66,9 @@ Mockups fehlen weiterhin:
 
 ## Nachfolgende Integration
 
-Die Präsentation dieses kleinen Gates wurde inzwischen auf den bereits mit dem
-echten Hauptspiel verbundenen Three.js-Renderer übertragen. `GameScene` ist
+Die große Integration und dieses kleine Gate laden inzwischen direkt dasselbe
+`geometry-sandbox-main.ts`-Modul; ein abweichender Spatial-Renderer existiert
+nicht mehr. `GameScene` ist
 schriftlich und technisch als kanonischer Zustand festgelegt; die große
 Kampagnen-Renderfixture benutzt denselben `AutomationState-v1`-Vertrag und keine
 zweite Simulationslogik.

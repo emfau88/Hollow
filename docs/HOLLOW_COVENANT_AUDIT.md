@@ -68,7 +68,7 @@ PNG, JPEG, WebP und GIF. Die Paketstände sind Phaser 3.90.0, Three.js
 |---|---|---|
 | Echte Geometrie statt vollständiger Wand-Sprites | **bestätigt** | Instanzierte Böden, Wandlagen, Kappen, Ecken und Schwellen lösen die Topologie im Geometry-Pfad. |
 | Parallele Gameplayimplementierung | **bestätigt / eingedämmt** | `GeometrySandboxModel.ts` besitzt weiterhin eigene Gameplayteile, ist nun aber als historischer Präsentationsproof eingefroren. Der Produktionspfad verwendet den vorhandenen Adapter auf `GameScene`. |
-| Renderkonfiguration aus der Hauptdatei auslagern | **offen** | Kamera, Renderer, Materialien und Lichter stehen weiterhin in der 2.609 Zeilen großen `geometry-sandbox-main.ts`. |
+| Renderkonfiguration aus der Hauptdatei auslagern | **offen** | Kamera, Renderer, Materialien und Lichter stehen weiterhin in der rund 2.900 Zeilen großen `geometry-sandbox-main.ts`. Der gemeinsame Pfad verhindert Abweichungen, ersetzt aber noch nicht die sinnvolle interne Modultrennung. |
 | Zu hohes globales Fülllicht | **umgesetzt** | Ambient 0,22 + Hemisphere 0,72 gegenüber Key 3,25 ergibt ca. 3,46:1 statt der auditierten 1,34:1. ACES bleibt aktiv, Exposure ist 1,0. |
 | Mobile ohne gerichtete Schatten | **umgesetzt** | Das Key-Light wirft auch mobil Schatten; Mobile verwendet eine 512er Shadowmap. Kurze Wand- und Sprite-Kontaktschatten ergänzen die Tiefenwirkung. |
 | Selbstleuchtender Normalfels | **umgesetzt** | Bedrock und geschlossene Felsmaterialien verwenden Emissive-Intensität 0. Emission bleibt auf echte Leuchtobjekte und kleine gezielte Akzente begrenzt. |
@@ -82,7 +82,7 @@ PNG, JPEG, WebP und GIF. Die Paketstände sind Phaser 3.90.0, Three.js
 | Keine neuen Sandbox-Gameplayfeatures | **eingehalten und festgeschrieben** | `GeometrySandboxModel` trägt einen Deprecation-/Einfrierhinweis. Visual-Truth-Zustand und große Kampagnenfixture ordnen nur Daten für visuelle QA an und fügen keine Regeln hinzu. |
 | Kanonischen Spielzustand festlegen | **umgesetzt** | `GameScene` ist alleinige Wahrheit; `AutomationState`/`CanonicalGameState` ist der renderer-neutrale Vertrag. `GameSimulationBridge` speist den Three.js-Renderer live aus dieser API. |
 | Repräsentative Großszene | **umgesetzt** | Die Kampagnen-Renderfixture enthält sechs Räume, Ein-/Zweifeldgänge, Kreuzungen, vier Regionen, Ressourcen, 8 Arbeiter, 6 Truppen und 8 Gegner im kanonischen Schema. |
-| Präsentation auf kanonischen Renderer übertragen | **umgesetzt** | 53-Grad-Kamera, Lichtverhältnis, Mobile-Schatten, hohe Felsmasse, helle modulare Wände, Einfeldgang-Cutaway und Spriteanker laufen nun in `spatial-prototype.html`. |
+| Präsentation auf kanonischen Renderer übertragen | **umgesetzt / strukturell abgesichert** | `spatial-prototype.html` importiert jetzt direkt denselben `geometry-sandbox-main.ts` wie der kleine Proof. Der getrennte alte Spatial-Renderer wurde entfernt. 53-Grad-Kamera, Lichtverhältnis, Mobile-Schatten, hohe Felsmasse, helle modulare Wände, Einfeldgang-Cutaway und Spriteanker sind dadurch derselbe Codepfad. |
 | Alte Pfade formell einfrieren | **offen** | Frühere Assets sind überwiegend inaktiv, aber noch nicht vollständig als Referenz oder Archiv markiert und nicht aus allen normalen Produktionspfaden ausgeschlossen. |
 
 ## Seit dem Audit konkret umgesetzt
@@ -108,6 +108,12 @@ PNG, JPEG, WebP und GIF. Die Paketstände sind Phaser 3.90.0, Three.js
     `CanonicalGameState` benannt.
 11. `GeometrySandboxModel` als historischen Präsentationsproof eingefroren;
     fehlende Kampagnenfunktionen werden dort nicht weiter nachgebaut.
+12. Den fehlerhaften zweiten Spatial-Renderer entfernt und Live- sowie
+    Kampagnenansicht über einen reinen `CanonicalGeometryAdapter` direkt an den
+    bereits abgenommenen Geometry-Renderpfad angeschlossen.
+13. Großszene in vier unterscheidbare Regionen aufgeteilt, alle kanonischen
+    Arbeiter, Truppen, Gegner und Waren mit normalisierten Bodenankern gerendert
+    und den leeren Herzraum durch das vorhandene Covenant-Inlay verdichtet.
 12. Wand-, Schatten-, Kamera- und Sprite-Präsentation auf den bereits live mit
     dem Hauptspiel verbundenen Spatial-Renderer übertragen.
 13. Große Kampagnen-Renderfixture mit sechs Raumtypen, Kreuzungen, Ressourcen,

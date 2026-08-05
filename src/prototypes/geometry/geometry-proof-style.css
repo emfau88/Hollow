@@ -233,6 +233,32 @@ button { color: inherit; font: inherit; }
   color: var(--gold-light);
 }
 
+#geometry-proof[data-canonical="true"] .geometry-loop-card {
+  border-color: rgba(217, 170, 58, 0.5);
+  border-left-color: var(--gold);
+}
+
+#geometry-proof[data-canonical="true"] .geometry-loop-card small,
+#geometry-proof[data-canonical="true"] .geometry-loop-card i {
+  color: var(--gold-light);
+}
+
+#geometry-proof[data-canonical="true"] .geometry-bottom-area,
+#geometry-proof[data-canonical="true"] .canonical-simulation-host {
+  display: none;
+}
+
+#geometry-proof[data-canonical="true"] .geometry-view-actions {
+  flex-wrap: wrap;
+  width: 148px;
+}
+
+#geometry-proof[data-canonical="true"] .geometry-view-actions button {
+  flex: 1 0 42px;
+  font-size: 12px;
+  font-weight: 900;
+}
+
 .geometry-panel {
   position: absolute;
   top: 14px;

@@ -58,17 +58,18 @@ Spielzustand. Der neue Three.js-Renderer liest seine Karte, Räume, Waren,
 Arbeiter, Truppen, Gegner und Ziele über `AutomationState-v1`; fehlende
 Kampagnenfunktionen werden nicht mehr in einem Sandboxmodell nachgebaut.
 
-- `spatial-prototype.html` verbindet den Renderer live mit der echten
-  Hauptspielsimulation und lässt den Grottendurchbruch mit realen Jobs und
-  realer Wegsuche laufen.
+- `spatial-prototype.html` startet eine echte Hauptspielinstanz, pausiert deren
+  Frameschleife und rendert ihren kanonischen Zustand mit exakt demselben
+  Geometry-Modul wie die Visual-Truth-Szene.
 - `spatial-prototype.html?campaign-evaluation=1` zeigt eine große
   schreibgeschützte Kampagnen-Renderprobe desselben Zustandsvertrags mit sechs
   Raumtypen, Kreuzungen, Ressourcen, Einheiten und Gegnern.
 
 ![Große kanonische Kampagnen-Renderprobe](docs/screenshots/campaign-evaluation-desktop.png)
 
-Die alte `geometry-sandbox.html` bleibt als historischer Präsentationsproof
-erhalten, ist für neue Spielregeln aber eingefroren.
+`geometry-sandbox.html` bleibt als historischer, spielbarer
+Präsentationsproof erhalten. `spatial-prototype.html` besitzt dagegen keinen
+zweiten Renderer mehr; der frühere Spatial-Renderpfad wurde entfernt.
 
 ### Technischer Stand des eingefrorenen 2.5D-Proofs
 

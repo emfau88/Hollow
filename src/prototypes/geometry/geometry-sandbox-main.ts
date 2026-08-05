@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { resolveVisualTheme } from '../../config/VisualTheme';
 import { ROOM_DEFINITIONS, type RoomKind } from '../../data/definitions';
+import type { CanonicalGameState } from '../../core/AutomationBridge';
 import { bedroomCapacity, prisonCapacity, productionStations } from '../../core/GameRules';
 import {
   boundaryVertices,
@@ -55,6 +56,13 @@ import {
 } from './ProceduralWallAssets';
 import { createGeometryVisualTruthState, VISUAL_TRUTH_GROTTO } from './GeometryVisualTruthState';
 import {
+  CANONICAL_CAMPAIGN_GEOMETRY,
+  CANONICAL_LIVE_GEOMETRY,
+  canonicalPointToGeometry,
+  canonicalStateToGeometryState,
+  type CanonicalGeometryConfig,
+} from './CanonicalGeometryAdapter';
+import {
   VISUAL_TRUTH_SPRITES,
   type SpritePresentation,
   type VisualTruthSpriteKey,
@@ -65,6 +73,8 @@ import {
   type PassageThreshold,
   type WallCorner,
 } from './GeometryWallArchitecture';
+import { createCampaignEvaluationState } from '../spatial/CampaignEvaluationState';
+import { connectGameSimulation, type GameSimulationBridge } from '../spatial/GameSimulationBridge';
 import './geometry-proof-style.css';
 
 type SurfaceStyle = ProceduralWallStyle;
@@ -75,9 +85,36 @@ const canvasHostElement = document.querySelector<HTMLElement>('#geometry-canvas'
 if (!rootElement || !canvasHostElement) throw new Error('Geometry sandbox host is missing.');
 const root = rootElement;
 const canvasHost = canvasHostElement;
-const visualTruthMode = new URLSearchParams(window.location.search).get('visual-truth') === '1';
+const query = new URLSearchParams(window.location.search);
+const visualTruthMode = query.get('visual-truth') === '1';
+const canonicalMode = window.location.pathname.endsWith('/spatial-prototype.html') || query.get('canonical') === '1';
+const campaignEvaluationMode = canonicalMode && query.get('campaign-evaluation') === '1';
+const highFidelityMode = visualTruthMode || canonicalMode;
+const readOnlyMode = visualTruthMode || canonicalMode;
 root.dataset.visualTruth = String(visualTruthMode);
-const discoverySites = visualTruthMode ? [VISUAL_TRUTH_GROTTO] : SANDBOX_DISCOVERY_SITES;
+root.dataset.canonical = String(canonicalMode);
+root.dataset.campaignEvaluation = String(campaignEvaluationMode);
+
+let simulationBridge: GameSimulationBridge | undefined;
+let canonicalSnapshot: CanonicalGameState | undefined;
+let canonicalConfig: CanonicalGeometryConfig | undefined;
+if (canonicalMode) {
+  const simulationHost = document.createElement('div');
+  simulationHost.className = 'canonical-simulation-host';
+  simulationHost.hidden = true;
+  root.append(simulationHost);
+  simulationBridge = await connectGameSimulation(simulationHost);
+  const baseState = campaignEvaluationMode
+    ? simulationBridge.state()
+    : (simulationBridge.state().started ? simulationBridge.state() : simulationBridge.api.start().state);
+  canonicalSnapshot = campaignEvaluationMode ? createCampaignEvaluationState(baseState) : baseState;
+  canonicalConfig = campaignEvaluationMode ? CANONICAL_CAMPAIGN_GEOMETRY : CANONICAL_LIVE_GEOMETRY;
+}
+
+const activeBounds = canonicalConfig?.bounds ?? SANDBOX_BOUNDS;
+const activeHeart = canonicalConfig?.heart ?? SANDBOX_HEART;
+const activeStart = canonicalConfig?.start ?? SANDBOX_START;
+const discoverySites = canonicalConfig?.sites ?? (visualTruthMode ? [VISUAL_TRUTH_GROTTO] : SANDBOX_DISCOVERY_SITES);
 
 const theme = resolveVisualTheme('?theme=style-b');
 const mobileProfile = window.matchMedia('(max-width: 900px), (pointer: coarse)').matches;
@@ -96,23 +133,27 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 canvasHost.append(renderer.domElement);
 
 const camera = new THREE.OrthographicCamera(-12, 12, 8, -8, 0.1, 100);
-const cameraTarget = visualTruthMode
-  ? new THREE.Vector3(12.7, 0, 24)
-  : new THREE.Vector3(SANDBOX_START.x, 0, SANDBOX_START.z);
+const cameraTarget = campaignEvaluationMode
+  ? new THREE.Vector3(26, 0, 17)
+  : visualTruthMode
+    ? new THREE.Vector3(12.7, 0, 24)
+    : new THREE.Vector3(activeStart.x, 0, activeStart.z);
 // Keep enough pitch to read the floor plan, but expose the inner wall facades
 // instead of reducing the room to a mostly top-down ring of wall caps.
-const cameraOffset = visualTruthMode
+const cameraOffset = highFidelityMode
   ? new THREE.Vector3(0, 15.5, 11.5)
   : new THREE.Vector3(0, 17.5, 10.5);
-let viewHeight = visualTruthMode ? (mobileProfile ? 16.5 : 15) : (mobileProfile ? 15 : 20);
+let viewHeight = campaignEvaluationMode
+  ? (mobileProfile ? 27 : 34)
+  : visualTruthMode ? (mobileProfile ? 16.5 : 15) : (mobileProfile ? 15 : 20);
 
 function reservedPanelWidth(): number {
   return 0;
 }
 
 function clampCameraTarget(): void {
-  cameraTarget.x = THREE.MathUtils.clamp(cameraTarget.x, SANDBOX_BOUNDS.minX, SANDBOX_BOUNDS.maxX + 1);
-  cameraTarget.z = THREE.MathUtils.clamp(cameraTarget.z, SANDBOX_BOUNDS.minZ, SANDBOX_BOUNDS.maxZ + 1);
+  cameraTarget.x = THREE.MathUtils.clamp(cameraTarget.x, activeBounds.minX, activeBounds.maxX + 1);
+  cameraTarget.z = THREE.MathUtils.clamp(cameraTarget.z, activeBounds.minZ, activeBounds.maxZ + 1);
 }
 
 function updateCamera(): void {
@@ -162,9 +203,20 @@ const [
   truthGrottoFloorMap,
   workerMap,
   guardMap,
+  archerMap,
+  hexbinderMap,
+  inquisitorMap,
   crawlerMap,
   adeptMap,
+  dwarfMap,
+  crossbowMap,
+  captainMap,
   rationMap,
+  oreItemMap,
+  biomassItemMap,
+  metalItemMap,
+  essenceItemMap,
+  armourItemMap,
   heartBackplateMap,
   heartCoreMap,
   heartBezelMap,
@@ -187,6 +239,7 @@ const [
   rackMap,
   lampMap,
   bannerMap,
+  covenantInlayMap,
   mossMap,
   sporesMap,
   puddleMap,
@@ -205,9 +258,20 @@ const [
   loadMap('assets/generated/geometry-sandbox-v2/visual-truth/grotto-floor-style-b-v1.png'),
   loadMap(theme.assets.workerAnimation ?? theme.assets.worker),
   loadMap(theme.assets.guard),
+  loadMap(theme.assets.archer),
+  loadMap('assets/generated/units-v1/hexbinder.png'),
+  loadMap('assets/generated/units-v1/inquisitor.png'),
   loadMap('assets/generated/units-v1/crawler.png'),
   loadMap('assets/generated/units-v1/adept.png'),
+  loadMap('assets/generated/units-v1/dwarf.png'),
+  loadMap('assets/generated/units-v1/crossbow.png'),
+  loadMap('assets/generated/units-v1/captain.png'),
   loadMap('assets/generated/units-v1/item-ration.png'),
+  loadMap('assets/generated/units-v1/item-ore.png'),
+  loadMap('assets/generated/units-v1/item-biomass.png'),
+  loadMap('assets/generated/units-v1/item-metal.png'),
+  loadMap('assets/generated/units-v1/item-essence.png'),
+  loadMap('assets/generated/units-v1/item-armour.png'),
   loadMap(heartBuilding?.backplate ?? theme.assets.heart),
   loadMap(heartBuilding?.core ?? theme.assets.heart),
   loadMap(heartBuilding?.bezel ?? theme.assets.heart),
@@ -230,6 +294,7 @@ const [
   loadMap('assets/generated/style-b-v2/decor/rack.png'),
   loadMap('assets/generated/style-b-v2/decor/lamp.png'),
   loadMap('assets/generated/style-b-v2/decor/banner.png'),
+  loadMap(theme.assets.groundDecals?.covenantInlay ?? 'assets/generated/style-b-v3/decals/covenant-inlay.png'),
   loadMap('assets/generated/style-b-v3/decals/moss.png'),
   loadMap('assets/generated/style-b-v3/decals/spores.png'),
   loadMap('assets/generated/style-b-v3/decals/puddle.png'),
@@ -237,10 +302,12 @@ const [
 ]);
 
 const pixelMaps = [
-  workerMap, guardMap, crawlerMap, adeptMap, rationMap, heartBackplateMap, heartCoreMap, heartBezelMap, heartPulpitMap,
+  workerMap, guardMap, archerMap, hexbinderMap, inquisitorMap, crawlerMap, adeptMap, dwarfMap, crossbowMap, captainMap,
+  rationMap, oreItemMap, biomassItemMap, metalItemMap, essenceItemMap, armourItemMap,
+  heartBackplateMap, heartCoreMap, heartBezelMap, heartPulpitMap,
   ironMap, fungusMap, storageMap, bedMap, cauldronMap, furnaceMap, workbenchMap, prisonMap,
   fungusMediumMap, fungusSmallMap, grottoStationMap, suppliesMap,
-  cartMap, rackMap, lampMap, bannerMap, mossMap, sporesMap, puddleMap, rubbleMap,
+  cartMap, rackMap, lampMap, bannerMap, covenantInlayMap, mossMap, sporesMap, puddleMap, rubbleMap,
 ];
 for (const map of pixelMaps) {
   map.magFilter = THREE.NearestFilter;
@@ -263,7 +330,7 @@ function standardMaterial(options: { color: number; map?: THREE.Texture; roughne
 
 const floorMaterials = {
   start: standardMaterial({ color: 0xd2c4c8, map: floorMap, roughness: 0.88 }),
-  claimed: visualTruthMode
+  claimed: highFidelityMode
     ? new THREE.MeshStandardMaterial({
       color: 0xffffff,
       map: corridorMap,
@@ -273,7 +340,10 @@ const floorMaterials = {
     })
     : standardMaterial({ color: 0xa9b4c5, map: corridorMap, roughness: 0.94 }),
   raw: standardMaterial({ color: 0x667e9d, map: rawFloorMap, roughness: 1 }),
-  cavern: standardMaterial({ color: visualTruthMode ? 0xb8d5c7 : 0x78a995, map: visualTruthMode ? truthGrottoFloorMap : dampFloorMap, roughness: 1 }),
+  cavern: standardMaterial({ color: highFidelityMode ? 0xb8d5c7 : 0x78a995, map: highFidelityMode ? truthGrottoFloorMap : dampFloorMap, roughness: 1 }),
+  ironCavern: standardMaterial({ color: 0xbd9d8a, map: dampFloorMap, roughness: 1 }),
+  hostileCavern: standardMaterial({ color: 0x8794a9, map: rawFloorMap, roughness: 1 }),
+  shrineCavern: standardMaterial({ color: 0xa48aa8, map: rawFloorMap, roughness: 0.98 }),
 };
 const bedrockMaterial = standardMaterial({ color: 0x20314e, map: rockMap, roughness: 1 });
 const geologyMaterials = {
@@ -283,10 +353,10 @@ const geologyMaterials = {
   earth: standardMaterial({ color: 0x765d52, map: rockEarthMap, roughness: 1 }),
 };
 const closedRockMaterials = [
-  standardMaterial({ color: 0x91a9c7, map: visualTruthMode ? undefined : rockBasaltMap, roughness: 1 }),
-  standardMaterial({ color: 0x78a695, map: visualTruthMode ? undefined : rockDampMap, roughness: 1 }),
-  standardMaterial({ color: 0xa08372, map: visualTruthMode ? undefined : rockEarthMap, roughness: 1 }),
-  standardMaterial({ color: 0x858e8c, map: visualTruthMode ? undefined : rockRootsMap, roughness: 1 }),
+  standardMaterial({ color: 0x91a9c7, map: highFidelityMode ? undefined : rockBasaltMap, roughness: 1 }),
+  standardMaterial({ color: 0x78a695, map: highFidelityMode ? undefined : rockDampMap, roughness: 1 }),
+  standardMaterial({ color: 0xa08372, map: highFidelityMode ? undefined : rockEarthMap, roughness: 1 }),
+  standardMaterial({ color: 0x858e8c, map: highFidelityMode ? undefined : rockRootsMap, roughness: 1 }),
 ];
 const truthClosedRockMaterial = standardMaterial({ color: 0xffffff, map: truthClosedRockMap, roughness: 1 });
 bedrockMaterial.emissive.setHex(0x000000);
@@ -310,10 +380,10 @@ const wallFamilies: Record<SurfaceStyle, WallFamily> = {
     post: standardMaterial({ color: 0xd1c4b2, map: generatedWallCapMap, roughness: 0.82 }),
   },
   project: {
-    side: standardMaterial({ color: visualTruthMode ? 0xd0a6b8 : 0xa7bdd2, map: generatedWallSideMap, roughness: visualTruthMode ? 0.92 : 0.9 }),
-    cap: standardMaterial({ color: visualTruthMode ? 0xd9e2e5 : 0xeee2c9, map: generatedWallCapMap, roughness: visualTruthMode ? 0.84 : 0.82 }),
-    base: standardMaterial({ color: visualTruthMode ? 0x2d3446 : 0x73849a, map: visualTruthMode ? generatedWallSideMap : generatedWallCapMap, roughness: visualTruthMode ? 0.98 : 0.96 }),
-    post: standardMaterial({ color: visualTruthMode ? 0xb8aa93 : 0xd8a532, map: generatedWallCapMap, roughness: visualTruthMode ? 0.88 : 0.76, metalness: visualTruthMode ? 0.02 : 0.08 }),
+    side: standardMaterial({ color: highFidelityMode ? 0xd0a6b8 : 0xa7bdd2, map: generatedWallSideMap, roughness: highFidelityMode ? 0.92 : 0.9 }),
+    cap: standardMaterial({ color: highFidelityMode ? 0xd9e2e5 : 0xeee2c9, map: generatedWallCapMap, roughness: highFidelityMode ? 0.84 : 0.82 }),
+    base: standardMaterial({ color: highFidelityMode ? 0x2d3446 : 0x73849a, map: highFidelityMode ? generatedWallSideMap : generatedWallCapMap, roughness: highFidelityMode ? 0.98 : 0.96 }),
+    post: standardMaterial({ color: highFidelityMode ? 0xb8aa93 : 0xd8a532, map: generatedWallCapMap, roughness: highFidelityMode ? 0.88 : 0.76, metalness: highFidelityMode ? 0.02 : 0.08 }),
   },
   natural: {
     side: standardMaterial({ color: 0xffffff, map: wallAssets.natural.side, roughness: 0.98 }),
@@ -322,7 +392,7 @@ const wallFamilies: Record<SurfaceStyle, WallFamily> = {
     post: standardMaterial({ color: 0x426c69, roughness: 0.98 }),
   },
 };
-if (visualTruthMode) {
+if (highFidelityMode) {
   wallFamilies.project.side.emissive.setHex(0x251629);
   wallFamilies.project.side.emissiveIntensity = 0.22;
   wallFamilies.project.cap.emissive.setHex(0x27313a);
@@ -345,10 +415,10 @@ const foregroundFamilies = Object.fromEntries(
 
 const world = new THREE.Group();
 scene.add(world);
-const mapWidth = SANDBOX_BOUNDS.maxX - SANDBOX_BOUNDS.minX + 1;
-const mapHeight = SANDBOX_BOUNDS.maxZ - SANDBOX_BOUNDS.minZ + 1;
-const mapCenterX = SANDBOX_BOUNDS.minX + mapWidth / 2;
-const mapCenterZ = SANDBOX_BOUNDS.minZ + mapHeight / 2;
+const mapWidth = activeBounds.maxX - activeBounds.minX + 1;
+const mapHeight = activeBounds.maxZ - activeBounds.minZ + 1;
+const mapCenterX = activeBounds.minX + mapWidth / 2;
+const mapCenterZ = activeBounds.minZ + mapHeight / 2;
 const bedrock = new THREE.Mesh(new THREE.PlaneGeometry(mapWidth, mapHeight).rotateX(-Math.PI / 2), bedrockMaterial);
 bedrock.position.set(mapCenterX, -0.055, mapCenterZ);
 bedrock.receiveShadow = true;
@@ -603,9 +673,20 @@ const spriteMaterials = {
   workshop: spriteMaterial(workbenchMap),
   prison: spriteMaterial(prisonMap),
   guard: spriteMaterial(guardMap),
+  archer: spriteMaterial(archerMap),
+  hexbinder: spriteMaterial(hexbinderMap),
+  inquisitor: spriteMaterial(inquisitorMap),
   enemy: spriteMaterial(crawlerMap),
   creature: spriteMaterial(adeptMap),
+  dwarf: spriteMaterial(dwarfMap),
+  crossbow: spriteMaterial(crossbowMap),
+  captain: spriteMaterial(captainMap),
   ration: spriteMaterial(rationMap),
+  oreItem: spriteMaterial(oreItemMap),
+  biomassItem: spriteMaterial(biomassItemMap),
+  metalItem: spriteMaterial(metalItemMap),
+  essenceItem: spriteMaterial(essenceItemMap),
+  armourItem: spriteMaterial(armourItemMap),
   iron: spriteMaterial(ironMap),
   fungusMedium: spriteMaterial(fungusMediumMap),
   fungusSmall: spriteMaterial(fungusSmallMap),
@@ -642,36 +723,38 @@ const cargoMaterials = {
   ration: new THREE.SpriteMaterial({ map: rationMap, transparent: true, alphaTest: 0.035, depthWrite: false, toneMapped: false }),
 };
 const decalMaterials = {
+  covenantInlay: new THREE.MeshBasicMaterial({ map: covenantInlayMap, transparent: true, alphaTest: 0.035, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }),
   moss: new THREE.MeshBasicMaterial({ map: mossMap, transparent: true, alphaTest: 0.035, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }),
   spores: new THREE.MeshBasicMaterial({ map: sporesMap, transparent: true, alphaTest: 0.035, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }),
   puddle: new THREE.MeshBasicMaterial({ map: puddleMap, transparent: true, alphaTest: 0.035, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }),
   rubble: new THREE.MeshBasicMaterial({ map: rubbleMap, transparent: true, alphaTest: 0.035, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }),
 };
 
-const heartX = SANDBOX_HEART.x + 0.5;
-const heartZ = SANDBOX_HEART.z + 0.5;
+const heartX = activeHeart.x + 0.5;
+const heartZ = activeHeart.z + 0.5;
 const heartPlinth = new THREE.Mesh(
   new THREE.CylinderGeometry(1, 1.18, 0.2, 12),
   standardMaterial({ color: 0x283246, roughness: 0.78, metalness: 0.08 }),
 );
 heartPlinth.position.set(heartX, 0.11, heartZ);
 heartPlinth.scale.set(1.35, 1, 0.95);
-heartPlinth.castShadow = !visualTruthMode;
+heartPlinth.castShadow = !highFidelityMode;
 heartPlinth.receiveShadow = true;
 world.add(heartPlinth);
+if (highFidelityMode) addFloorDecal(world, decalMaterials.covenantInlay, heartX, heartZ + 0.1, 5.1, 5.1, 0);
 // Match the source setpiece ratios. The baked room-base image is intentionally
 // omitted because the reserved heart floor is real geometry in this renderer.
 addSprite(world, spriteMaterials.heartBackplate, heartX, 1.16, heartZ - 0.08, 2.65, 2.65, 10);
 addSprite(world, spriteMaterials.heartCore, heartX, 1.16, heartZ, 1.06, 1.06, 11);
 addSprite(world, spriteMaterials.heartBezel, heartX, 1.16, heartZ + 0.03, 1.4, 1.4, 12);
 addSprite(world, spriteMaterials.heartPulpit, heartX, 0.47, heartZ + 0.24, 1.86, 1.27, 13);
-if (visualTruthMode) {
-  addSprite(world, spriteMaterials.lamp, 4.6, 0.54, 22.62, VISUAL_TRUTH_SPRITES.lamp.width, VISUAL_TRUTH_SPRITES.lamp.height, 9);
-  addSprite(world, spriteMaterials.lamp, 10.9, 0.54, 22.62, VISUAL_TRUTH_SPRITES.lamp.width, VISUAL_TRUTH_SPRITES.lamp.height, 9);
-  addSprite(world, spriteMaterials.banner, 7.5, 0.67, 22.48, VISUAL_TRUTH_SPRITES.banner.width, VISUAL_TRUTH_SPRITES.banner.height, 9);
-  addVisualTruthSprite(world, 'rack', spriteMaterials.rack, 4.15, 27.15, 9);
-  addVisualTruthSprite(world, 'cart', spriteMaterials.cart, 10.75, 27.15, 9);
-  addVisualTruthSprite(world, 'supplies', spriteMaterials.supplies, 9.75, 27.18, 9);
+if (highFidelityMode) {
+  addSprite(world, spriteMaterials.lamp, heartX - 3.1, 0.54, heartZ - 3.1, VISUAL_TRUTH_SPRITES.lamp.width, VISUAL_TRUTH_SPRITES.lamp.height, 9);
+  addSprite(world, spriteMaterials.lamp, heartX + 3.1, 0.54, heartZ - 3.1, VISUAL_TRUTH_SPRITES.lamp.width, VISUAL_TRUTH_SPRITES.lamp.height, 9);
+  addSprite(world, spriteMaterials.banner, heartX, 0.67, heartZ - 3.25, VISUAL_TRUTH_SPRITES.banner.width, VISUAL_TRUTH_SPRITES.banner.height, 9);
+  addVisualTruthSprite(world, 'rack', spriteMaterials.rack, heartX - 3.35, heartZ + 2.65, 9);
+  addVisualTruthSprite(world, 'cart', spriteMaterials.cart, heartX + 3.25, heartZ + 2.65, 9);
+  addVisualTruthSprite(world, 'supplies', spriteMaterials.supplies, heartX + 2.25, heartZ + 2.68, 9);
 }
 
 interface WorkerVisual {
@@ -681,7 +764,7 @@ interface WorkerVisual {
   map: THREE.Texture;
 }
 const workerVisuals: WorkerVisual[] = [];
-const workerGroundY = visualTruthMode ? 0.055 : 0.82;
+const workerGroundY = highFidelityMode ? 0.055 : 0.82;
 function ensureWorkerVisuals(targetCount: number): void {
   while (workerVisuals.length < targetCount) {
     const index = workerVisuals.length;
@@ -691,12 +774,12 @@ function ensureWorkerVisuals(targetCount: number): void {
       map.repeat.set(1 / 4, 1 / 6);
       map.offset.set(0, 5 / 6);
     }
-    const x = SANDBOX_START.x + 0.5 - index * 0.65;
-    const z = SANDBOX_START.z + 0.5 + (index % 2) * 0.55;
+    const x = activeStart.x + 0.5 - index * 0.65;
+    const z = activeStart.z + 0.5 + (index % 2) * 0.55;
     const material = spriteMaterial(map);
     let sprite: THREE.Sprite;
     let shadow: THREE.Mesh;
-    if (visualTruthMode) {
+    if (highFidelityMode) {
       ({ sprite, shadow } = addGroundedSprite(world, material, x, z, VISUAL_TRUTH_SPRITES.worker, 20 + index));
     } else {
       sprite = addSprite(world, material, x, workerGroundY, z, 1.55, 1.55, 20 + index);
@@ -761,7 +844,9 @@ const heartLight = new THREE.PointLight(0xff765f, 6.5, 7, 1.8);
 heartLight.position.set(heartX, 3.2, heartZ);
 scene.add(heartLight);
 
-let state = visualTruthMode ? createGeometryVisualTruthState() : createSandboxState();
+let state = canonicalSnapshot && canonicalConfig
+  ? canonicalStateToGeometryState(canonicalSnapshot, canonicalConfig)
+  : visualTruthMode ? createGeometryVisualTruthState() : createSandboxState();
 let knownDiscoveryCount = state.discoveredSites.size;
 let knownRationsProduced = 0;
 let surfaceStyle: SurfaceStyle = 'project';
@@ -773,21 +858,21 @@ let closedRockGroup = new THREE.Group();
 let lastRockOpenCount = -1;
 world.add(closedRockGroup, geometryGroup, resourceGroup, roomGroup, lightingGroup);
 
-const guardianGroundY = visualTruthMode ? 0.055 : 0.88;
-const guardianBaseWidth = visualTruthMode ? VISUAL_TRUTH_SPRITES.guard.width : 1.62;
-const guardianBaseHeight = visualTruthMode ? VISUAL_TRUTH_SPRITES.guard.height : 1.62;
+const guardianGroundY = highFidelityMode ? 0.055 : 0.88;
+const guardianBaseWidth = highFidelityMode ? VISUAL_TRUTH_SPRITES.guard.width : 1.62;
+const guardianBaseHeight = highFidelityMode ? VISUAL_TRUTH_SPRITES.guard.height : 1.62;
 const guardian = addSprite(
   world,
   spriteMaterials.guard,
-  SANDBOX_START.x + 0.5,
+  activeStart.x + 0.5,
   guardianGroundY,
-  SANDBOX_START.z - 2.5,
+  activeStart.z - 2.5,
   guardianBaseWidth,
   guardianBaseHeight,
   24,
 );
-if (visualTruthMode) guardian.center.set(0.5, VISUAL_TRUTH_SPRITES.guard.anchorY);
-const guardianShadow = visualTruthMode
+if (highFidelityMode) guardian.center.set(0.5, VISUAL_TRUTH_SPRITES.guard.anchorY);
+const guardianShadow = highFidelityMode
   ? createContactShadow(
     world,
     guardian.position.x,
@@ -799,7 +884,7 @@ const guardianShadow = visualTruthMode
     actorShadowGeometry,
     new THREE.MeshBasicMaterial({ color: 0x01050b, transparent: true, opacity: 0.5, depthWrite: false }),
   );
-if (!visualTruthMode) {
+if (!highFidelityMode) {
   guardianShadow.position.set(guardian.position.x, 0.045, guardian.position.z + 0.06);
   guardianShadow.scale.set(0.84, 1, 0.84);
   world.add(guardianShadow);
@@ -827,7 +912,7 @@ const covenantCreature = addSprite(
   1.58,
   23,
 );
-covenantCreature.visible = !visualTruthMode;
+covenantCreature.visible = !readOnlyMode;
 const creatureNeedIcon = addSprite(
   world,
   spriteMaterials.ration,
@@ -838,6 +923,72 @@ const creatureNeedIcon = addSprite(
   0.44,
   35,
 );
+creatureNeedIcon.visible = !readOnlyMode;
+guardian.visible = !canonicalMode;
+guardianShadow.visible = !canonicalMode;
+workerVisuals.forEach((visual) => {
+  visual.sprite.visible = !canonicalMode;
+  visual.shadow.visible = !canonicalMode;
+  visual.cargo.visible = false;
+});
+
+let canonicalActorGroup = new THREE.Group();
+world.add(canonicalActorGroup);
+
+function canonicalUnitPresentation(kind: string): {
+  material: THREE.SpriteMaterial;
+  presentation: SpritePresentation;
+  scale?: number;
+} {
+  if (kind === 'archer') return { material: spriteMaterials.archer, presentation: VISUAL_TRUTH_SPRITES.archer };
+  if (kind === 'hexbinder') return { material: spriteMaterials.hexbinder, presentation: VISUAL_TRUTH_SPRITES.hexbinder };
+  if (kind === 'inquisitor') return { material: spriteMaterials.inquisitor, presentation: VISUAL_TRUTH_SPRITES.inquisitor };
+  if (kind === 'dwarf') return { material: spriteMaterials.dwarf, presentation: VISUAL_TRUTH_SPRITES.enemy };
+  if (kind === 'crossbow') return { material: spriteMaterials.crossbow, presentation: VISUAL_TRUTH_SPRITES.enemy };
+  if (kind === 'captain') return { material: spriteMaterials.captain, presentation: VISUAL_TRUTH_SPRITES.enemyLarge };
+  if (kind === 'adept') return { material: spriteMaterials.creature, presentation: VISUAL_TRUTH_SPRITES.enemy };
+  if (kind === 'crawler') return { material: spriteMaterials.enemy, presentation: VISUAL_TRUTH_SPRITES.enemy };
+  return { material: spriteMaterials.guard, presentation: VISUAL_TRUTH_SPRITES.guard };
+}
+
+function rebuildCanonicalActors(): void {
+  world.remove(canonicalActorGroup);
+  canonicalActorGroup.clear();
+  canonicalActorGroup = new THREE.Group();
+  if (!canonicalSnapshot || !canonicalConfig) {
+    world.add(canonicalActorGroup);
+    return;
+  }
+  canonicalSnapshot.workers.forEach((worker, index) => {
+    const point = canonicalPointToGeometry(worker, canonicalConfig);
+    addGroundedSprite(canonicalActorGroup, spriteMaterial(workerMap), point.x + 0.5, point.z + 0.5, VISUAL_TRUTH_SPRITES.worker, 20 + index);
+  });
+  canonicalSnapshot.units.forEach((unit, index) => {
+    const point = canonicalPointToGeometry(unit, canonicalConfig);
+    const visual = canonicalUnitPresentation(unit.kind);
+    addGroundedSprite(canonicalActorGroup, visual.material, point.x + 0.5, point.z + 0.5, visual.presentation, 40 + index, visual.scale);
+  });
+  canonicalSnapshot.enemies.filter((enemy) => enemy.active).forEach((enemy, index) => {
+    const point = canonicalPointToGeometry(enemy, canonicalConfig);
+    const visual = canonicalUnitPresentation(enemy.kind);
+    addGroundedSprite(canonicalActorGroup, visual.material, point.x + 0.5, point.z + 0.5, visual.presentation, 60 + index, visual.scale);
+  });
+  const itemMaterials = {
+    ore: spriteMaterials.oreItem,
+    biomass: spriteMaterials.biomassItem,
+    metal: spriteMaterials.metalItem,
+    essence: spriteMaterials.essenceItem,
+    ration: spriteMaterials.ration,
+    armour: spriteMaterials.armourItem,
+  };
+  canonicalSnapshot.items.forEach((item, index) => {
+    if (item.x < canonicalConfig.projection.minX || item.x > canonicalConfig.projection.maxX) return;
+    if (item.y < canonicalConfig.projection.minY || item.y > canonicalConfig.projection.maxY) return;
+    const point = canonicalPointToGeometry(item, canonicalConfig);
+    addGroundedSprite(canonicalActorGroup, itemMaterials[item.kind], point.x + 0.5, point.z + 0.5, VISUAL_TRUTH_SPRITES.resource, 80 + index, 0.92);
+  });
+  world.add(canonicalActorGroup);
+}
 
 function rockMaterialIndex(x: number, z: number): number {
   const fungal = discoverySites.some((site) => site.kind === 'fungus' && Math.hypot(x - (site.x + site.w / 2), z - (site.z + site.h / 2)) < 6.5);
@@ -858,16 +1009,16 @@ function rebuildClosedRockField(): void {
   const massMatrices: THREE.Matrix4[][] = closedRockMaterials.map(() => []);
   const accentMatrices: THREE.Matrix4[][][] = closedRockMaterials.map(() => closedRockGeometries.map(() => []));
   const closedCells: Array<{ x: number; z: number }> = [];
-  for (let z = SANDBOX_BOUNDS.minZ; z <= SANDBOX_BOUNDS.maxZ; z += 1) {
-    for (let x = SANDBOX_BOUNDS.minX; x <= SANDBOX_BOUNDS.maxX; x += 1) {
-      if (state.openCells.has(proofCellKey(x, z)) || (!visualTruthMode && discoverySites.some((site) => siteContains(site, x, z)))) continue;
+  for (let z = activeBounds.minZ; z <= activeBounds.maxZ; z += 1) {
+    for (let x = activeBounds.minX; x <= activeBounds.maxX; x += 1) {
+      if (state.openCells.has(proofCellKey(x, z)) || (!highFidelityMode && discoverySites.some((site) => siteContains(site, x, z)))) continue;
       closedCells.push({ x, z });
       const seed = x * 92821 + z * 68917;
       const materialIndex = rockMaterialIndex(x, z);
       // The closed map is a single high bedrock body. Sparse larger stones break
       // its silhouette without turning every cell into an isolated pebble.
       massMatrices[materialIndex].push(matrixAt(x + 0.5, 0.38, z + 0.5, 1.025, 0.76, 1.025));
-      if (visualTruthMode || edgeHash({ key: `${x}:${z}`, x, z, axis: 'horizontal', side: 'north', start: { x, z }, end: { x: x + 1, z } }, 73) % 5 !== 0) continue;
+      if (highFidelityMode || edgeHash({ key: `${x}:${z}`, x, z, axis: 'horizontal', side: 'north', start: { x, z }, end: { x: x + 1, z } }, 73) % 5 !== 0) continue;
       const shapeIndex = Math.min(closedRockGeometries.length - 1, Math.floor(seededUnit(seed + 17) * closedRockGeometries.length));
       accentMatrices[materialIndex][shapeIndex].push(new THREE.Matrix4().compose(
         new THREE.Vector3(x + 0.5 + (seededUnit(seed + 3) - 0.5) * 0.24, 0.78, z + 0.5 + (seededUnit(seed + 5) - 0.5) * 0.24),
@@ -882,7 +1033,7 @@ function rebuildClosedRockField(): void {
   accentMatrices.forEach((forms, materialIndex) => forms.forEach((entries, shapeIndex) => (
     addInstances(closedRockGeometries[shapeIndex], closedRockMaterials[materialIndex], entries, closedRockGroup, true)
   )));
-  if (visualTruthMode) {
+  if (highFidelityMode) {
     const top = new THREE.Mesh(cellSurfaceGeometry(closedCells, 0.765, 8), truthClosedRockMaterial);
     top.receiveShadow = true;
     top.castShadow = true;
@@ -1225,7 +1376,7 @@ function rebuildGeometry(): void {
     cells.filter((cell) => cell.zone !== 'start' && state.claimedCells.has(proofCellKey(cell.x, cell.z))).map(tileMatrix),
     geometryGroup,
   );
-  if (visualTruthMode || surfaceStyle === 'project') {
+  if (highFidelityMode || surfaceStyle === 'project') {
     const corridorCells = cells.filter((cell) => (
       cell.zone === 'corridor' && state.claimedCells.has(proofCellKey(cell.x, cell.z))
     ));
@@ -1244,10 +1395,23 @@ function rebuildGeometry(): void {
     geometryGroup,
   );
   const naturalFloorCells = cells.filter((cell) => cell.zone === 'target' && !state.claimedCells.has(proofCellKey(cell.x, cell.z)));
-  if (visualTruthMode) {
-    const naturalFloor = new THREE.Mesh(cellSurfaceGeometry(naturalFloorCells, 0.018, 7), floorMaterials.cavern);
-    naturalFloor.receiveShadow = true;
-    geometryGroup.add(naturalFloor);
+  if (highFidelityMode) {
+    const materialGroups = new Map<THREE.Material, ProofCell[]>();
+    for (const cell of naturalFloorCells) {
+      const site = discoverySites.find((candidate) => siteContains(candidate, cell.x, cell.z));
+      const material = site?.kind === 'iron' ? floorMaterials.ironCavern
+        : site?.kind === 'hostile' ? floorMaterials.hostileCavern
+          : site?.kind === 'shrine' ? floorMaterials.shrineCavern
+            : floorMaterials.cavern;
+      const group = materialGroups.get(material) ?? [];
+      group.push(cell);
+      materialGroups.set(material, group);
+    }
+    materialGroups.forEach((surfaceCells, material) => {
+      const naturalFloor = new THREE.Mesh(cellSurfaceGeometry(surfaceCells, 0.018, 7), material);
+      naturalFloor.receiveShadow = true;
+      geometryGroup.add(naturalFloor);
+    });
   } else {
     addInstances(tileGeometry, floorMaterials.cavern, naturalFloorCells.map(tileMatrix), geometryGroup);
   }
@@ -1266,7 +1430,7 @@ function rebuildGeometry(): void {
   const cellsByKey = new Map(cells.map((cell) => [proofCellKey(cell.x, cell.z), cell]));
   const roomEdges = builtEdges.filter((edge) => cellsByKey.get(proofCellKey(adjacentOpenCell(edge).x, adjacentOpenCell(edge).z))?.zone !== 'corridor');
   const corridorEdges = builtEdges.filter((edge) => cellsByKey.get(proofCellKey(adjacentOpenCell(edge).x, adjacentOpenCell(edge).z))?.zone === 'corridor');
-  if (visualTruthMode) {
+  if (highFidelityMode) {
     const corners = classifyWallCorners(roomEdges, constructed);
     const thresholds = findPassageThresholds(cells);
     addVisualTruthWallFamily(roomEdges, wallFamilies.project, corners, geometryGroup);
@@ -1282,7 +1446,7 @@ function rebuildGeometry(): void {
   }
   addInstances(naturalRockGeometry, wallFamilies.natural.side, naturalRockMatrices(naturalEdges.filter((edge) => edge.side !== 'south')), geometryGroup, true);
   addInstances(naturalRockGeometry, foregroundFamilies.natural.side, naturalRockMatrices(naturalEdges.filter((edge) => edge.side === 'south')), geometryGroup, true);
-  if (!visualTruthMode) {
+  if (!highFidelityMode) {
     const detailedEdges = surfaceStyle === 'project' ? roomEdges : builtEdges;
     const vertices = boundaryVertices(detailedEdges);
     addInstances(
@@ -1453,7 +1617,7 @@ function addDiscoveredSiteDressing(site: SandboxDiscoverySite): void {
   const cx = site.x + site.w / 2;
   const cz = site.z + site.h / 2;
   if (site.kind === 'fungus') {
-    if (visualTruthMode) {
+    if (highFidelityMode) {
       addFloorDecal(resourceGroup, decalMaterials.moss, cx - 1.6, cz + 1.15, 1.45, 0.82, -0.18);
       addFloorDecal(resourceGroup, decalMaterials.spores, cx + 1.55, cz - 1.25, 1.2, 0.72, 0.22);
       addFloorDecal(resourceGroup, decalMaterials.puddle, cx + 0.4, cz + 1.55, 1.15, 0.72, -0.24);
@@ -1473,7 +1637,7 @@ function addDiscoveredSiteDressing(site: SandboxDiscoverySite): void {
       { x: 4.9, z: 5.55, size: 0.3, medium: false },
     ];
     clusters.forEach((cluster, index) => {
-      if (visualTruthMode) {
+      if (highFidelityMode) {
         const key = cluster.medium ? 'fungusMedium' : 'fungusSmall';
         const sourceSize = cluster.medium ? 0.54 : 0.34;
         addVisualTruthSprite(
@@ -1498,7 +1662,7 @@ function addDiscoveredSiteDressing(site: SandboxDiscoverySite): void {
         );
       }
     });
-    if (visualTruthMode) {
+    if (highFidelityMode) {
       addVisualTruthSprite(
         resourceGroup,
         'grottoStation',
@@ -1513,6 +1677,29 @@ function addDiscoveredSiteDressing(site: SandboxDiscoverySite): void {
     const glow = new THREE.PointLight(0x5be9bd, mobileProfile ? 1.8 : 2.6, 6.2, 2);
     glow.position.set(cx, 1.55, cz);
     resourceGroup.add(glow);
+    return;
+  }
+  if (site.kind === 'hostile') {
+    addFloorDecal(resourceGroup, decalMaterials.rubble, cx, cz, site.w * 0.72, site.h * 0.62, 0.18);
+    addFloorDecal(resourceGroup, decalMaterials.puddle, cx - 1.25, cz + 1.1, 1.5, 0.82, -0.22);
+    addVisualTruthSprite(resourceGroup, 'banner', spriteMaterials.banner, site.x + 0.78, site.z + 0.72, 9, 0.92);
+    addVisualTruthSprite(resourceGroup, 'rack', spriteMaterials.rack, site.x + site.w - 0.82, site.z + 0.82, 9, 0.94);
+    addVisualTruthSprite(resourceGroup, 'cart', spriteMaterials.cart, cx + 1.25, cz + 1.25, 10, 0.9);
+    addVisualTruthSprite(resourceGroup, 'supplies', spriteMaterials.supplies, cx - 1.2, cz - 1.05, 10, 0.88);
+    const hostileGlow = new THREE.PointLight(0xe6a54e, mobileProfile ? 1.1 : 1.8, 5.2, 2);
+    hostileGlow.position.set(cx, 1.45, cz);
+    resourceGroup.add(hostileGlow);
+    return;
+  }
+  if (site.kind === 'shrine') {
+    addFloorDecal(resourceGroup, decalMaterials.spores, cx, cz, site.w * 0.66, site.h * 0.62, -0.08);
+    addFloorDecal(resourceGroup, decalMaterials.rubble, cx + 1.3, cz - 1.15, 1.55, 1.05, 0.3);
+    addVisualTruthSprite(resourceGroup, 'banner', spriteMaterials.banner, site.x + 0.72, site.z + 0.72, 9, 1.02);
+    addVisualTruthSprite(resourceGroup, 'banner', spriteMaterials.banner, site.x + site.w - 0.72, site.z + 0.72, 9, 1.02);
+    addGroundedSprite(resourceGroup, spriteMaterials.essenceItem, cx, cz + 0.15, VISUAL_TRUTH_SPRITES.resource, 12, 1.55);
+    const shrineGlow = new THREE.PointLight(0xcb73da, mobileProfile ? 1.5 : 2.6, 6.4, 2);
+    shrineGlow.position.set(cx, 1.55, cz);
+    resourceGroup.add(shrineGlow);
     return;
   }
   if (site.kind === 'cache') {
@@ -1625,8 +1812,8 @@ function rebuildResources(): void {
 }
 
 let actorPath = [
-  { x: SANDBOX_START.x + 0.5, z: SANDBOX_START.z + 0.5 },
-  { x: SANDBOX_START.x + 2.5, z: SANDBOX_START.z + 0.5 },
+  { x: activeStart.x + 0.5, z: activeStart.z + 0.5 },
+  { x: activeStart.x + 2.5, z: activeStart.z + 0.5 },
 ];
 let actorDestinationKey = '';
 let actorSegment = 0;
@@ -1688,7 +1875,7 @@ function updateActorPath(): void {
   actorDigTarget = planned && destination ? { x: planned.x, z: planned.z } : undefined;
   digFx.visible = false;
   const actorCell = { x: Math.floor(actor.position.x), z: Math.floor(actor.position.z) };
-  const routeStart = state.openCells.has(proofCellKey(actorCell.x, actorCell.z)) ? actorCell : SANDBOX_START;
+  const routeStart = state.openCells.has(proofCellKey(actorCell.x, actorCell.z)) ? actorCell : activeStart;
   const route = destination
     ? findOpenPath([...state.openCells.values()], routeStart, destination)
     : [];
@@ -1776,12 +1963,12 @@ function updateGuardian(delta: number): void {
         { x: enemy.x + 1, z: enemy.z },
         { x: enemy.x, z: enemy.z - 1 },
       ].find((cell) => state.openCells.has(proofCellKey(cell.x, cell.z))) ?? { x: enemy.x, z: enemy.z }
-    : { x: SANDBOX_START.x + 1, z: SANDBOX_START.z };
+    : { x: activeStart.x + 1, z: activeStart.z };
   const destinationKey = discovered && enemy ? `fight:${enemy.id}` : 'home';
   if (destinationKey !== guardianDestinationKey) {
     guardianDestinationKey = destinationKey;
     const current = { x: Math.floor(guardian.position.x), z: Math.floor(guardian.position.z) };
-    const routeStart = state.openCells.has(proofCellKey(current.x, current.z)) ? current : SANDBOX_START;
+    const routeStart = state.openCells.has(proofCellKey(current.x, current.z)) ? current : activeStart;
     const route = findOpenPath([...state.openCells.values()], routeStart, targetCell);
     guardianPath = route.length > 0
       ? route.map((cell) => ({ x: cell.x + 0.5, z: cell.z + 0.5 }))
@@ -1843,7 +2030,7 @@ function updateGuardian(delta: number): void {
     enemyHealthFill.quaternion.copy(camera.quaternion);
     enemyHealthFill.scale.x = ratio;
   }
-  creatureNeedIcon.visible = !visualTruthMode && sandboxCreatureHungry(state);
+  creatureNeedIcon.visible = !readOnlyMode && sandboxCreatureHungry(state);
   creatureNeedIcon.position.y = 1.55 + Math.sin(workerAnimationTime * 4) * 0.08;
 }
 
@@ -1939,7 +2126,7 @@ function supportTask(index: number): SupportTask {
 function resetSupportMotion(index: number, task: SupportTask): SupportMotion {
   const visual = workerVisuals[index];
   const current = { x: Math.floor(visual.sprite.position.x), z: Math.floor(visual.sprite.position.z) };
-  const routeStart = state.openCells.has(proofCellKey(current.x, current.z)) ? current : SANDBOX_START;
+  const routeStart = state.openCells.has(proofCellKey(current.x, current.z)) ? current : activeStart;
   const route = findOpenPath([...state.openCells.values()], routeStart, task.stand);
   const path = route.length > 0
     ? route.map((cell) => ({ x: cell.x + 0.5, z: cell.z + 0.5 }))
@@ -2150,7 +2337,7 @@ ui.innerHTML = `
 `;
 root.append(ui);
 
-if (visualTruthMode) {
+if (highFidelityMode) {
   const badge = ui.querySelector<HTMLElement>('.geometry-badge');
   const kicker = ui.querySelector<HTMLElement>('.geometry-loop-card small');
   const title = ui.querySelector<HTMLElement>('[data-loop-title]');
@@ -2163,6 +2350,27 @@ if (visualTruthMode) {
   if (meter) meter.textContent = 'KAMERA · LICHT · MATERIAL · MASSSTAB';
   ui.querySelector<HTMLElement>('[data-surface="clean"]')?.setAttribute('aria-pressed', 'false');
   ui.querySelector<HTMLElement>('[data-surface="project"]')?.setAttribute('aria-pressed', 'true');
+}
+
+if (canonicalMode) {
+  const badge = ui.querySelector<HTMLElement>('.geometry-badge');
+  const kicker = ui.querySelector<HTMLElement>('.geometry-loop-card small');
+  const title = ui.querySelector<HTMLElement>('[data-loop-title]');
+  const copy = ui.querySelector<HTMLElement>('[data-loop-copy]');
+  const meter = ui.querySelector<HTMLElement>('[data-loop-progress]');
+  if (badge) badge.textContent = 'Kanonischer Geometry-Renderer';
+  if (kicker) kicker.textContent = campaignEvaluationMode ? 'GROSSE KAMPAGNEN-RENDERPROBE' : 'ECHTER GAMESCENE-ZUSTAND';
+  if (title) title.textContent = campaignEvaluationMode ? 'Sechs Räume · vier Regionen · ein Renderkern' : 'Live-Spielzustand';
+  if (copy) copy.textContent = campaignEvaluationMode
+    ? 'Räume, Ein-Feld-Gänge, Ressourcen, Arbeiter, Einheiten und Gegner aus dem kanonischen Zustandsvertrag.'
+    : 'Diese Ansicht liest den pausierten Zustand des Hauptspiels; sie besitzt keine zweite Simulation.';
+  if (meter) meter.textContent = campaignEvaluationMode ? 'HERZ · WESTEN · OSTEN · SCHREIN' : 'KANONISCH · PAUSIERT · RENDERBEREIT';
+  const viewActions = ui.querySelector<HTMLElement>('.geometry-view-actions');
+  viewActions?.insertAdjacentHTML('afterbegin', `
+    <button type="button" data-view="heart" title="Herzraum">♥</button>
+    <button type="button" data-view="west" title="Westflügel">W</button>
+    <button type="button" data-view="east" title="Ostflügel">O</button>
+  `);
 }
 
 const statusTitle = ui.querySelector<HTMLElement>('[data-status-title]');
@@ -2194,9 +2402,9 @@ function showLoopPopup(icon: string, label: string): void {
 }
 
 function updateLoopUi(): void {
-  if (visualTruthMode) {
+  if (readOnlyMode) {
     root.dataset.loopComplete = 'true';
-    root.dataset.loopStep = 'visual-truth';
+    root.dataset.loopStep = canonicalMode ? 'canonical' : 'visual-truth';
     return;
   }
   const progress = sandboxLoopProgress(state);
@@ -2240,7 +2448,7 @@ function updateUi(): void {
     if (output) output.textContent = String(kind === 'ration' ? amount + state.kitchenFlow.outputRations : amount);
   }
   const workers = ui.querySelector<HTMLElement>('[data-workers]');
-  if (workers) workers.textContent = `${workerCapacity(state)}/5`;
+  if (workers) workers.textContent = canonicalSnapshot ? String(canonicalSnapshot.workers.length) : `${workerCapacity(state)}/5`;
   const jobsOutput = ui.querySelector<HTMLElement>('[data-worker-jobs]');
   if (jobsOutput) jobsOutput.textContent = `G${state.workerJobs.dig} K${state.workerJobs.claim} B${state.workerJobs.build} A${state.workerJobs.mine}`;
   const summary: Record<string, number> = {
@@ -2271,6 +2479,7 @@ function syncWorld(): void {
   rebuildGeometry();
   rebuildRooms();
   rebuildResources();
+  rebuildCanonicalActors();
   updateActorPath();
   syncActorPosition();
   updateUi();
@@ -2355,8 +2564,18 @@ ui.querySelectorAll<HTMLButtonElement>('[data-priority]').forEach((button) => {
 });
 ui.querySelector<HTMLButtonElement>('[data-action="fit"]')?.addEventListener('click', () => {
   cameraTarget.set(mapCenterX, 0, mapCenterZ);
-  viewHeight = 38;
+  viewHeight = campaignEvaluationMode ? (mobileProfile ? 27 : 34) : 38;
   updateCamera();
+});
+ui.querySelectorAll<HTMLButtonElement>('[data-view]').forEach((button) => {
+  button.addEventListener('click', () => {
+    const view = button.dataset.view;
+    if (view === 'heart') cameraTarget.set(heartX, 0, heartZ);
+    if (view === 'west') cameraTarget.set(7, 0, 17);
+    if (view === 'east') cameraTarget.set(43, 0, 16);
+    viewHeight = mobileProfile ? 15.5 : 17.5;
+    updateCamera();
+  });
 });
 ui.querySelector<HTMLButtonElement>('[data-action="zoom-in"]')?.addEventListener('click', () => {
   viewHeight = THREE.MathUtils.clamp(viewHeight * 0.82, 9, 42);
@@ -2367,6 +2586,7 @@ ui.querySelector<HTMLButtonElement>('[data-action="zoom-out"]')?.addEventListene
   updateCamera();
 });
 ui.querySelector<HTMLButtonElement>('[data-action="reset"]')?.addEventListener('click', () => {
+  if (readOnlyMode) return;
   state = visualTruthMode ? createGeometryVisualTruthState() : createSandboxState();
   supportCargo.clear();
   supportMotions.clear();
@@ -2378,9 +2598,9 @@ ui.querySelector<HTMLButtonElement>('[data-action="reset"]')?.addEventListener('
   guardianProgress = 0;
   enemyDefeatAnnounced = false;
   knownRationsProduced = 0;
-  guardian.position.set(SANDBOX_START.x + 0.5, guardianGroundY, SANDBOX_START.z - 2.5);
+  guardian.position.set(activeStart.x + 0.5, guardianGroundY, activeStart.z - 2.5);
   covenantCreature.position.set(state.creature.x + 0.5, 0.88, state.creature.z + 0.5);
-  cameraTarget.set(SANDBOX_START.x, 0, SANDBOX_START.z);
+  cameraTarget.set(activeStart.x, 0, activeStart.z);
   viewHeight = mobileProfile ? 15 : 20;
   updateCamera();
   syncWorld();
@@ -2436,7 +2656,7 @@ function mapCellAt(clientX: number, clientY: number): { x: number; z: number } |
   const hit = raycaster.intersectObject(digPlane, false)[0];
   if (!hit) return undefined;
   const cell = { x: Math.floor(hit.point.x), z: Math.floor(hit.point.z) };
-  if (cell.x < SANDBOX_BOUNDS.minX || cell.x > SANDBOX_BOUNDS.maxX || cell.z < SANDBOX_BOUNDS.minZ || cell.z > SANDBOX_BOUNDS.maxZ) return undefined;
+  if (cell.x < activeBounds.minX || cell.x > activeBounds.maxX || cell.z < activeBounds.minZ || cell.z > activeBounds.maxZ) return undefined;
   return cell;
 }
 
@@ -2629,12 +2849,12 @@ function animate(timestamp: number): void {
   lastRenderedAt = timestamp - (elapsed % interval);
   timer.update(timestamp);
   const delta = Math.min(timer.getDelta(), 0.05);
-  const actorTick = updateActor(delta);
-  const tick = visualTruthMode
+  const actorTick = readOnlyMode ? { terrainChanged: false } : updateActor(delta);
+  const tick = readOnlyMode
     ? { terrainChanged: false, roomsChanged: false, resourcesChanged: false }
     : tickSandboxEconomy(state, delta, { autonomousDigging: false, autonomousClaiming: false, autonomousMining: false });
-  const supportTick = updateSupportWorkers(delta);
-  updateGuardian(delta);
+  const supportTick = readOnlyMode ? { terrainChanged: false } : updateSupportWorkers(delta);
+  if (!readOnlyMode) updateGuardian(delta);
   updateClaimFx();
   if (actorTick.terrainChanged) scheduleTerrainSync();
   if (supportTick.terrainChanged) scheduleTerrainSync();
@@ -2660,13 +2880,14 @@ function animate(timestamp: number): void {
 
 updateCamera();
 syncWorld();
-setTool('dig');
+setTool(readOnlyMode ? 'pan' : 'dig');
 root.dataset.ready = 'true';
 document.documentElement.dataset.geometryProofReady = 'true';
 document.querySelector('.geometry-loading')?.remove();
 requestAnimationFrame(animate);
 
 window.addEventListener('beforeunload', () => {
+  simulationBridge?.dispose();
   timer.dispose();
   renderer.dispose();
   tileGeometry.dispose();

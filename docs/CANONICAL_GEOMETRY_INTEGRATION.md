@@ -16,7 +16,10 @@ GameScene (Regeln und Zustand)
 AutomationState / CanonicalGameState
         │
         ▼
-Three.js-Geometry-Renderer
+CanonicalGeometryAdapter (nur Datenprojektion)
+        │
+        ▼
+geometry-sandbox-main.ts (gemeinsamer Three.js-Renderer)
 ```
 
 `GeometrySandboxModel` bleibt als historischer, spielbarer Präsentationsproof
@@ -27,8 +30,9 @@ nur in `GameScene` und werden anschließend über den kanonischen Vertrag sichtb
 ## Zwei Prüfmodi desselben Renderers
 
 - `spatial-prototype.html`: Live-Integration. Eine verborgene echte
-  Hauptspielinstanz liefert ihren Zustand; der Three.js-Renderer zeigt ihn und
-  der Grottendurchbruch läuft mit echten Jobs und echter Wegsuche.
+  Hauptspielinstanz wird gestartet und pausiert; der gemeinsame Three.js-
+  Renderer zeigt ihren kanonischen Zustand. Sie ist kein automatisch
+  ablaufender Grottendurchbruch und besitzt keine nachgebaute Joblogik.
 - `spatial-prototype.html?campaign-evaluation=1`: große, schreibgeschützte
   Renderfixture im exakt selben Zustandsformat. Sie enthält sechs Raumtypen,
   Ein- und Zweifeldgänge, T-/Kreuzungen, vier Kampagnenregionen, Ressourcen,
@@ -38,6 +42,11 @@ nur in `GameScene` und werden anschließend über den kanonischen Vertrag sichtb
 Die Fixture wird erst erzeugt, nachdem die echte Brücke `AutomationState-v1`
 geliefert hat. So prüft der Einstieg zugleich, dass der Renderer weiterhin am
 Hauptspielvertrag hängt.
+
+Beide URLs laden direkt `geometry-sandbox-main.ts`. Der frühere getrennte
+`integrated-main.ts`-Renderer und sein Stylesheet wurden entfernt. Damit können
+Kamera, Wandaufbau, Gang-Cutaway, Materialien und Spriteanker zwischen kleinem
+Visual-Truth-Gate und großer Szene nicht mehr unbemerkt auseinanderlaufen.
 
 ## Übertragene Präsentation
 
@@ -63,19 +72,23 @@ Hauptspielvertrag hängt.
 
 ![Mobile Querformatansicht](screenshots/campaign-evaluation-mobile.png)
 
-![Live-Integration während des echten Grottendurchbruchs](screenshots/spatial-live-integration.png)
+![Pausierter Zustand der echten Hauptspielinstanz](screenshots/spatial-live-integration.png)
 
 Die automatisierte Browserprüfung bestätigt:
 
 - `AutomationState-v1` wird verbunden;
 - die verborgene Phaser-Frameschleife schläft;
 - Großszene: 6 Räume und 22 Akteure;
-- Live-Integration: Startknopf aktiv und reales erstes Grabfeld geöffnet;
+- Live-Integration: echte Hauptspielinstanz gestartet, Phaser-Frameschleife
+  pausiert und 276 bekannte offene Felder über den Adapter dargestellt;
+- beide Spatial-Modi erzeugen den Geometry-Canvas; der alte Spatial-Canvas ist
+  nicht mehr vorhanden;
 - Desktop 1440 × 900 und Mobil 844 × 390 rendern ohne Seitenfehler.
 
 ## Assetentscheidung nach der Großszene
 
-Die vorhandenen hellgrauen Wandflächen sind geeignet. Neue Wandbilder sind
+Die vorhandenen hellgrauen Wandflächen sind geeignet und laufen nun auch in der
+Großszene durch denselben modularen Wandbau. Neue Wandbilder sind
 aktuell **nicht** der größte Hebel; Topologie, Fassadenlesbarkeit und kurze
 Schatten funktionieren bereits in der großen Szene.
 

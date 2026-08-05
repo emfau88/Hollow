@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { AutomationState } from '../src/core/AutomationBridge';
 import { createCampaignEvaluationState } from '../src/prototypes/spatial/CampaignEvaluationState';
+import { proofCellKey } from '../src/prototypes/geometry/GeometryProofModel';
+import {
+  CANONICAL_CAMPAIGN_GEOMETRY,
+  canonicalPointToGeometry,
+  canonicalStateToGeometryState,
+} from '../src/prototypes/geometry/CanonicalGeometryAdapter';
 import {
   CAMPAIGN_EVALUATION_SLICE,
   FUNGUS_CHAMBER,
@@ -129,5 +135,29 @@ describe('spatial integration model', () => {
       Array.from({ length: 8 }, () => 'excavated'),
     );
     expect(snapshotToSpatialCells(evaluation, CAMPAIGN_EVALUATION_SLICE).length).toBeGreaterThan(400);
+  });
+
+  it('projects the canonical campaign into the shared geometry render shape without gameplay rules', () => {
+    const base = {
+      version: 1,
+      seed: 1337,
+      rooms: [],
+      knownTiles: [],
+      workers: [],
+      units: [],
+      enemies: [],
+      items: [],
+      targets: [],
+    } as unknown as AutomationState;
+    const canonical = createCampaignEvaluationState(base);
+    const geometry = canonicalStateToGeometryState(canonical, CANONICAL_CAMPAIGN_GEOMETRY);
+
+    expect(geometry.openCells.size).toBe(canonical.knownTiles.length);
+    expect(geometry.rooms).toHaveLength(6);
+    expect(geometry.workerCount).toBe(8);
+    expect(geometry.discoveredSites).toEqual(new Set(['iron', 'fungus', 'dwarf', 'shrine']));
+    expect(canonicalPointToGeometry({ x: 32, y: 30 }, CANONICAL_CAMPAIGN_GEOMETRY)).toEqual({ x: 24, z: 18 });
+    expect(geometry.openCells.get(proofCellKey(24, 18))?.zone).toBe('start');
+    expect(geometry.openCells.get(proofCellKey(43, 22))?.zone).toBe('target');
   });
 });

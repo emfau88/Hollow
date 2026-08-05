@@ -47,7 +47,7 @@ export interface SandboxRoom {
 export interface SandboxDiscoverySite {
   id: string;
   label: string;
-  kind: 'fungus' | 'iron' | 'cache';
+  kind: 'fungus' | 'iron' | 'cache' | 'hostile' | 'shrine';
   x: number;
   z: number;
   w: number;
