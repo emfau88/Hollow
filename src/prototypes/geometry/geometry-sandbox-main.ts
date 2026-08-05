@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { resolveVisualTheme } from '../../config/VisualTheme';
 import { ROOM_DEFINITIONS, type RoomKind } from '../../data/definitions';
 import { bedroomCapacity, prisonCapacity, productionStations } from '../../core/GameRules';
@@ -52,6 +53,18 @@ import {
   createProceduralWallAssets,
   type ProceduralWallStyle,
 } from './ProceduralWallAssets';
+import { createGeometryVisualTruthState, VISUAL_TRUTH_GROTTO } from './GeometryVisualTruthState';
+import {
+  VISUAL_TRUTH_SPRITES,
+  type SpritePresentation,
+  type VisualTruthSpriteKey,
+} from './GeometryVisualTruthPresentation';
+import {
+  classifyWallCorners,
+  findPassageThresholds,
+  type PassageThreshold,
+  type WallCorner,
+} from './GeometryWallArchitecture';
 import './geometry-proof-style.css';
 
 type SurfaceStyle = ProceduralWallStyle;
@@ -62,27 +75,36 @@ const canvasHostElement = document.querySelector<HTMLElement>('#geometry-canvas'
 if (!rootElement || !canvasHostElement) throw new Error('Geometry sandbox host is missing.');
 const root = rootElement;
 const canvasHost = canvasHostElement;
+const visualTruthMode = new URLSearchParams(window.location.search).get('visual-truth') === '1';
+root.dataset.visualTruth = String(visualTruthMode);
+const discoverySites = visualTruthMode ? [VISUAL_TRUTH_GROTTO] : SANDBOX_DISCOVERY_SITES;
 
 const theme = resolveVisualTheme('?theme=style-b');
 const mobileProfile = window.matchMedia('(max-width: 900px), (pointer: coarse)').matches;
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x10283a);
-scene.fog = new THREE.FogExp2(0x10283a, 0.006);
+scene.background = new THREE.Color(0x071427);
+scene.fog = new THREE.FogExp2(0x071427, 0.0045);
 
 const renderer = new THREE.WebGLRenderer({ antialias: !mobileProfile, powerPreference: 'high-performance' });
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.22;
-renderer.shadowMap.enabled = !mobileProfile;
+renderer.toneMappingExposure = 1.0;
+renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, mobileProfile ? 1 : 1.25));
 renderer.setSize(window.innerWidth, window.innerHeight);
 canvasHost.append(renderer.domElement);
 
 const camera = new THREE.OrthographicCamera(-12, 12, 8, -8, 0.1, 100);
-const cameraTarget = new THREE.Vector3(SANDBOX_START.x, 0, SANDBOX_START.z);
-const cameraOffset = new THREE.Vector3(0, 17.5, 10.5);
-let viewHeight = mobileProfile ? 15 : 20;
+const cameraTarget = visualTruthMode
+  ? new THREE.Vector3(12.7, 0, 24)
+  : new THREE.Vector3(SANDBOX_START.x, 0, SANDBOX_START.z);
+// Keep enough pitch to read the floor plan, but expose the inner wall facades
+// instead of reducing the room to a mostly top-down ring of wall caps.
+const cameraOffset = visualTruthMode
+  ? new THREE.Vector3(0, 15.5, 11.5)
+  : new THREE.Vector3(0, 17.5, 10.5);
+let viewHeight = visualTruthMode ? (mobileProfile ? 16.5 : 15) : (mobileProfile ? 15 : 20);
 
 function reservedPanelWidth(): number {
   return 0;
@@ -136,6 +158,8 @@ const [
   rockRootsMap,
   rockDampMap,
   rockEarthMap,
+  truthClosedRockMap,
+  truthGrottoFloorMap,
   workerMap,
   guardMap,
   crawlerMap,
@@ -155,8 +179,6 @@ const [
   prisonMap,
   generatedWallSideMap,
   generatedWallCapMap,
-  fungusGrottoMap,
-  ironMineHeroMap,
   fungusMediumMap,
   fungusSmallMap,
   grottoStationMap,
@@ -179,8 +201,10 @@ const [
   loadMap(`${terrainRoot}/rock-roots.png`, { x: 1.25, y: 1.25 }),
   loadMap(`${terrainRoot}/rock-damp.png`, { x: 1.25, y: 1.25 }),
   loadMap(`${terrainRoot}/rock-earth.png`, { x: 1.25, y: 1.25 }),
+  loadMap('assets/generated/geometry-sandbox-v2/visual-truth/closed-rock-style-b-v1.png'),
+  loadMap('assets/generated/geometry-sandbox-v2/visual-truth/grotto-floor-style-b-v1.png'),
   loadMap(theme.assets.workerAnimation ?? theme.assets.worker),
-  loadMap('assets/generated/units-v1/guard.png'),
+  loadMap(theme.assets.guard),
   loadMap('assets/generated/units-v1/crawler.png'),
   loadMap('assets/generated/units-v1/adept.png'),
   loadMap('assets/generated/units-v1/item-ration.png'),
@@ -198,8 +222,6 @@ const [
   loadMap('assets/generated/room-props-v3/prison-gate.png'),
   loadMap('assets/generated/geometry-sandbox-v2/walls/wall-side-masonry-v1.png', { x: 0.5, y: 0.5 }),
   loadMap('assets/generated/geometry-sandbox-v2/walls/wall-cap-limestone-v1.png', { x: 0.42, y: 0.42 }),
-  loadMap('assets/generated/fungus-grotto.png'),
-  loadMap('assets/generated/geometry-sandbox-v2/environment/iron-mine-hero-v1.png'),
   loadMap('assets/generated/style-b-v2/decor/fungus-medium.png'),
   loadMap('assets/generated/style-b-v2/decor/fungus-small.png'),
   loadMap('assets/generated/style-b-v2/decor/grotto-station.png'),
@@ -217,7 +239,7 @@ const [
 const pixelMaps = [
   workerMap, guardMap, crawlerMap, adeptMap, rationMap, heartBackplateMap, heartCoreMap, heartBezelMap, heartPulpitMap,
   ironMap, fungusMap, storageMap, bedMap, cauldronMap, furnaceMap, workbenchMap, prisonMap,
-  fungusGrottoMap, ironMineHeroMap, fungusMediumMap, fungusSmallMap, grottoStationMap, suppliesMap,
+  fungusMediumMap, fungusSmallMap, grottoStationMap, suppliesMap,
   cartMap, rackMap, lampMap, bannerMap, mossMap, sporesMap, puddleMap, rubbleMap,
 ];
 for (const map of pixelMaps) {
@@ -240,35 +262,43 @@ function standardMaterial(options: { color: number; map?: THREE.Texture; roughne
 }
 
 const floorMaterials = {
-  start: standardMaterial({ color: 0xd7c9bb, map: floorMap, roughness: 0.84 }),
-  claimed: standardMaterial({ color: 0xd0c4b8, map: corridorMap, roughness: 0.9 }),
-  raw: standardMaterial({ color: 0x829aaa, map: rawFloorMap, roughness: 0.98 }),
-  cavern: standardMaterial({ color: 0x70a18c, map: dampFloorMap, roughness: 0.98 }),
+  start: standardMaterial({ color: 0xd2c4c8, map: floorMap, roughness: 0.88 }),
+  claimed: visualTruthMode
+    ? new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      map: corridorMap,
+      emissive: 0x172638,
+      emissiveIntensity: 0.18,
+      roughness: 0.94,
+    })
+    : standardMaterial({ color: 0xa9b4c5, map: corridorMap, roughness: 0.94 }),
+  raw: standardMaterial({ color: 0x667e9d, map: rawFloorMap, roughness: 1 }),
+  cavern: standardMaterial({ color: visualTruthMode ? 0xb8d5c7 : 0x78a995, map: visualTruthMode ? truthGrottoFloorMap : dampFloorMap, roughness: 1 }),
 };
-const bedrockMaterial = standardMaterial({ color: 0x56778d, map: rockMap, roughness: 0.98 });
+const bedrockMaterial = standardMaterial({ color: 0x20314e, map: rockMap, roughness: 1 });
 const geologyMaterials = {
-  basalt: standardMaterial({ color: 0x8da4b6, map: rockBasaltMap, roughness: 1 }),
-  roots: standardMaterial({ color: 0x8f887c, map: rockRootsMap, roughness: 1 }),
-  damp: standardMaterial({ color: 0x83b6a0, map: rockDampMap, roughness: 1 }),
-  earth: standardMaterial({ color: 0xaa8975, map: rockEarthMap, roughness: 1 }),
+  basalt: standardMaterial({ color: 0x455e7f, map: rockBasaltMap, roughness: 1 }),
+  roots: standardMaterial({ color: 0x58605f, map: rockRootsMap, roughness: 1 }),
+  damp: standardMaterial({ color: 0x48786e, map: rockDampMap, roughness: 1 }),
+  earth: standardMaterial({ color: 0x765d52, map: rockEarthMap, roughness: 1 }),
 };
 const closedRockMaterials = [
-  standardMaterial({ color: 0x91aabd, map: rockBasaltMap, roughness: 1 }),
-  standardMaterial({ color: 0x789b8c, map: rockDampMap, roughness: 1 }),
-  standardMaterial({ color: 0xa17f70, map: rockEarthMap, roughness: 1 }),
-  standardMaterial({ color: 0x8a9088, map: rockRootsMap, roughness: 1 }),
+  standardMaterial({ color: 0x91a9c7, map: visualTruthMode ? undefined : rockBasaltMap, roughness: 1 }),
+  standardMaterial({ color: 0x78a695, map: visualTruthMode ? undefined : rockDampMap, roughness: 1 }),
+  standardMaterial({ color: 0xa08372, map: visualTruthMode ? undefined : rockEarthMap, roughness: 1 }),
+  standardMaterial({ color: 0x858e8c, map: visualTruthMode ? undefined : rockRootsMap, roughness: 1 }),
 ];
-bedrockMaterial.emissive.setHex(0x243946);
-bedrockMaterial.emissiveIntensity = 0.42;
-const closedRockGlow = [0x354954, 0x2f4a3f, 0x513a31, 0x3d433d];
-closedRockMaterials.forEach((material, index) => {
-  material.emissive.setHex(closedRockGlow[index]);
-  material.emissiveIntensity = 0.46;
+const truthClosedRockMaterial = standardMaterial({ color: 0xffffff, map: truthClosedRockMap, roughness: 1 });
+bedrockMaterial.emissive.setHex(0x000000);
+bedrockMaterial.emissiveIntensity = 0;
+closedRockMaterials.forEach((material) => {
+  material.emissive.setHex(0x000000);
+  material.emissiveIntensity = 0;
 });
 for (const material of Object.values(geologyMaterials)) {
-  material.transparent = true;
-  material.opacity = 0.72;
-  material.depthWrite = false;
+  material.transparent = false;
+  material.opacity = 1;
+  material.depthWrite = true;
 }
 const wallAssets = createProceduralWallAssets();
 type WallFamily = { side: THREE.MeshStandardMaterial; cap: THREE.MeshStandardMaterial; base: THREE.MeshStandardMaterial; post: THREE.MeshStandardMaterial };
@@ -280,10 +310,10 @@ const wallFamilies: Record<SurfaceStyle, WallFamily> = {
     post: standardMaterial({ color: 0xd1c4b2, map: generatedWallCapMap, roughness: 0.82 }),
   },
   project: {
-    side: standardMaterial({ color: 0x90a6c1, map: generatedWallSideMap, roughness: 0.88 }),
-    cap: standardMaterial({ color: 0xc6b487, map: generatedWallCapMap, roughness: 0.8 }),
-    base: standardMaterial({ color: 0x8a734d, map: generatedWallCapMap, roughness: 0.94 }),
-    post: standardMaterial({ color: 0xc39a43, map: generatedWallCapMap, roughness: 0.72, metalness: 0.08 }),
+    side: standardMaterial({ color: visualTruthMode ? 0xd0a6b8 : 0xa7bdd2, map: generatedWallSideMap, roughness: visualTruthMode ? 0.92 : 0.9 }),
+    cap: standardMaterial({ color: visualTruthMode ? 0xd9e2e5 : 0xeee2c9, map: generatedWallCapMap, roughness: visualTruthMode ? 0.84 : 0.82 }),
+    base: standardMaterial({ color: visualTruthMode ? 0x2d3446 : 0x73849a, map: visualTruthMode ? generatedWallSideMap : generatedWallCapMap, roughness: visualTruthMode ? 0.98 : 0.96 }),
+    post: standardMaterial({ color: visualTruthMode ? 0xb8aa93 : 0xd8a532, map: generatedWallCapMap, roughness: visualTruthMode ? 0.88 : 0.76, metalness: visualTruthMode ? 0.02 : 0.08 }),
   },
   natural: {
     side: standardMaterial({ color: 0xffffff, map: wallAssets.natural.side, roughness: 0.98 }),
@@ -292,14 +322,20 @@ const wallFamilies: Record<SurfaceStyle, WallFamily> = {
     post: standardMaterial({ color: 0x426c69, roughness: 0.98 }),
   },
 };
+if (visualTruthMode) {
+  wallFamilies.project.side.emissive.setHex(0x251629);
+  wallFamilies.project.side.emissiveIntensity = 0.22;
+  wallFamilies.project.cap.emissive.setHex(0x27313a);
+  wallFamilies.project.cap.emissiveIntensity = 0.16;
+}
 const foregroundFamilies = Object.fromEntries(
   (Object.keys(wallFamilies) as SurfaceStyle[]).map((key) => {
     const family = Object.fromEntries(
       (Object.keys(wallFamilies[key]) as Array<keyof WallFamily>).map((part) => {
         const material = wallFamilies[key][part].clone();
-        material.transparent = true;
-        material.opacity = 0.68;
-        material.depthWrite = false;
+        material.transparent = false;
+        material.opacity = 1;
+        material.depthWrite = true;
         return [part, material];
       }),
     ) as WallFamily;
@@ -363,6 +399,8 @@ world.add(digPlane);
 
 const tileGeometry = new THREE.PlaneGeometry(1.01, 1.01).rotateX(-Math.PI / 2);
 const unitBox = new THREE.BoxGeometry(1, 1, 1);
+const wallStoneGeometry = new RoundedBoxGeometry(1, 1, 1, 2, 0.055);
+const closedRockMassGeometry = new THREE.BoxGeometry(1, 1, 1);
 const naturalRockGeometry = new THREE.DodecahedronGeometry(0.5, 0);
 const closedRockGeometries = [
   naturalRockGeometry,
@@ -370,7 +408,7 @@ const closedRockGeometries = [
   new THREE.OctahedronGeometry(0.5, 1),
 ];
 const lightOrbGeometry = new THREE.SphereGeometry(0.11, 10, 8);
-const actorShadowGeometry = new THREE.CircleGeometry(0.42, 24).rotateX(-Math.PI / 2);
+const actorShadowGeometry = new THREE.CircleGeometry(0.5, 24).rotateX(-Math.PI / 2);
 const selectionGeometry = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
 const resourceGeometry = new THREE.PlaneGeometry(1, 1);
 const resourceFacing = new THREE.Quaternion().setFromUnitVectors(
@@ -385,6 +423,43 @@ selectionPreview.visible = false;
 world.add(selectionPreview);
 
 const brassDetailMaterial = standardMaterial({ color: 0xc79838, roughness: 0.48, metalness: 0.34 });
+const visualTruthWallMaterials = {
+  capHighlight: standardMaterial({ color: 0xffffff, map: generatedWallCapMap, roughness: 0.78 }),
+  shadowJoint: standardMaterial({ color: 0x171725, roughness: 1 }),
+  corridorSide: standardMaterial({ color: 0x596d76, map: generatedWallSideMap, roughness: 0.98 }),
+  corridorCap: standardMaterial({ color: 0xa5b0a9, map: generatedWallCapMap, roughness: 0.92 }),
+  brassInset: standardMaterial({ color: 0x6b3e0c, roughness: 0.62, metalness: 0.18 }),
+  brassHighlight: standardMaterial({ color: 0xffdc7a, roughness: 0.4, metalness: 0.22 }),
+  naturalSill: standardMaterial({ color: 0x527d72, map: truthGrottoFloorMap, roughness: 1 }),
+  naturalMarker: new THREE.MeshStandardMaterial({
+    color: 0x55c9a2,
+    emissive: 0x174f4b,
+    emissiveIntensity: 0.55,
+    roughness: 0.72,
+  }),
+};
+const visualTruthCorridorFloorMaterial = new THREE.MeshStandardMaterial({
+  color: 0xc8d1d4,
+  map: corridorMap,
+  emissive: 0x718698,
+  emissiveIntensity: 0.48,
+  roughness: 0.9,
+  metalness: 0.01,
+});
+visualTruthWallMaterials.corridorSide.emissive.setHex(0x4e5d63);
+visualTruthWallMaterials.corridorSide.emissiveIntensity = 0.42;
+const wallContactShadowMaterial = new THREE.MeshBasicMaterial({
+  color: 0x020710,
+  transparent: true,
+  opacity: 0.2,
+  depthWrite: false,
+});
+const spriteContactShadowMaterial = new THREE.MeshBasicMaterial({
+  color: 0x01050b,
+  transparent: true,
+  opacity: 0.2,
+  depthWrite: false,
+});
 const warmLightMaterial = new THREE.MeshStandardMaterial({
   color: 0xffc44d,
   emissive: 0xff8a18,
@@ -401,6 +476,34 @@ const fungusLightMaterial = new THREE.MeshStandardMaterial({
 
 function matrixAt(x: number, y: number, z: number, sx = 1, sy = 1, sz = 1): THREE.Matrix4 {
   return new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion(), new THREE.Vector3(sx, sy, sz));
+}
+
+function cellSurfaceGeometry(cells: Array<{ x: number; z: number }>, y: number, textureSpan = 8): THREE.BufferGeometry {
+  const positions: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
+  cells.forEach((cell, index) => {
+    const base = index * 4;
+    positions.push(
+      cell.x, y, cell.z,
+      cell.x + 1, y, cell.z,
+      cell.x + 1, y, cell.z + 1,
+      cell.x, y, cell.z + 1,
+    );
+    uvs.push(
+      cell.x / textureSpan, cell.z / textureSpan,
+      (cell.x + 1) / textureSpan, cell.z / textureSpan,
+      (cell.x + 1) / textureSpan, (cell.z + 1) / textureSpan,
+      cell.x / textureSpan, (cell.z + 1) / textureSpan,
+    );
+    indices.push(base, base + 2, base + 1, base, base + 3, base + 2);
+  });
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  return geometry;
 }
 
 function addInstances(
@@ -442,6 +545,52 @@ function addSprite(
   return sprite;
 }
 
+function createContactShadow(
+  parent: THREE.Object3D,
+  x: number,
+  z: number,
+  width: number,
+  depth: number,
+  material = spriteContactShadowMaterial,
+): THREE.Mesh {
+  const shadow = new THREE.Mesh(actorShadowGeometry, material);
+  shadow.position.set(x, 0.04, z + 0.055);
+  shadow.scale.set(width, 1, depth);
+  shadow.renderOrder = 2;
+  parent.add(shadow);
+  return shadow;
+}
+
+function addGroundedSprite(
+  parent: THREE.Object3D,
+  material: THREE.SpriteMaterial,
+  x: number,
+  z: number,
+  presentation: SpritePresentation,
+  renderOrder: number,
+  scale = 1,
+): { sprite: THREE.Sprite; shadow: THREE.Mesh } {
+  const sprite = addSprite(
+    parent,
+    material,
+    x,
+    0.055,
+    z,
+    presentation.width * scale,
+    presentation.height * scale,
+    renderOrder,
+  );
+  sprite.center.set(0.5, presentation.anchorY);
+  const shadow = createContactShadow(
+    parent,
+    x,
+    z,
+    presentation.shadowWidth * scale,
+    presentation.shadowDepth * scale,
+  );
+  return { sprite, shadow };
+}
+
 const spriteMaterials = {
   heartBackplate: spriteMaterial(heartBackplateMap),
   heartCore: spriteMaterial(heartCoreMap),
@@ -457,8 +606,7 @@ const spriteMaterials = {
   enemy: spriteMaterial(crawlerMap),
   creature: spriteMaterial(adeptMap),
   ration: spriteMaterial(rationMap),
-  fungusGrotto: spriteMaterial(fungusGrottoMap),
-  ironMineHero: spriteMaterial(ironMineHeroMap),
+  iron: spriteMaterial(ironMap),
   fungusMedium: spriteMaterial(fungusMediumMap),
   fungusSmall: spriteMaterial(fungusSmallMap),
   grottoStation: spriteMaterial(grottoStationMap),
@@ -468,6 +616,18 @@ const spriteMaterials = {
   lamp: spriteMaterial(lampMap),
   banner: spriteMaterial(bannerMap),
 };
+
+function addVisualTruthSprite(
+  parent: THREE.Object3D,
+  key: VisualTruthSpriteKey,
+  material: THREE.SpriteMaterial,
+  x: number,
+  z: number,
+  renderOrder: number,
+  scale = 1,
+): { sprite: THREE.Sprite; shadow: THREE.Mesh } {
+  return addGroundedSprite(parent, material, x, z, VISUAL_TRUTH_SPRITES[key], renderOrder, scale);
+}
 const resourceMaterials = {
   iron: new THREE.MeshBasicMaterial({ map: ironMap, transparent: true, alphaTest: 0.035, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }),
   fungus: new THREE.MeshBasicMaterial({ map: fungusMap, transparent: true, alphaTest: 0.035, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }),
@@ -475,8 +635,6 @@ const resourceMaterials = {
 const hintMaterials = {
   iron: new THREE.SpriteMaterial({ map: ironMap, color: 0xffd47a, transparent: true, opacity: 0.78, alphaTest: 0.02, depthWrite: false, toneMapped: false }),
   fungus: new THREE.SpriteMaterial({ map: fungusMap, color: 0x8fffd7, transparent: true, opacity: 0.82, alphaTest: 0.02, depthWrite: false, toneMapped: false }),
-  ironMine: new THREE.SpriteMaterial({ map: ironMineHeroMap, color: 0xb8c7d6, transparent: true, opacity: 0.82, alphaTest: 0.02, depthWrite: false, toneMapped: false }),
-  fungusGrotto: new THREE.SpriteMaterial({ map: fungusGrottoMap, color: 0xa8e4b2, transparent: true, opacity: 0.86, alphaTest: 0.02, depthWrite: false, toneMapped: false }),
 };
 const cargoMaterials = {
   ore: new THREE.SpriteMaterial({ map: ironMap, transparent: true, alphaTest: 0.035, depthWrite: false, toneMapped: false }),
@@ -498,7 +656,7 @@ const heartPlinth = new THREE.Mesh(
 );
 heartPlinth.position.set(heartX, 0.11, heartZ);
 heartPlinth.scale.set(1.35, 1, 0.95);
-heartPlinth.castShadow = !mobileProfile;
+heartPlinth.castShadow = !visualTruthMode;
 heartPlinth.receiveShadow = true;
 world.add(heartPlinth);
 // Match the source setpiece ratios. The baked room-base image is intentionally
@@ -507,6 +665,14 @@ addSprite(world, spriteMaterials.heartBackplate, heartX, 1.16, heartZ - 0.08, 2.
 addSprite(world, spriteMaterials.heartCore, heartX, 1.16, heartZ, 1.06, 1.06, 11);
 addSprite(world, spriteMaterials.heartBezel, heartX, 1.16, heartZ + 0.03, 1.4, 1.4, 12);
 addSprite(world, spriteMaterials.heartPulpit, heartX, 0.47, heartZ + 0.24, 1.86, 1.27, 13);
+if (visualTruthMode) {
+  addSprite(world, spriteMaterials.lamp, 4.6, 0.54, 22.62, VISUAL_TRUTH_SPRITES.lamp.width, VISUAL_TRUTH_SPRITES.lamp.height, 9);
+  addSprite(world, spriteMaterials.lamp, 10.9, 0.54, 22.62, VISUAL_TRUTH_SPRITES.lamp.width, VISUAL_TRUTH_SPRITES.lamp.height, 9);
+  addSprite(world, spriteMaterials.banner, 7.5, 0.67, 22.48, VISUAL_TRUTH_SPRITES.banner.width, VISUAL_TRUTH_SPRITES.banner.height, 9);
+  addVisualTruthSprite(world, 'rack', spriteMaterials.rack, 4.15, 27.15, 9);
+  addVisualTruthSprite(world, 'cart', spriteMaterials.cart, 10.75, 27.15, 9);
+  addVisualTruthSprite(world, 'supplies', spriteMaterials.supplies, 9.75, 27.18, 9);
+}
 
 interface WorkerVisual {
   sprite: THREE.Sprite;
@@ -515,6 +681,7 @@ interface WorkerVisual {
   map: THREE.Texture;
 }
 const workerVisuals: WorkerVisual[] = [];
+const workerGroundY = visualTruthMode ? 0.055 : 0.82;
 function ensureWorkerVisuals(targetCount: number): void {
   while (workerVisuals.length < targetCount) {
     const index = workerVisuals.length;
@@ -524,23 +691,25 @@ function ensureWorkerVisuals(targetCount: number): void {
       map.repeat.set(1 / 4, 1 / 6);
       map.offset.set(0, 5 / 6);
     }
-    const sprite = addSprite(
-      world,
-      spriteMaterial(map),
-      SANDBOX_START.x + 0.5 - index * 0.65,
-      0.82,
-      SANDBOX_START.z + 0.5 + (index % 2) * 0.55,
-      1.55,
-      1.55,
-      20 + index,
-    );
-    const shadow = new THREE.Mesh(
-      actorShadowGeometry,
-      new THREE.MeshBasicMaterial({ color: 0x01050b, transparent: true, opacity: 0.46, depthWrite: false }),
-    );
+    const x = SANDBOX_START.x + 0.5 - index * 0.65;
+    const z = SANDBOX_START.z + 0.5 + (index % 2) * 0.55;
+    const material = spriteMaterial(map);
+    let sprite: THREE.Sprite;
+    let shadow: THREE.Mesh;
+    if (visualTruthMode) {
+      ({ sprite, shadow } = addGroundedSprite(world, material, x, z, VISUAL_TRUTH_SPRITES.worker, 20 + index));
+    } else {
+      sprite = addSprite(world, material, x, workerGroundY, z, 1.55, 1.55, 20 + index);
+      shadow = new THREE.Mesh(
+        actorShadowGeometry,
+        new THREE.MeshBasicMaterial({ color: 0x01050b, transparent: true, opacity: 0.46, depthWrite: false }),
+      );
+      shadow.position.set(x, 0.045, z + 0.06);
+      shadow.scale.set(0.84, 1, 0.84);
+      world.add(shadow);
+    }
     const cargo = addSprite(world, cargoMaterials.ore, sprite.position.x, 1.46, sprite.position.z, 0.38, 0.38, 30 + index);
     cargo.visible = false;
-    world.add(shadow);
     workerVisuals.push({ sprite, shadow, cargo, map });
   }
   workerVisuals.forEach((visual, index) => {
@@ -560,9 +729,9 @@ const roomFloorMaterials = Object.fromEntries(
     new THREE.MeshStandardMaterial({
       color: ROOM_DEFINITIONS[kind].color,
       map: floorMap,
-      transparent: true,
-      opacity: 0.82,
-      depthWrite: false,
+      transparent: false,
+      opacity: 1,
+      depthWrite: true,
       side: THREE.DoubleSide,
       roughness: 0.78,
       metalness: 0.03,
@@ -576,26 +745,26 @@ const roomAccentMaterials = Object.fromEntries(
   }),
 ) as Record<RoomKind, THREE.MeshBasicMaterial>;
 
-const ambient = new THREE.AmbientLight(0xaabeca, 1.02);
-const hemisphere = new THREE.HemisphereLight(0xc3e0e9, 0x263746, 2.15);
-const keyLight = new THREE.DirectionalLight(0xffe1a3, 4.25);
+const ambient = new THREE.AmbientLight(0x8ca4bd, 0.22);
+const hemisphere = new THREE.HemisphereLight(0xa9c5db, 0x07101f, 0.72);
+const keyLight = new THREE.DirectionalLight(0xffd99b, 3.25);
 keyLight.position.set(-8, 22, 15);
 keyLight.target.position.set(18, 0, 18);
-keyLight.castShadow = !mobileProfile;
-keyLight.shadow.mapSize.set(1024, 1024);
+keyLight.castShadow = true;
+keyLight.shadow.mapSize.set(mobileProfile ? 512 : 1024, mobileProfile ? 512 : 1024);
 keyLight.shadow.camera.left = -20;
 keyLight.shadow.camera.right = 20;
 keyLight.shadow.camera.top = 20;
 keyLight.shadow.camera.bottom = -20;
 scene.add(ambient, hemisphere, keyLight, keyLight.target);
-const heartLight = new THREE.PointLight(0xff7c5f, 18, 8, 1.8);
+const heartLight = new THREE.PointLight(0xff765f, 6.5, 7, 1.8);
 heartLight.position.set(heartX, 3.2, heartZ);
 scene.add(heartLight);
 
-let state = createSandboxState();
-let knownDiscoveryCount = 0;
+let state = visualTruthMode ? createGeometryVisualTruthState() : createSandboxState();
+let knownDiscoveryCount = state.discoveredSites.size;
 let knownRationsProduced = 0;
-let surfaceStyle: SurfaceStyle = 'clean';
+let surfaceStyle: SurfaceStyle = 'project';
 let geometryGroup = new THREE.Group();
 let resourceGroup = new THREE.Group();
 let roomGroup = new THREE.Group();
@@ -604,13 +773,37 @@ let closedRockGroup = new THREE.Group();
 let lastRockOpenCount = -1;
 world.add(closedRockGroup, geometryGroup, resourceGroup, roomGroup, lightingGroup);
 
-const guardian = addSprite(world, spriteMaterials.guard, SANDBOX_START.x + 1.5, 0.88, SANDBOX_START.z + 0.5, 1.62, 1.62, 24);
-const guardianShadow = new THREE.Mesh(
-  actorShadowGeometry,
-  new THREE.MeshBasicMaterial({ color: 0x01050b, transparent: true, opacity: 0.5, depthWrite: false }),
+const guardianGroundY = visualTruthMode ? 0.055 : 0.88;
+const guardianBaseWidth = visualTruthMode ? VISUAL_TRUTH_SPRITES.guard.width : 1.62;
+const guardianBaseHeight = visualTruthMode ? VISUAL_TRUTH_SPRITES.guard.height : 1.62;
+const guardian = addSprite(
+  world,
+  spriteMaterials.guard,
+  SANDBOX_START.x + 0.5,
+  guardianGroundY,
+  SANDBOX_START.z - 2.5,
+  guardianBaseWidth,
+  guardianBaseHeight,
+  24,
 );
-guardianShadow.position.set(guardian.position.x, 0.045, guardian.position.z + 0.06);
-world.add(guardianShadow);
+if (visualTruthMode) guardian.center.set(0.5, VISUAL_TRUTH_SPRITES.guard.anchorY);
+const guardianShadow = visualTruthMode
+  ? createContactShadow(
+    world,
+    guardian.position.x,
+    guardian.position.z,
+    VISUAL_TRUTH_SPRITES.guard.shadowWidth,
+    VISUAL_TRUTH_SPRITES.guard.shadowDepth,
+  )
+  : new THREE.Mesh(
+    actorShadowGeometry,
+    new THREE.MeshBasicMaterial({ color: 0x01050b, transparent: true, opacity: 0.5, depthWrite: false }),
+  );
+if (!visualTruthMode) {
+  guardianShadow.position.set(guardian.position.x, 0.045, guardian.position.z + 0.06);
+  guardianShadow.scale.set(0.84, 1, 0.84);
+  world.add(guardianShadow);
+}
 const grottoEnemy = addSprite(world, spriteMaterials.enemy, 24.5, 0.9, 15.5, 1.72, 1.72, 25);
 grottoEnemy.visible = false;
 const enemyHealthBack = new THREE.Mesh(
@@ -634,6 +827,7 @@ const covenantCreature = addSprite(
   1.58,
   23,
 );
+covenantCreature.visible = !visualTruthMode;
 const creatureNeedIcon = addSprite(
   world,
   spriteMaterials.ration,
@@ -646,11 +840,13 @@ const creatureNeedIcon = addSprite(
 );
 
 function rockMaterialIndex(x: number, z: number): number {
-  const fungal = SANDBOX_DISCOVERY_SITES.some((site) => site.kind === 'fungus' && Math.hypot(x - (site.x + site.w / 2), z - (site.z + site.h / 2)) < 6.5);
+  const fungal = discoverySites.some((site) => site.kind === 'fungus' && Math.hypot(x - (site.x + site.w / 2), z - (site.z + site.h / 2)) < 6.5);
   if (fungal) return 1;
   const iron = state.deposits.some((deposit) => deposit.kind === 'iron' && Math.hypot(x - deposit.x, z - deposit.z) < 3.2);
   if (iron) return 2;
-  return edgeHash({ key: `${x}:${z}`, x, z, axis: 'horizontal', side: 'north', start: { x, z }, end: { x: x + 1, z } }) % 4;
+  if (x < 18 && z < 16) return 3;
+  if ((x > 32 && z < 16) || (x > 31 && z > 24)) return 2;
+  return 0;
 }
 
 function rebuildClosedRockField(): void {
@@ -659,25 +855,39 @@ function rebuildClosedRockField(): void {
   world.remove(closedRockGroup);
   closedRockGroup.clear();
   closedRockGroup = new THREE.Group();
-  const matrices: THREE.Matrix4[][][] = closedRockMaterials.map(() => closedRockGeometries.map(() => []));
+  const massMatrices: THREE.Matrix4[][] = closedRockMaterials.map(() => []);
+  const accentMatrices: THREE.Matrix4[][][] = closedRockMaterials.map(() => closedRockGeometries.map(() => []));
+  const closedCells: Array<{ x: number; z: number }> = [];
   for (let z = SANDBOX_BOUNDS.minZ; z <= SANDBOX_BOUNDS.maxZ; z += 1) {
     for (let x = SANDBOX_BOUNDS.minX; x <= SANDBOX_BOUNDS.maxX; x += 1) {
-      if (state.openCells.has(proofCellKey(x, z)) || SANDBOX_DISCOVERY_SITES.some((site) => siteContains(site, x, z))) continue;
+      if (state.openCells.has(proofCellKey(x, z)) || (!visualTruthMode && discoverySites.some((site) => siteContains(site, x, z)))) continue;
+      closedCells.push({ x, z });
       const seed = x * 92821 + z * 68917;
-      const scaleX = 0.82 + seededUnit(seed + 7) * 0.23;
-      const scaleZ = 0.82 + seededUnit(seed + 9) * 0.23;
+      const materialIndex = rockMaterialIndex(x, z);
+      // The closed map is a single high bedrock body. Sparse larger stones break
+      // its silhouette without turning every cell into an isolated pebble.
+      massMatrices[materialIndex].push(matrixAt(x + 0.5, 0.38, z + 0.5, 1.025, 0.76, 1.025));
+      if (visualTruthMode || edgeHash({ key: `${x}:${z}`, x, z, axis: 'horizontal', side: 'north', start: { x, z }, end: { x: x + 1, z } }, 73) % 5 !== 0) continue;
       const shapeIndex = Math.min(closedRockGeometries.length - 1, Math.floor(seededUnit(seed + 17) * closedRockGeometries.length));
-      const matrix = new THREE.Matrix4().compose(
-        new THREE.Vector3(x + 0.5 + (seededUnit(seed + 3) - 0.5) * 0.16, 0.13, z + 0.5 + (seededUnit(seed + 5) - 0.5) * 0.16),
+      accentMatrices[materialIndex][shapeIndex].push(new THREE.Matrix4().compose(
+        new THREE.Vector3(x + 0.5 + (seededUnit(seed + 3) - 0.5) * 0.24, 0.78, z + 0.5 + (seededUnit(seed + 5) - 0.5) * 0.24),
         new THREE.Quaternion().setFromEuler(new THREE.Euler(0, seededUnit(seed + 11) * Math.PI, 0)),
-        new THREE.Vector3(scaleX, 0.34 + seededUnit(seed + 13) * 0.18, scaleZ),
-      );
-      matrices[rockMaterialIndex(x, z)][shapeIndex].push(matrix);
+        new THREE.Vector3(0.62 + seededUnit(seed + 7) * 0.22, 0.28 + seededUnit(seed + 13) * 0.14, 0.62 + seededUnit(seed + 9) * 0.22),
+      ));
     }
   }
-  matrices.forEach((forms, materialIndex) => forms.forEach((entries, shapeIndex) => (
-    addInstances(closedRockGeometries[shapeIndex], closedRockMaterials[materialIndex], entries, closedRockGroup)
+  massMatrices.forEach((entries, materialIndex) => (
+    addInstances(closedRockMassGeometry, closedRockMaterials[materialIndex], entries, closedRockGroup, true)
+  ));
+  accentMatrices.forEach((forms, materialIndex) => forms.forEach((entries, shapeIndex) => (
+    addInstances(closedRockGeometries[shapeIndex], closedRockMaterials[materialIndex], entries, closedRockGroup, true)
   )));
+  if (visualTruthMode) {
+    const top = new THREE.Mesh(cellSurfaceGeometry(closedCells, 0.765, 8), truthClosedRockMaterial);
+    top.receiveShadow = true;
+    top.castShadow = true;
+    closedRockGroup.add(top);
+  }
   world.add(closedRockGroup);
 }
 
@@ -694,6 +904,177 @@ function addWallFamily(edges: BoundaryEdge[], family: WallFamily, parent: THREE.
   addInstances(unitBox, coreMaterials(family), edges.map((edge) => edgeMatrix(edge, 0.55, 0.9, 0.25)), parent, !transparent);
   addInstances(unitBox, family.base, edges.map((edge) => edgeMatrix(edge, 0.1, 0.2, 0.32, 1.06)), parent);
   addInstances(unitBox, family.cap, edges.map((edge) => edgeMatrix(edge, 1.04, 0.18, 0.32, 1.08)), parent);
+}
+
+function edgeCourseMatrices(
+  edges: BoundaryEdge[],
+  y: number,
+  height: number,
+  thickness: number,
+  segments: number,
+  stagger = 0,
+  outward = 0,
+  segmentGap = 0.025,
+): THREE.Matrix4[] {
+  const matrices: THREE.Matrix4[] = [];
+  const segmentLength = 0.96 / segments;
+  for (const edge of edges) {
+    const offset = edge.side === 'north' ? { x: 0, z: -outward }
+      : edge.side === 'south' ? { x: 0, z: outward }
+        : edge.side === 'east' ? { x: outward, z: 0 }
+          : { x: -outward, z: 0 };
+    for (let segment = 0; segment < segments; segment += 1) {
+      const along = -0.48 + segmentLength * (segment + 0.5) + stagger;
+      const clamped = THREE.MathUtils.clamp(along, -0.48 + segmentLength / 2, 0.48 - segmentLength / 2);
+      matrices.push(matrixAt(
+        edge.x + offset.x + (edge.axis === 'horizontal' ? clamped : 0),
+        y,
+        edge.z + offset.z + (edge.axis === 'vertical' ? clamped : 0),
+        edge.axis === 'horizontal' ? segmentLength - segmentGap : thickness,
+        height,
+        edge.axis === 'vertical' ? segmentLength - segmentGap : thickness,
+      ));
+    }
+  }
+  return matrices;
+}
+
+function wallContactMatrices(edges: BoundaryEdge[], depth: number): THREE.Matrix4[] {
+  return edges.map((edge) => {
+    const offset = depth * 0.62;
+    const inward = edge.side === 'north' ? { x: 0, z: offset }
+      : edge.side === 'south' ? { x: 0, z: -offset }
+        : edge.side === 'east' ? { x: -offset, z: 0 }
+          : { x: offset, z: 0 };
+    return matrixAt(
+      edge.x + inward.x,
+      0.035,
+      edge.z + inward.z,
+      edge.axis === 'horizontal' ? 1.02 : depth,
+      0.018,
+      edge.axis === 'vertical' ? 1.02 : depth,
+    );
+  });
+}
+
+function cornerMatrices(corners: WallCorner[], kind: WallCorner['kind'], y: number, height: number, width: number): THREE.Matrix4[] {
+  return corners
+    .filter((corner) => corner.kind === kind)
+    .map((corner) => matrixAt(corner.x, y, corner.z, width, height, width));
+}
+
+function thresholdBarMatrices(thresholds: PassageThreshold[], y: number, height: number, width: number): THREE.Matrix4[] {
+  return thresholds.map((threshold) => matrixAt(
+    threshold.x,
+    y,
+    threshold.z,
+    threshold.vertical ? width : 0.92,
+    height,
+    threshold.vertical ? 0.92 : width,
+  ));
+}
+
+function thresholdEndMatrices(thresholds: PassageThreshold[], y: number, height: number, size: number): THREE.Matrix4[] {
+  const matrices: THREE.Matrix4[] = [];
+  for (const threshold of thresholds) {
+    for (const offset of [-0.39, 0.39]) {
+      matrices.push(matrixAt(
+        threshold.x + (threshold.vertical ? 0 : offset),
+        y,
+        threshold.z + (threshold.vertical ? offset : 0),
+        size,
+        height,
+        size,
+      ));
+    }
+  }
+  return matrices;
+}
+
+function addVisualTruthWallFamily(
+  edges: BoundaryEdge[],
+  family: WallFamily,
+  corners: WallCorner[],
+  parent: THREE.Object3D,
+): void {
+  // A dark structural core prevents hairline gaps while separately modelled
+  // courses and caps provide the chunky Style-B silhouette.
+  addInstances(unitBox, visualTruthWallMaterials.shadowJoint, edges.map((edge) => edgeMatrix(edge, 0.68, 1.26, 0.34, 1.04)), parent);
+  addInstances(wallStoneGeometry, family.base, edgeCourseMatrices(edges, 0.18, 0.28, 0.42, 1), parent);
+  addInstances(wallStoneGeometry, family.side, edgeCourseMatrices(edges, 0.53, 0.4, 0.37, 1), parent);
+  addInstances(wallStoneGeometry, family.side, edgeCourseMatrices(edges, 0.91, 0.34, 0.37, 1), parent);
+  addInstances(wallStoneGeometry, family.cap, edgeCourseMatrices(edges, 1.2, 0.22, 0.48, 1), parent);
+  addInstances(wallStoneGeometry, visualTruthWallMaterials.capHighlight, edgeCourseMatrices(edges, 1.325, 0.055, 0.36, 1), parent);
+  addInstances(unitBox, wallContactShadowMaterial, wallContactMatrices(edges, 0.18), parent);
+
+  // Exterior corners carry the Covenant brass identity; inset corners remain
+  // compact pale masonry so narrow passages stay visually open.
+  addInstances(wallStoneGeometry, family.side, cornerMatrices(corners, 'outer', 0.68, 1.2, 0.5), parent);
+  addInstances(wallStoneGeometry, family.base, cornerMatrices(corners, 'outer', 0.16, 0.3, 0.58), parent);
+  addInstances(wallStoneGeometry, family.cap, cornerMatrices(corners, 'outer', 1.2, 0.25, 0.58), parent);
+  addInstances(wallStoneGeometry, brassDetailMaterial, cornerMatrices(corners, 'outer', 1.34, 0.075, 0.32), parent);
+  addInstances(unitBox, visualTruthWallMaterials.brassInset, cornerMatrices(corners, 'outer', 1.382, 0.025, 0.19), parent);
+  addInstances(unitBox, visualTruthWallMaterials.brassHighlight, cornerMatrices(corners, 'outer', 1.399, 0.018, 0.07), parent);
+  addInstances(unitBox, brassDetailMaterial, cornerMatrices(corners, 'outer', 0.7, 0.11, 0.52), parent);
+
+  addInstances(wallStoneGeometry, family.post, cornerMatrices(corners, 'inner', 0.65, 1.08, 0.34), parent);
+  addInstances(wallStoneGeometry, family.cap, cornerMatrices(corners, 'inner', 1.18, 0.2, 0.42), parent);
+  addInstances(wallStoneGeometry, brassDetailMaterial, cornerMatrices(corners, 'junction', 0.68, 1.18, 0.42), parent);
+
+}
+
+function addVisualTruthCorridorFamily(edges: BoundaryEdge[], parent: THREE.Object3D): void {
+  const rearEdges = edges.filter((edge) => edge.side === 'north');
+  const foregroundEdges = edges.filter((edge) => edge.side === 'south');
+  const lateralEdges = edges.filter((edge) => edge.side === 'east' || edge.side === 'west');
+
+  // A one-cell passage must retain a full cell of visible walking surface.
+  // These liners sit almost entirely in the closed-rock side of the boundary;
+  // only a tiny overlap avoids z-fighting with the bedrock face.
+  const addCourse = (
+    courseEdges: BoundaryEdge[],
+    sideY: number,
+    sideHeight: number,
+    capY: number,
+  ): void => {
+    addInstances(
+      unitBox,
+      visualTruthWallMaterials.shadowJoint,
+      edgeCourseMatrices(courseEdges, sideY, sideHeight, 0.12, 1, 0, 0.045),
+      parent,
+    );
+    addInstances(
+      wallStoneGeometry,
+      visualTruthWallMaterials.corridorSide,
+      edgeCourseMatrices(courseEdges, sideY, sideHeight - 0.04, 0.16, 1, 0, 0.06),
+      parent,
+    );
+    addInstances(
+      wallStoneGeometry,
+      visualTruthWallMaterials.corridorCap,
+      edgeCourseMatrices(courseEdges, capY, 0.1, 0.22, 1, 0, 0.09, 0.065),
+      parent,
+    );
+  };
+
+  // Fixed-camera cutaway: the rear facade supplies architectural height while
+  // the foreground curb stays low enough to reveal the full walking surface.
+  addCourse(rearEdges, 0.5, 0.9, 0.995);
+  addCourse(foregroundEdges, 0.23, 0.4, 0.48);
+  addCourse(lateralEdges, 0.39, 0.68, 0.77);
+  addInstances(unitBox, wallContactShadowMaterial, wallContactMatrices(edges, 0.055), parent);
+}
+
+function addVisualTruthThresholds(thresholds: PassageThreshold[], parent: THREE.Object3D): void {
+  const builtThresholds = thresholds.filter((threshold) => threshold.kind === 'built');
+  const naturalThresholds = thresholds.filter((threshold) => threshold.kind === 'natural');
+  addInstances(wallStoneGeometry, wallFamilies.project.cap, thresholdBarMatrices(builtThresholds, 0.075, 0.15, 0.24), parent);
+  addInstances(unitBox, brassDetailMaterial, thresholdBarMatrices(builtThresholds, 0.165, 0.045, 0.09), parent);
+  addInstances(wallStoneGeometry, wallFamilies.project.side, thresholdEndMatrices(builtThresholds, 0.48, 0.72, 0.28), parent);
+  addInstances(wallStoneGeometry, wallFamilies.project.cap, thresholdEndMatrices(builtThresholds, 0.88, 0.16, 0.36), parent);
+  addInstances(wallStoneGeometry, brassDetailMaterial, thresholdEndMatrices(builtThresholds, 0.98, 0.055, 0.22), parent);
+  addInstances(wallStoneGeometry, visualTruthWallMaterials.naturalSill, thresholdBarMatrices(naturalThresholds, 0.085, 0.17, 0.3), parent);
+  addInstances(unitBox, visualTruthWallMaterials.naturalMarker, thresholdEndMatrices(naturalThresholds, 0.19, 0.16, 0.14), parent);
 }
 
 function edgeHash(edge: BoundaryEdge, salt = 0): number {
@@ -713,7 +1094,7 @@ function seededUnit(seed: number): number {
 function naturalRockMatrices(edges: BoundaryEdge[]): THREE.Matrix4[] {
   const matrices: THREE.Matrix4[] = [];
   const along = [-0.34, 0, 0.34];
-  const rows = [0.24, 0.59, 0.92];
+  const rows = [0.25, 0.66, 1.04];
   for (const edge of edges) {
     const base = edgeHash(edge);
     for (let row = 0; row < rows.length; row += 1) {
@@ -723,9 +1104,9 @@ function naturalRockMatrices(edges: BoundaryEdge[]): THREE.Matrix4[] {
         const lateral = along[column] + (row % 2 === 1 ? 0.08 : 0) + jitter;
         const x = edge.x + (edge.axis === 'horizontal' ? lateral : jitter * 0.35);
         const z = edge.z + (edge.axis === 'vertical' ? lateral : jitter * 0.35);
-        const sx = (edge.axis === 'horizontal' ? 0.39 : 0.3) * (0.88 + seededUnit(seed + 1) * 0.24);
-        const sz = (edge.axis === 'vertical' ? 0.39 : 0.3) * (0.88 + seededUnit(seed + 2) * 0.24);
-        const sy = 0.43 * (0.86 + seededUnit(seed + 3) * 0.28);
+        const sx = (edge.axis === 'horizontal' ? 0.49 : 0.4) * (0.88 + seededUnit(seed + 1) * 0.24);
+        const sz = (edge.axis === 'vertical' ? 0.49 : 0.4) * (0.88 + seededUnit(seed + 2) * 0.24);
+        const sy = 0.52 * (0.86 + seededUnit(seed + 3) * 0.28);
         matrices.push(new THREE.Matrix4().compose(
           new THREE.Vector3(x, rows[row] + jitter * 0.3, z),
           new THREE.Quaternion().setFromEuler(new THREE.Euler(
@@ -746,6 +1127,16 @@ function adjacentOpenCell(edge: BoundaryEdge): { x: number; z: number } {
   if (edge.side === 'south') return { x: Math.floor(edge.x), z: edge.z - 1 };
   if (edge.side === 'east') return { x: edge.x - 1, z: Math.floor(edge.z) };
   return { x: edge.x, z: Math.floor(edge.z) };
+}
+
+function corridorFloorInsetMatrix(cell: ProofCell, corridorKeys: ReadonlySet<string>): THREE.Matrix4 {
+  const horizontal = corridorKeys.has(proofCellKey(cell.x - 1, cell.z))
+    || corridorKeys.has(proofCellKey(cell.x + 1, cell.z));
+  const vertical = corridorKeys.has(proofCellKey(cell.x, cell.z - 1))
+    || corridorKeys.has(proofCellKey(cell.x, cell.z + 1));
+  const widthX = horizontal && !vertical ? 0.96 : 0.84;
+  const widthZ = vertical && !horizontal ? 0.96 : 0.84;
+  return matrixAt(cell.x + 0.5, 0.028, cell.z + 0.5, widthX, 1, widthZ);
 }
 
 function builtCellKeys(cells: ProofCell[]): Set<string> {
@@ -810,7 +1201,7 @@ function rebuildLighting(builtEdges: BoundaryEdge[], naturalEdges: BoundaryEdge[
     orb.position.y = natural ? 0 : 0.17;
     orb.scale.set(natural ? 1.25 : 1, natural ? 0.8 : 1.18, natural ? 1.25 : 1);
     fixture.add(orb);
-    const light = new THREE.PointLight(natural ? 0x42e7be : 0xffa62f, natural ? 3.2 : 4.4, natural ? 4.2 : 4.8, 2);
+    const light = new THREE.PointLight(natural ? 0x42e7be : 0xffa62f, natural ? 1.5 : 1.9, natural ? 3.8 : 4.2, 2);
     light.position.y = natural ? 0.18 : 0.3;
     fixture.add(light);
     lightingGroup.add(fixture);
@@ -834,18 +1225,32 @@ function rebuildGeometry(): void {
     cells.filter((cell) => cell.zone !== 'start' && state.claimedCells.has(proofCellKey(cell.x, cell.z))).map(tileMatrix),
     geometryGroup,
   );
+  if (visualTruthMode || surfaceStyle === 'project') {
+    const corridorCells = cells.filter((cell) => (
+      cell.zone === 'corridor' && state.claimedCells.has(proofCellKey(cell.x, cell.z))
+    ));
+    const corridorKeys = new Set(corridorCells.map((cell) => proofCellKey(cell.x, cell.z)));
+    addInstances(
+      tileGeometry,
+      visualTruthCorridorFloorMaterial,
+      corridorCells.map((cell) => corridorFloorInsetMatrix(cell, corridorKeys)),
+      geometryGroup,
+    );
+  }
   addInstances(
     tileGeometry,
     floorMaterials.raw,
     cells.filter((cell) => cell.zone === 'corridor' && !state.claimedCells.has(proofCellKey(cell.x, cell.z))).map(tileMatrix),
     geometryGroup,
   );
-  addInstances(
-    tileGeometry,
-    floorMaterials.cavern,
-    cells.filter((cell) => cell.zone === 'target' && !state.claimedCells.has(proofCellKey(cell.x, cell.z))).map(tileMatrix),
-    geometryGroup,
-  );
+  const naturalFloorCells = cells.filter((cell) => cell.zone === 'target' && !state.claimedCells.has(proofCellKey(cell.x, cell.z)));
+  if (visualTruthMode) {
+    const naturalFloor = new THREE.Mesh(cellSurfaceGeometry(naturalFloorCells, 0.018, 7), floorMaterials.cavern);
+    naturalFloor.receiveShadow = true;
+    geometryGroup.add(naturalFloor);
+  } else {
+    addInstances(tileGeometry, floorMaterials.cavern, naturalFloorCells.map(tileMatrix), geometryGroup);
+  }
   addInstances(
     tileGeometry,
     plannedDigMaterial,
@@ -858,23 +1263,41 @@ function rebuildGeometry(): void {
   const naturalEdges = edges.filter((edge) => !builtEdges.includes(edge));
   const opaqueBuilt = builtEdges.filter((edge) => edge.side !== 'south');
   const foregroundBuilt = builtEdges.filter((edge) => edge.side === 'south');
-  addWallFamily(opaqueBuilt, wallFamilies[surfaceStyle], geometryGroup);
-  addWallFamily(foregroundBuilt, foregroundFamilies[surfaceStyle], geometryGroup, true);
-  addInstances(naturalRockGeometry, wallFamilies.natural.side, naturalRockMatrices(naturalEdges.filter((edge) => edge.side !== 'south')), geometryGroup, !mobileProfile);
-  addInstances(naturalRockGeometry, foregroundFamilies.natural.side, naturalRockMatrices(naturalEdges.filter((edge) => edge.side === 'south')), geometryGroup);
-  const vertices = boundaryVertices(builtEdges);
-  addInstances(
-    unitBox,
-    wallFamilies[surfaceStyle].post,
-    vertices.map((vertex) => matrixAt(vertex.x, 0.56, vertex.z, 0.36, 0.92, 0.36)),
-    geometryGroup,
-    true,
-  );
-  addInstances(unitBox, wallFamilies[surfaceStyle].base, vertices.map((vertex) => matrixAt(vertex.x, 0.1, vertex.z, 0.42, 0.2, 0.42)), geometryGroup);
-  addInstances(unitBox, wallFamilies[surfaceStyle].cap, vertices.map((vertex) => matrixAt(vertex.x, 1.04, vertex.z, 0.44, 0.18, 0.44)), geometryGroup);
-  addInstances(unitBox, brassDetailMaterial, vertices.map((vertex) => matrixAt(vertex.x, 0.57, vertex.z, 0.41, 0.12, 0.41)), geometryGroup);
-  addInstances(unitBox, brassDetailMaterial, builtEdges.filter((edge) => edgeHash(edge) % 4 === 0).map((edge) => edgeMatrix(edge, 0.58, 0.66, 0.34, 0.1)), geometryGroup);
-  addInstances(unitBox, brassDetailMaterial, thresholdMatrices(cells, constructed), geometryGroup);
+  const cellsByKey = new Map(cells.map((cell) => [proofCellKey(cell.x, cell.z), cell]));
+  const roomEdges = builtEdges.filter((edge) => cellsByKey.get(proofCellKey(adjacentOpenCell(edge).x, adjacentOpenCell(edge).z))?.zone !== 'corridor');
+  const corridorEdges = builtEdges.filter((edge) => cellsByKey.get(proofCellKey(adjacentOpenCell(edge).x, adjacentOpenCell(edge).z))?.zone === 'corridor');
+  if (visualTruthMode) {
+    const corners = classifyWallCorners(roomEdges, constructed);
+    const thresholds = findPassageThresholds(cells);
+    addVisualTruthWallFamily(roomEdges, wallFamilies.project, corners, geometryGroup);
+    addVisualTruthCorridorFamily(corridorEdges, geometryGroup);
+    addVisualTruthThresholds(thresholds, geometryGroup);
+  } else if (surfaceStyle === 'project') {
+    addWallFamily(roomEdges.filter((edge) => edge.side !== 'south'), wallFamilies.project, geometryGroup);
+    addWallFamily(roomEdges.filter((edge) => edge.side === 'south'), foregroundFamilies.project, geometryGroup);
+    addVisualTruthCorridorFamily(corridorEdges, geometryGroup);
+  } else {
+    addWallFamily(opaqueBuilt, wallFamilies[surfaceStyle], geometryGroup);
+    addWallFamily(foregroundBuilt, foregroundFamilies[surfaceStyle], geometryGroup);
+  }
+  addInstances(naturalRockGeometry, wallFamilies.natural.side, naturalRockMatrices(naturalEdges.filter((edge) => edge.side !== 'south')), geometryGroup, true);
+  addInstances(naturalRockGeometry, foregroundFamilies.natural.side, naturalRockMatrices(naturalEdges.filter((edge) => edge.side === 'south')), geometryGroup, true);
+  if (!visualTruthMode) {
+    const detailedEdges = surfaceStyle === 'project' ? roomEdges : builtEdges;
+    const vertices = boundaryVertices(detailedEdges);
+    addInstances(
+      unitBox,
+      wallFamilies[surfaceStyle].post,
+      vertices.map((vertex) => matrixAt(vertex.x, 0.56, vertex.z, 0.36, 0.92, 0.36)),
+      geometryGroup,
+      true,
+    );
+    addInstances(unitBox, wallFamilies[surfaceStyle].base, vertices.map((vertex) => matrixAt(vertex.x, 0.1, vertex.z, 0.42, 0.2, 0.42)), geometryGroup);
+    addInstances(unitBox, wallFamilies[surfaceStyle].cap, vertices.map((vertex) => matrixAt(vertex.x, 1.04, vertex.z, 0.44, 0.18, 0.44)), geometryGroup);
+    addInstances(unitBox, brassDetailMaterial, vertices.map((vertex) => matrixAt(vertex.x, 0.57, vertex.z, 0.41, 0.12, 0.41)), geometryGroup);
+    addInstances(unitBox, brassDetailMaterial, detailedEdges.filter((edge) => edgeHash(edge) % 4 === 0).map((edge) => edgeMatrix(edge, 0.58, 0.66, 0.34, 0.1)), geometryGroup);
+    addInstances(unitBox, brassDetailMaterial, thresholdMatrices(cells, constructed), geometryGroup);
+  }
   world.add(geometryGroup);
   rebuildLighting(builtEdges, naturalEdges);
   root.dataset.openCells = String(cells.length);
@@ -1022,7 +1445,7 @@ function siteContains(site: SandboxDiscoverySite, x: number, z: number): boolean
 }
 
 function depositIsVisible(deposit: { x: number; z: number }): boolean {
-  const site = SANDBOX_DISCOVERY_SITES.find((candidate) => siteContains(candidate, deposit.x, deposit.z));
+  const site = discoverySites.find((candidate) => siteContains(candidate, deposit.x, deposit.z));
   return !site || state.discoveredSites.has(site.id);
 }
 
@@ -1030,14 +1453,64 @@ function addDiscoveredSiteDressing(site: SandboxDiscoverySite): void {
   const cx = site.x + site.w / 2;
   const cz = site.z + site.h / 2;
   if (site.kind === 'fungus') {
-    addFloorDecal(resourceGroup, decalMaterials.moss, cx, cz, site.w * 0.84, site.h * 0.82, site.id === 'spore-garden' ? 0.28 : -0.16);
-    addFloorDecal(resourceGroup, decalMaterials.spores, cx - 0.8, cz + 0.65, site.w * 0.48, site.h * 0.44, 0.2);
-    addFloorDecal(resourceGroup, decalMaterials.puddle, cx + 1.25, cz - 1.1, 1.7, 1.25, -0.24);
-    addSprite(resourceGroup, spriteMaterials.fungusGrotto, cx, 1.02, cz, site.w * 0.56, site.h * 0.56, 9);
-    addSprite(resourceGroup, spriteMaterials.fungusMedium, site.x + 1.05, 0.5, site.z + site.h - 1.05, 0.9, 0.9, 10);
-    addSprite(resourceGroup, spriteMaterials.fungusSmall, site.x + site.w - 1.1, 0.35, site.z + 1.08, 0.58, 0.58, 10);
-    addSprite(resourceGroup, spriteMaterials.grottoStation, site.x + site.w - 1.15, 0.5, site.z + site.h - 1.08, 1.02, 1.02, 10);
-    const glow = new THREE.PointLight(0x5be9bd, mobileProfile ? 2.4 : 4.2, 6.5, 2);
+    if (visualTruthMode) {
+      addFloorDecal(resourceGroup, decalMaterials.moss, cx - 1.6, cz + 1.15, 1.45, 0.82, -0.18);
+      addFloorDecal(resourceGroup, decalMaterials.spores, cx + 1.55, cz - 1.25, 1.2, 0.72, 0.22);
+      addFloorDecal(resourceGroup, decalMaterials.puddle, cx + 0.4, cz + 1.55, 1.15, 0.72, -0.24);
+    } else {
+      addFloorDecal(resourceGroup, decalMaterials.moss, cx, cz, site.w * 0.84, site.h * 0.82, site.id === 'spore-garden' ? 0.28 : -0.16);
+      addFloorDecal(resourceGroup, decalMaterials.spores, cx - 0.8, cz + 0.65, site.w * 0.48, site.h * 0.44, 0.2);
+      addFloorDecal(resourceGroup, decalMaterials.puddle, cx + 1.25, cz - 1.1, 1.7, 1.25, -0.24);
+    }
+    const clusters = [
+      { x: 0.9, z: 1.05, size: 0.54, medium: true },
+      { x: 2.45, z: 0.7, size: 0.34, medium: false },
+      { x: 5.6, z: 1.1, size: 0.5, medium: true },
+      { x: 1.25, z: 3.75, size: 0.32, medium: false },
+      { x: 3.5, z: 2.55, size: 0.62, medium: true },
+      { x: 5.65, z: 3.9, size: 0.34, medium: false },
+      { x: 2.25, z: 5.65, size: 0.48, medium: true },
+      { x: 4.9, z: 5.55, size: 0.3, medium: false },
+    ];
+    clusters.forEach((cluster, index) => {
+      if (visualTruthMode) {
+        const key = cluster.medium ? 'fungusMedium' : 'fungusSmall';
+        const sourceSize = cluster.medium ? 0.54 : 0.34;
+        addVisualTruthSprite(
+          resourceGroup,
+          key,
+          cluster.medium ? spriteMaterials.fungusMedium : spriteMaterials.fungusSmall,
+          site.x + cluster.x,
+          site.z + cluster.z,
+          9 + index,
+          cluster.size / sourceSize,
+        );
+      } else {
+        addSprite(
+          resourceGroup,
+          cluster.medium ? spriteMaterials.fungusMedium : spriteMaterials.fungusSmall,
+          site.x + cluster.x,
+          cluster.medium ? 0.46 : 0.31,
+          site.z + cluster.z,
+          cluster.size,
+          cluster.size,
+          9 + index,
+        );
+      }
+    });
+    if (visualTruthMode) {
+      addVisualTruthSprite(
+        resourceGroup,
+        'grottoStation',
+        spriteMaterials.grottoStation,
+        site.x + site.w - 1.15,
+        site.z + site.h - 1.08,
+        10,
+      );
+    } else {
+      addSprite(resourceGroup, spriteMaterials.grottoStation, site.x + site.w - 1.15, 0.5, site.z + site.h - 1.08, 1.02, 1.02, 10);
+    }
+    const glow = new THREE.PointLight(0x5be9bd, mobileProfile ? 1.8 : 2.6, 6.2, 2);
     glow.position.set(cx, 1.55, cz);
     resourceGroup.add(glow);
     return;
@@ -1050,9 +1523,20 @@ function addDiscoveredSiteDressing(site: SandboxDiscoverySite): void {
     addSprite(resourceGroup, spriteMaterials.banner, site.x + site.w - 0.75, 0.7, site.z + 0.55, 0.72, 0.94, 9);
     return;
   }
-  addFloorDecal(resourceGroup, decalMaterials.rubble, cx, cz, site.w * 0.6, site.h * 0.55, -0.12);
-  addSprite(resourceGroup, spriteMaterials.ironMineHero, cx, 1.08, cz, site.w * 0.72, site.h * 0.62, 9);
-  const glow = new THREE.PointLight(0xffae38, mobileProfile ? 2.2 : 4.8, 6.8, 2);
+  addFloorDecal(resourceGroup, decalMaterials.rubble, cx, cz, site.w * 0.72, site.h * 0.66, -0.12);
+  [
+    { x: 0.8, z: 0.8, size: 0.86 },
+    { x: 2.1, z: 0.65, size: 0.68 },
+    { x: site.w - 1.05, z: 0.9, size: 0.82 },
+    { x: site.w - 0.85, z: 2.4, size: 0.62 },
+    { x: 1.0, z: site.h - 1.1, size: 0.66 },
+  ].forEach((vein, index) => addSprite(resourceGroup, spriteMaterials.iron, site.x + vein.x, 0.48, site.z + vein.z, vein.size, vein.size, 9 + index));
+  addSprite(resourceGroup, spriteMaterials.cart, cx - 0.45, 0.45, cz + 0.75, 0.96, 0.96, 12);
+  addSprite(resourceGroup, spriteMaterials.rack, site.x + 0.75, 0.58, cz - 0.45, 0.78, 0.88, 11);
+  addSprite(resourceGroup, spriteMaterials.supplies, site.x + site.w - 1.25, 0.42, site.z + site.h - 1.05, 0.76, 0.68, 11);
+  addSprite(resourceGroup, spriteMaterials.lamp, site.x + 1.1, 0.58, site.z + 1.7, 0.58, 0.74, 13);
+  addSprite(resourceGroup, spriteMaterials.lamp, site.x + site.w - 1.1, 0.58, site.z + 1.7, 0.58, 0.74, 13);
+  const glow = new THREE.PointLight(0xffae38, mobileProfile ? 1.7 : 2.7, 6.2, 2);
   glow.position.set(cx + 0.8, 1.65, cz - 0.25);
   resourceGroup.add(glow);
 }
@@ -1063,7 +1547,7 @@ function addUndiscoveredSitePreview(site: SandboxDiscoverySite): void {
   if (site.kind === 'fungus') {
     addFloorDecal(resourceGroup, decalMaterials.moss, cx, cz, site.w * 0.82, site.h * 0.8, site.id === 'spore-garden' ? 0.3 : -0.14);
     addFloorDecal(resourceGroup, decalMaterials.spores, cx + 0.75, cz - 0.55, site.w * 0.42, site.h * 0.38, 0.22);
-    addSprite(resourceGroup, hintMaterials.fungusGrotto, cx, 1.02, cz, site.w * 0.55, site.h * 0.55, 8);
+    addSprite(resourceGroup, hintMaterials.fungus, cx, 0.78, cz, 1.22, 1.22, 8);
     addSprite(resourceGroup, spriteMaterials.fungusSmall, site.entry.x + 0.5, 0.34, site.entry.z + 0.25, 0.54, 0.54, 10);
     const glow = new THREE.PointLight(0x43d8b1, mobileProfile ? 1.2 : 2.6, 5.5, 2);
     glow.position.set(cx, 1.4, cz);
@@ -1072,7 +1556,7 @@ function addUndiscoveredSitePreview(site: SandboxDiscoverySite): void {
   }
   if (site.kind === 'iron') {
     addFloorDecal(resourceGroup, decalMaterials.rubble, cx, cz, site.w * 0.72, site.h * 0.62, -0.1);
-    addSprite(resourceGroup, hintMaterials.ironMine, cx, 1.04, cz, site.w * 0.7, site.h * 0.6, 8);
+    addSprite(resourceGroup, hintMaterials.iron, cx, 0.72, cz, 1.28, 1.28, 8);
     addSprite(resourceGroup, hintMaterials.iron, site.entry.x + 0.5, 0.5, site.entry.z + 0.35, 0.76, 0.76, 10);
     const glow = new THREE.PointLight(0xe9a13b, mobileProfile ? 1.1 : 2.5, 5.4, 2);
     glow.position.set(cx + 0.8, 1.4, cz - 0.25);
@@ -1089,10 +1573,10 @@ function rebuildResources(): void {
   world.remove(resourceGroup);
   resourceGroup.clear();
   resourceGroup = new THREE.Group();
-  SANDBOX_DISCOVERY_SITES
+  discoverySites
     .filter((site) => !state.discoveredSites.has(site.id))
     .forEach(addUndiscoveredSitePreview);
-  SANDBOX_DISCOVERY_SITES
+  discoverySites
     .filter((site) => state.discoveredSites.has(site.id))
     .forEach(addDiscoveredSiteDressing);
   for (const kind of ['iron', 'fungus'] as const) {
@@ -1218,7 +1702,7 @@ function updateActorPath(): void {
 function syncActorPosition(): void {
   const from = actorPath[Math.min(actorSegment, actorPath.length - 1)];
   const to = actorPath[Math.min(actorSegment + 1, actorPath.length - 1)];
-  actor.position.set(THREE.MathUtils.lerp(from.x, to.x, actorProgress), 0.82, THREE.MathUtils.lerp(from.z, to.z, actorProgress));
+  actor.position.set(THREE.MathUtils.lerp(from.x, to.x, actorProgress), workerGroundY, THREE.MathUtils.lerp(from.z, to.z, actorProgress));
   actorShadow.position.set(actor.position.x, 0.045, actor.position.z + 0.06);
 }
 
@@ -1324,14 +1808,15 @@ function updateGuardian(delta: number): void {
   const to = guardianPath[Math.min(guardianSegment + 1, guardianPath.length - 1)];
   guardian.position.set(
     THREE.MathUtils.lerp(from.x, to.x, guardianProgress),
-    0.88,
+    guardianGroundY,
     THREE.MathUtils.lerp(from.z, to.z, guardianProgress),
   );
   guardianShadow.position.set(guardian.position.x, 0.045, guardian.position.z + 0.06);
   const moving = guardianSegment < guardianPath.length - 1;
   if (discovered && enemy && !moving) {
     const result = advanceSandboxCombat(state, enemy.id, delta);
-    guardian.scale.setScalar(1.62 + Math.sin(workerAnimationTime * 9) * 0.07);
+    const pulse = 1 + Math.sin(workerAnimationTime * 9) * 0.043;
+    guardian.scale.set(guardianBaseWidth * pulse, guardianBaseHeight * pulse, 1);
     grottoEnemy.scale.setScalar(1.72 + Math.sin(workerAnimationTime * 11) * 0.08);
     if (result.defeated && !enemyDefeatAnnounced) {
       enemyDefeatAnnounced = true;
@@ -1341,7 +1826,7 @@ function updateGuardian(delta: number): void {
       updateUi();
     }
   } else {
-    guardian.scale.setScalar(1.62);
+    guardian.scale.set(guardianBaseWidth, guardianBaseHeight, 1);
   }
 
   const visibleEnemy = state.enemies.find((candidate) => candidate.siteId === 'fungus-grotto');
@@ -1358,7 +1843,7 @@ function updateGuardian(delta: number): void {
     enemyHealthFill.quaternion.copy(camera.quaternion);
     enemyHealthFill.scale.x = ratio;
   }
-  creatureNeedIcon.visible = sandboxCreatureHungry(state);
+  creatureNeedIcon.visible = !visualTruthMode && sandboxCreatureHungry(state);
   creatureNeedIcon.position.y = 1.55 + Math.sin(workerAnimationTime * 4) * 0.08;
 }
 
@@ -1493,7 +1978,7 @@ function updateSupportWorkers(delta: number): { terrainChanged: boolean } {
     const to = motion.path[Math.min(motion.segment + 1, motion.path.length - 1)];
     const x = THREE.MathUtils.lerp(from.x, to.x, motion.progress);
     const z = THREE.MathUtils.lerp(from.z, to.z, motion.progress);
-    visual.sprite.position.set(x, 0.82, z);
+    visual.sprite.position.set(x, workerGroundY, z);
     visual.shadow.position.set(x, 0.045, z + 0.06);
     const moving = motion.segment < motion.path.length - 1;
     const working = !moving;
@@ -1665,6 +2150,21 @@ ui.innerHTML = `
 `;
 root.append(ui);
 
+if (visualTruthMode) {
+  const badge = ui.querySelector<HTMLElement>('.geometry-badge');
+  const kicker = ui.querySelector<HTMLElement>('.geometry-loop-card small');
+  const title = ui.querySelector<HTMLElement>('[data-loop-title]');
+  const copy = ui.querySelector<HTMLElement>('[data-loop-copy]');
+  const meter = ui.querySelector<HTMLElement>('[data-loop-progress]');
+  if (badge) badge.textContent = 'Style-B Visual-Truth';
+  if (kicker) kicker.textContent = 'VERBINDLICHER MOCKUP-ABGLEICH';
+  if (title) title.textContent = 'Herzraum · Gang · Pilzgrotte';
+  if (copy) copy.textContent = 'Feste Kamera, echte Geometrie und modulare Bestandsassets in einer reproduzierbaren Szene.';
+  if (meter) meter.textContent = 'KAMERA · LICHT · MATERIAL · MASSSTAB';
+  ui.querySelector<HTMLElement>('[data-surface="clean"]')?.setAttribute('aria-pressed', 'false');
+  ui.querySelector<HTMLElement>('[data-surface="project"]')?.setAttribute('aria-pressed', 'true');
+}
+
 const statusTitle = ui.querySelector<HTMLElement>('[data-status-title]');
 const statusCopy = ui.querySelector<HTMLElement>('[data-status-copy]');
 const resourcePopups = ui.querySelector<HTMLElement>('.geometry-resource-popups');
@@ -1694,6 +2194,11 @@ function showLoopPopup(icon: string, label: string): void {
 }
 
 function updateLoopUi(): void {
+  if (visualTruthMode) {
+    root.dataset.loopComplete = 'true';
+    root.dataset.loopStep = 'visual-truth';
+    return;
+  }
   const progress = sandboxLoopProgress(state);
   const steps = [
     progress.discovered,
@@ -1779,7 +2284,7 @@ function syncTerrain(): void {
   syncActorPosition();
   updateUi();
   if (state.discoveredSites.size > knownDiscoveryCount) {
-    const newest = SANDBOX_DISCOVERY_SITES.find((site) => state.discoveredSites.has(site.id) && ![...state.discoveredSites].slice(0, knownDiscoveryCount).includes(site.id));
+    const newest = discoverySites.find((site) => state.discoveredSites.has(site.id) && ![...state.discoveredSites].slice(0, knownDiscoveryCount).includes(site.id));
     if (newest) showStatus({
       ok: true,
       message: newest.id === 'fungus-grotto'
@@ -1862,7 +2367,7 @@ ui.querySelector<HTMLButtonElement>('[data-action="zoom-out"]')?.addEventListene
   updateCamera();
 });
 ui.querySelector<HTMLButtonElement>('[data-action="reset"]')?.addEventListener('click', () => {
-  state = createSandboxState();
+  state = visualTruthMode ? createGeometryVisualTruthState() : createSandboxState();
   supportCargo.clear();
   supportMotions.clear();
   workerVisuals.forEach((visual) => { visual.cargo.visible = false; });
@@ -1873,7 +2378,7 @@ ui.querySelector<HTMLButtonElement>('[data-action="reset"]')?.addEventListener('
   guardianProgress = 0;
   enemyDefeatAnnounced = false;
   knownRationsProduced = 0;
-  guardian.position.set(SANDBOX_START.x + 1.5, 0.88, SANDBOX_START.z + 0.5);
+  guardian.position.set(SANDBOX_START.x + 0.5, guardianGroundY, SANDBOX_START.z - 2.5);
   covenantCreature.position.set(state.creature.x + 0.5, 0.88, state.creature.z + 0.5);
   cameraTarget.set(SANDBOX_START.x, 0, SANDBOX_START.z);
   viewHeight = mobileProfile ? 15 : 20;
@@ -2125,7 +2630,9 @@ function animate(timestamp: number): void {
   timer.update(timestamp);
   const delta = Math.min(timer.getDelta(), 0.05);
   const actorTick = updateActor(delta);
-  const tick = tickSandboxEconomy(state, delta, { autonomousDigging: false, autonomousClaiming: false, autonomousMining: false });
+  const tick = visualTruthMode
+    ? { terrainChanged: false, roomsChanged: false, resourcesChanged: false }
+    : tickSandboxEconomy(state, delta, { autonomousDigging: false, autonomousClaiming: false, autonomousMining: false });
   const supportTick = updateSupportWorkers(delta);
   updateGuardian(delta);
   updateClaimFx();
@@ -2164,6 +2671,7 @@ window.addEventListener('beforeunload', () => {
   renderer.dispose();
   tileGeometry.dispose();
   unitBox.dispose();
+  closedRockMassGeometry.dispose();
   closedRockGeometries.forEach((geometry) => geometry.dispose());
   actorShadowGeometry.dispose();
   selectionGeometry.dispose();

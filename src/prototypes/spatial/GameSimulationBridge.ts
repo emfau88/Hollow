@@ -1,9 +1,9 @@
-import type { AutomationState, HollowAgentApi } from '../../core/AutomationBridge';
+import type { CanonicalGameState, HollowAgentApi } from '../../core/AutomationBridge';
 
 export interface GameSimulationBridge {
   readonly frame: HTMLIFrameElement;
   readonly api: HollowAgentApi;
-  state(): AutomationState;
+  state(): CanonicalGameState;
   dispose(): void;
 }
 

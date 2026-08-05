@@ -21,7 +21,8 @@ Hollow Covenant verwendet für den neuen visuellen Pfad einen Hybridaufbau:
 4. Vorhandene Figuren, Herz-, Ressourcen- und Raumobjekte bleiben 2D-Sprites, solange keine freie Kameradrehung benötigt wird.
 5. Spielregeln, Raumdefinitionen, Kosten und Rezepte werden aus dem bestehenden Spiel weiterverwendet.
 6. Graben und Raumerrichtung bleiben Arbeiteraufträge mit Bauzeit und den bestehenden komplementären Arbeitsprioritäten; sie erscheinen nicht sofort durch die Eingabe.
+7. `GameScene` ist der kanonische Zustand. Alternative Renderer konsumieren ausschließlich dessen `AutomationState`-/`CanonicalGameState`-Projektion; `GeometrySandboxModel` wird nicht um fehlende Kampagnenlogik erweitert.
 
 ## Konsequenz
 
-Das Spiel muss nicht vollständig neu entwickelt werden. Ersetzt werden Renderer und Terrain-Assetpipeline. Die bestehende Simulation kann schrittweise auf den Geometriepfad umziehen. Die zusätzliche spielbare `geometry-sandbox.html` dient dafür als Integrations- und Mobile-First-Nachweis, nicht als final polierte Grafikproduktion. Der kleinere `geometry-proof.html`-Test sowie alle früheren Spiel- und Diagnoseeinstiege bleiben separat erhalten.
+Das Spiel muss nicht vollständig neu entwickelt werden. Ersetzt werden Renderer und Terrain-Assetpipeline. Die bestehende Simulation bleibt kanonisch und ist über `spatial-prototype.html` bereits live an den Geometriepfad angebunden. `geometry-sandbox.html` und `geometry-proof.html` bleiben eingefrorene Präsentations- und Diagnosenachweise, nicht Orte für neue Spielregeln. Details und Großszenen-QA stehen in [CANONICAL_GEOMETRY_INTEGRATION.md](CANONICAL_GEOMETRY_INTEGRATION.md).

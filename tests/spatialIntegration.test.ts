@@ -1,12 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import type { AutomationState } from '../src/core/AutomationBridge';
+import { createCampaignEvaluationState } from '../src/prototypes/spatial/CampaignEvaluationState';
 import {
+  CAMPAIGN_EVALUATION_SLICE,
   FUNGUS_CHAMBER,
   INTEGRATION_SLICE,
   architectureForMapCell,
+  knownTileMap,
   mapToWorld,
   snapshotToSpatialCells,
   terrainSignature,
+  tileKey,
   tutorialRouteProgress,
 } from '../src/prototypes/spatial/IntegrationModel';
 
@@ -86,5 +90,44 @@ describe('spatial integration model', () => {
 
     expect(connected).toMatchObject({ opened: 7, total: 7, connected: true, workerInGrotto: false });
     expect(arrived.workerInGrotto).toBe(true);
+  });
+
+  it('projects completed canonical rooms as built architecture', () => {
+    const roomState = state([tile(20, 31)]);
+    roomState.rooms = [{ id: 1, kind: 'kitchen', x: 20, y: 31, w: 4, h: 4, complete: true, inputStored: 0 }];
+
+    expect(architectureForMapCell(20, 31, roomState)).toBe('built');
+    expect(snapshotToSpatialCells(roomState, CAMPAIGN_EVALUATION_SLICE)[0]?.zone).toBe('built');
+  });
+
+  it('builds a representative read-only campaign fixture in the canonical contract', () => {
+    const base = {
+      version: 1,
+      seed: 1337,
+      rooms: [],
+      knownTiles: [],
+      workers: [],
+      units: [],
+      enemies: [],
+      items: [],
+      targets: [],
+    } as unknown as AutomationState;
+    const evaluation = createCampaignEvaluationState(base);
+    const tiles = knownTileMap(evaluation);
+
+    expect(base.knownTiles).toEqual([]);
+    expect(evaluation.version).toBe(1);
+    expect(new Set(evaluation.rooms.map((room) => room.kind))).toEqual(new Set([
+      'storage', 'bedroom', 'kitchen', 'smelter', 'workshop', 'prison',
+    ]));
+    expect(evaluation.workers.length).toBeGreaterThanOrEqual(8);
+    expect(evaluation.units.length).toBeGreaterThanOrEqual(6);
+    expect(evaluation.enemies.length).toBeGreaterThanOrEqual(8);
+    expect(evaluation.items.length).toBeGreaterThanOrEqual(8);
+    expect(evaluation.targets.map((target) => target.id)).toEqual(['iron', 'fungus', 'dwarf', 'shrine']);
+    expect(Array.from({ length: 8 }, (_, index) => tiles.get(tileKey(40 + index, 34))?.geology)).toEqual(
+      Array.from({ length: 8 }, () => 'excavated'),
+    );
+    expect(snapshotToSpatialCells(evaluation, CAMPAIGN_EVALUATION_SLICE).length).toBeGreaterThan(400);
   });
 });

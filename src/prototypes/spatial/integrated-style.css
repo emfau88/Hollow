@@ -63,6 +63,8 @@ button { color: inherit; font: inherit; }
   pointer-events: none;
 }
 
+.simulation-frame.is-contract-only { display: none; }
+
 .prototype-loading {
   position: absolute;
   z-index: 6;
@@ -222,11 +224,14 @@ button { color: inherit; font: inherit; }
 }
 
 .integration-actions { grid-template-columns: 1fr auto auto; }
+.is-campaign-evaluation .integration-actions { grid-template-columns: 1fr; }
 
 .integration-views {
   grid-template-columns: repeat(4, 1fr);
   margin-top: 6px;
 }
+
+.is-campaign-evaluation .integration-views { grid-template-columns: repeat(3, 1fr); }
 
 .integration-panel button {
   min-height: 30px;

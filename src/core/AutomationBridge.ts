@@ -16,6 +16,12 @@ export interface AutomationWorldTarget {
   claimed: boolean;
 }
 
+/**
+ * Canonical, renderer-neutral projection of the real GameScene state.
+ *
+ * GameScene owns all gameplay rules. Alternative renderers may consume this
+ * contract, but must never use it to grow a parallel simulation.
+ */
 export interface AutomationState {
   version: 1;
   seed: number;
@@ -71,6 +77,10 @@ export interface AutomationState {
     tools: Partial<Record<ToolKind, string>>;
   };
 }
+
+/** Preferred name at renderer boundaries. Kept as an alias so the automation
+ * and browser-test API remain backwards compatible. */
+export type CanonicalGameState = AutomationState;
 
 export interface AutomationActionResult {
   ok: boolean;

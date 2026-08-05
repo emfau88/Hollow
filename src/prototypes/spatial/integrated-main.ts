@@ -1,32 +1,45 @@
 import * as THREE from 'three';
-import type { AutomationState } from '../../core/AutomationBridge';
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
+import type { CanonicalGameState } from '../../core/AutomationBridge';
+import type { ItemKind, RoomKind } from '../../data/definitions';
+import { VISUAL_TRUTH_SPRITES, type SpritePresentation } from '../geometry/GeometryVisualTruthPresentation';
+import { createCampaignEvaluationState } from './CampaignEvaluationState';
 import { connectGameSimulation, type GameSimulationBridge } from './GameSimulationBridge';
 import {
+  CAMPAIGN_EVALUATION_SLICE,
+  DWARF_CHAMBER,
   FUNGUS_CHAMBER,
   FUNGUS_TILE,
   HEART_TILE,
   INTEGRATION_SLICE,
+  IRON_CHAMBER,
+  SHRINE_CHAMBER,
   TUTORIAL_ROUTE,
   knownTileMap,
+  insideRect,
   mapToWorld,
   snapshotToSpatialCells,
   terrainSignature,
   tileKey,
   tutorialRouteProgress,
   type IntegratedCell,
+  type SpatialProjection,
 } from './IntegrationModel';
 import { buildBoundaryRuns, type BoundaryRun } from './layout';
 import './integrated-style.css';
 
-type ViewPreset = 'overview' | 'heart' | 'grotto' | 'occlusion';
+type ViewPreset = 'overview' | 'heart' | 'west' | 'east';
 
 const rootElement = document.querySelector<HTMLElement>('#spatial-prototype');
 const canvasHostElement = document.querySelector<HTMLElement>('#prototype-canvas');
 if (!rootElement || !canvasHostElement) throw new Error('Spatial integration host is missing.');
 const root: HTMLElement = rootElement;
 const canvasHost: HTMLElement = canvasHostElement;
+const campaignEvaluationMode = new URLSearchParams(window.location.search).get('campaign-evaluation') === '1';
+const activeProjection: SpatialProjection = campaignEvaluationMode ? CAMPAIGN_EVALUATION_SLICE : INTEGRATION_SLICE;
+const toWorld = (x: number, y: number): { x: number; z: number } => mapToWorld(x, y, activeProjection);
 
-document.documentElement.dataset.integration = 'spatial-v2';
+document.documentElement.dataset.integration = campaignEvaluationMode ? 'campaign-evaluation-v1' : 'spatial-v3';
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x071427);
@@ -37,7 +50,7 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, window.innerWidth < 100
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.08;
+renderer.toneMappingExposure = 1;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.shadowMap.autoUpdate = false;
@@ -46,10 +59,17 @@ canvasHost.append(renderer.domElement);
 
 const camera = new THREE.OrthographicCamera(-16, 16, 9, -9, 0.1, 100);
 camera.up.set(0, 1, 0);
-const cameraOffset = new THREE.Vector3(0, 29, 7.5);
-const cameraTarget = new THREE.Vector3(-2.4, 0, -0.8);
+// 53 degrees above the horizontal: enough facade to read the walls without
+// hiding the floor plan behind them.
+const cameraOffset = new THREE.Vector3(0, 15.5, 11.7);
+const cameraTarget = new THREE.Vector3(0, 0, 0);
 
 function openingCameraZoom(): number {
+  if (campaignEvaluationMode) {
+    if (window.innerWidth < 950) return 0.5;
+    if (window.innerWidth < 1500) return 0.62;
+    return 0.7;
+  }
   if (window.innerWidth < 950) return 0.72;
   if (window.innerWidth < 1500) return 0.88;
   return 1.06;
@@ -77,6 +97,7 @@ function surfaceMaterial(
   roughness = 0.9,
   emissive = 0x000000,
   emissiveIntensity = 0,
+  color = 0xffffff,
 ): THREE.MeshStandardMaterial {
   const map = textureLoader.load(asset(path));
   map.colorSpace = THREE.SRGBColorSpace;
@@ -84,7 +105,7 @@ function surfaceMaterial(
   map.minFilter = THREE.LinearMipmapLinearFilter;
   map.anisotropy = maxAnisotropy;
   return new THREE.MeshStandardMaterial({
-    color: 0xffffff,
+    color,
     map,
     roughness,
     metalness: 0.01,
@@ -95,18 +116,25 @@ function surfaceMaterial(
 
 const floorMaterials = {
   built: surfaceMaterial('assets/generated/style-b-v3/terrain/claimed-floor.png', 0.82),
-  raw: surfaceMaterial('assets/generated/style-b-v3/terrain/raw-floor.png', 0.96, 0x122d4d, 0.35),
-  claimed: surfaceMaterial('assets/generated/style-b-v3/terrain/claimed-corridor.png', 0.98, 0x18385e, 0.65),
-  natural: surfaceMaterial('assets/generated/style-b-v3/terrain/damp-floor.png', 0.88, 0x0b312d, 0.18),
+  raw: surfaceMaterial('assets/generated/style-b-v3/terrain/raw-floor.png', 0.96),
+  claimed: surfaceMaterial('assets/generated/style-b-v3/terrain/claimed-corridor.png', 0.98),
+  natural: surfaceMaterial('assets/generated/geometry-sandbox-v2/visual-truth/grotto-floor-style-b-v1.png', 0.9),
+  iron: surfaceMaterial('assets/generated/style-b-v3/terrain/raw-floor.png', 0.98, 0x000000, 0, 0x8d8a80),
+  hostile: surfaceMaterial('assets/generated/style-b-v3/terrain/damp-floor.png', 0.96, 0x000000, 0, 0x7d7184),
 };
-const rockTopMaterial = surfaceMaterial('assets/generated/style-b-v3/terrain/rock-top.png', 0.94);
+const rockTopMaterial = surfaceMaterial('assets/generated/geometry-sandbox-v2/visual-truth/closed-rock-style-b-v1.png', 0.95);
 
 const material = {
   bedrock: new THREE.MeshStandardMaterial({ color: 0x071426, roughness: 1 }),
-  rockBody: new THREE.MeshStandardMaterial({ color: 0x0d2d50, roughness: 0.96 }),
-  builtFace: new THREE.MeshStandardMaterial({ color: 0x442f47, roughness: 0.78 }),
-  builtCap: new THREE.MeshStandardMaterial({ color: 0xbcb49c, roughness: 0.74 }),
+  rockBody: new THREE.MeshStandardMaterial({ color: 0x20314e, roughness: 0.98 }),
+  wallCore: new THREE.MeshStandardMaterial({ color: 0x222630, roughness: 1 }),
+  builtBase: new THREE.MeshStandardMaterial({ color: 0x46535a, roughness: 0.98 }),
+  builtFace: surfaceMaterial('assets/generated/geometry-sandbox-v2/walls/wall-side-masonry-v1.png', 0.93),
+  builtCap: surfaceMaterial('assets/generated/geometry-sandbox-v2/walls/wall-cap-limestone-v1.png', 0.89),
+  corridorFace: new THREE.MeshStandardMaterial({ color: 0x596d76, roughness: 0.98 }),
+  corridorCap: new THREE.MeshStandardMaterial({ color: 0xa5b0a9, roughness: 0.92 }),
   brass: new THREE.MeshStandardMaterial({ color: 0xd8a532, metalness: 0.48, roughness: 0.42 }),
+  contact: new THREE.MeshBasicMaterial({ color: 0x020714, transparent: true, opacity: 0.18, depthWrite: false }),
   route: new THREE.MeshStandardMaterial({
     color: 0xe2ad35,
     emissive: 0x7c4a09,
@@ -118,6 +146,7 @@ const material = {
 };
 
 const unitBox = new THREE.BoxGeometry(1, 1, 1);
+const wallStoneGeometry = new RoundedBoxGeometry(1, 1, 1, 2, 0.055);
 const markerTile = new THREE.PlaneGeometry(0.68, 0.68).rotateX(-Math.PI / 2);
 const rockMargin = { x: 10, y: 7 } as const;
 
@@ -209,15 +238,15 @@ function addTiledSurface(
 
 const bedrock = new THREE.Mesh(
   new THREE.BoxGeometry(
-    INTEGRATION_SLICE.maxX - INTEGRATION_SLICE.minX + 1 + rockMargin.x * 2,
+    activeProjection.maxX - activeProjection.minX + 1 + rockMargin.x * 2,
     0.18,
-    INTEGRATION_SLICE.maxY - INTEGRATION_SLICE.minY + 1 + rockMargin.y * 2,
+    activeProjection.maxY - activeProjection.minY + 1 + rockMargin.y * 2,
   ),
   material.bedrock,
 );
-const bedrockCenter = mapToWorld(
-  (INTEGRATION_SLICE.minX + INTEGRATION_SLICE.maxX) / 2,
-  (INTEGRATION_SLICE.minY + INTEGRATION_SLICE.maxY) / 2,
+const bedrockCenter = toWorld(
+  (activeProjection.minX + activeProjection.maxX) / 2,
+  (activeProjection.minY + activeProjection.maxY) / 2,
 );
 bedrock.position.set(bedrockCenter.x, -0.18, bedrockCenter.z);
 bedrock.receiveShadow = true;
@@ -230,60 +259,93 @@ world.add(dynamicTerrain);
 
 function classifyFloor(cell: IntegratedCell): keyof typeof floorMaterials {
   if (cell.zone === 'built') return 'built';
-  if (cell.zone === 'natural') return 'natural';
+  if (cell.zone === 'natural') {
+    if (insideRect(cell.mapX, cell.mapY, FUNGUS_CHAMBER)) return 'natural';
+    if (insideRect(cell.mapX, cell.mapY, IRON_CHAMBER)) return 'iron';
+    if ([DWARF_CHAMBER, SHRINE_CHAMBER].some((rect) => insideRect(cell.mapX, cell.mapY, rect))) return 'hostile';
+    return 'raw';
+  }
   return cell.control === 'owned' || cell.control === 'claiming' ? 'claimed' : 'raw';
 }
 
-function wallMatrices(runs: BoundaryRun[]): {
-  body: THREE.Matrix4[];
-  cap: THREE.Matrix4[];
-  brass: THREE.Matrix4[];
-  foregroundBody: THREE.Matrix4[];
-  foregroundCap: THREE.Matrix4[];
-  foregroundBrass: THREE.Matrix4[];
-} {
-  const result = {
-    body: [] as THREE.Matrix4[],
-    cap: [] as THREE.Matrix4[],
-    brass: [] as THREE.Matrix4[],
-    foregroundBody: [] as THREE.Matrix4[],
-    foregroundCap: [] as THREE.Matrix4[],
-    foregroundBrass: [] as THREE.Matrix4[],
-  };
-  const height = 0.76;
-  const thickness = 0.28;
+type WallLayer = 'core' | 'base' | 'face' | 'cap' | 'highlight' | 'brass' | 'contact';
+type WallMatrixBuckets = Record<WallLayer, THREE.Matrix4[]> & { foreground: Record<WallLayer, THREE.Matrix4[]> };
 
-  for (const run of runs.filter((candidate) => candidate.zone === 'built')) {
+function newWallBuckets(): WallMatrixBuckets {
+  const layers = (): Record<WallLayer, THREE.Matrix4[]> => ({
+    core: [], base: [], face: [], cap: [], highlight: [], brass: [], contact: [],
+  });
+  return { ...layers(), foreground: layers() };
+}
+
+function wallMatrices(runs: BoundaryRun[]): WallMatrixBuckets {
+  const result = newWallBuckets();
+  const addCourse = (
+    bucket: Record<WallLayer, THREE.Matrix4[]>,
+    run: BoundaryRun,
+    layer: WallLayer,
+    y: number,
+    height: number,
+    thickness: number,
+    outward = 0.055,
+    gap = 0.055,
+  ): void => {
     const alongX = run.axis === 'x';
-    const x = alongX ? (run.start + run.end) / 2 : run.constant;
-    const z = alongX ? run.constant : (run.start + run.end) / 2;
-    const width = alongX ? run.length + 0.035 : thickness;
-    const depth = alongX ? thickness : run.length + 0.035;
-    const foreground = run.side === 'south';
-    const body = foreground ? result.foregroundBody : result.body;
-    const cap = foreground ? result.foregroundCap : result.cap;
-    const brass = foreground ? result.foregroundBrass : result.brass;
-
-    body.push(matrixAt(x, height / 2, z, width, height, depth));
-    cap.push(matrixAt(x, height + 0.035, z, width + 0.08, 0.14, depth + 0.08));
-
-    const clampCount = Math.max(1, Math.floor(run.length / 3.2));
-    for (let index = 1; index <= clampCount; index += 1) {
-      const along = run.start + (run.length * index) / (clampCount + 1);
-      brass.push(matrixAt(
-        alongX ? along : x,
-        height + 0.055,
-        alongX ? z : along,
-        alongX ? 0.15 : thickness + 0.1,
-        0.23,
-        alongX ? thickness + 0.1 : 0.15,
+    const sideOffset = run.side === 'north' ? { x: 0, z: -outward }
+      : run.side === 'south' ? { x: 0, z: outward }
+        : run.side === 'east' ? { x: outward, z: 0 }
+          : { x: -outward, z: 0 };
+    for (let cursor = run.start; cursor < run.end - 0.001; cursor += 1) {
+      const length = Math.min(1, run.end - cursor);
+      const along = cursor + length / 2;
+      bucket[layer].push(matrixAt(
+        (alongX ? along : run.constant) + sideOffset.x,
+        y,
+        (alongX ? run.constant : along) + sideOffset.z,
+        alongX ? Math.max(0.12, length - gap) : thickness,
+        height,
+        alongX ? thickness : Math.max(0.12, length - gap),
       ));
     }
+  };
+
+  for (const run of runs) {
+    if (run.zone === 'natural') continue;
+    const bucket = run.side === 'south' ? result.foreground : result;
+    if (run.zone === 'built') {
+      addCourse(bucket, run, 'core', 0.65, 1.22, 0.33, 0.04, 0);
+      addCourse(bucket, run, 'base', 0.16, 0.28, 0.42);
+      addCourse(bucket, run, 'face', 0.5, 0.38, 0.37);
+      addCourse(bucket, run, 'face', 0.86, 0.32, 0.37, 0.055, 0.085);
+      addCourse(bucket, run, 'cap', 1.11, 0.2, 0.48);
+      addCourse(bucket, run, 'highlight', 1.225, 0.045, 0.35, 0.055, 0.1);
+      const clampCount = Math.floor(run.length / 4);
+      for (let index = 1; index <= clampCount; index += 1) {
+        const along = run.start + (run.length * index) / (clampCount + 1);
+        bucket.brass.push(matrixAt(
+          run.axis === 'x' ? along : run.constant,
+          1.26,
+          run.axis === 'x' ? run.constant : along,
+          run.axis === 'x' ? 0.13 : 0.46,
+          0.055,
+          run.axis === 'x' ? 0.46 : 0.13,
+        ));
+      }
+    } else {
+      const rear = run.side === 'north';
+      const front = run.side === 'south';
+      const sideHeight = rear ? 0.86 : front ? 0.36 : 0.62;
+      const capY = rear ? 0.91 : front ? 0.43 : 0.68;
+      addCourse(bucket, run, 'core', sideHeight / 2 + 0.04, sideHeight, 0.12, 0.055, 0);
+      addCourse(bucket, run, 'face', sideHeight / 2 + 0.04, sideHeight - 0.04, 0.16, 0.065);
+      addCourse(bucket, run, 'cap', capY, 0.1, 0.22, 0.08, 0.095);
+    }
+    addCourse(bucket, run, 'contact', 0.025, 0.018, 0.1, -0.08, 0);
   }
   return result;
 }
 
-function rebuildTerrain(state: AutomationState): void {
+function rebuildTerrain(state: CanonicalGameState): void {
   const previous = dynamicTerrain;
   dynamicTerrain = new THREE.Group();
   foregroundWalls = new THREE.Group();
@@ -297,7 +359,7 @@ function rebuildTerrain(state: AutomationState): void {
   });
   previous.clear();
 
-  const cells = snapshotToSpatialCells(state);
+  const cells = snapshotToSpatialCells(state, activeProjection);
   const openMap = new Map(cells.map((cell) => [tileKey(cell.mapX, cell.mapY), cell]));
   const rockBodies: THREE.Matrix4[] = [];
   const rockTops: SurfaceTile[] = [];
@@ -306,15 +368,17 @@ function rebuildTerrain(state: AutomationState): void {
     raw: [],
     claimed: [],
     natural: [],
+    iron: [],
+    hostile: [],
   };
 
-  for (let mapY = INTEGRATION_SLICE.minY - rockMargin.y; mapY <= INTEGRATION_SLICE.maxY + rockMargin.y; mapY += 1) {
-    for (let mapX = INTEGRATION_SLICE.minX - rockMargin.x; mapX <= INTEGRATION_SLICE.maxX + rockMargin.x; mapX += 1) {
-      const worldPosition = mapToWorld(mapX, mapY);
+  for (let mapY = activeProjection.minY - rockMargin.y; mapY <= activeProjection.maxY + rockMargin.y; mapY += 1) {
+    for (let mapX = activeProjection.minX - rockMargin.x; mapX <= activeProjection.maxX + rockMargin.x; mapX += 1) {
+      const worldPosition = toWorld(mapX, mapY);
       const openCell = openMap.get(tileKey(mapX, mapY));
       const surface = { ...worldPosition, mapX, mapY };
       if (!openCell) {
-        rockBodies.push(matrixAt(worldPosition.x, 0.13, worldPosition.z, 1.025, 0.38, 1.025));
+        rockBodies.push(matrixAt(worldPosition.x, 0.36, worldPosition.z, 1.025, 0.76, 1.025));
         rockTops.push(surface);
         continue;
       }
@@ -324,7 +388,7 @@ function rebuildTerrain(state: AutomationState): void {
   }
 
   addInstances(unitBox, material.rockBody, rockBodies, dynamicTerrain, { cast: true, receive: true });
-  addTiledSurface(rockTops, rockTopMaterial, 0.325, dynamicTerrain);
+  addTiledSurface(rockTops, rockTopMaterial, 0.745, dynamicTerrain);
 
   (Object.keys(floorBuckets) as Array<keyof typeof floorBuckets>).forEach((kind) => {
     addTiledSurface(floorBuckets[kind], floorMaterials[kind], 0.015, dynamicTerrain);
@@ -332,17 +396,22 @@ function rebuildTerrain(state: AutomationState): void {
 
   const runs = buildBoundaryRuns(cells);
   const walls = wallMatrices(runs);
-  addInstances(unitBox, material.builtFace, walls.body, dynamicTerrain, { cast: true });
-  addInstances(unitBox, material.builtCap, walls.cap, dynamicTerrain, { cast: true });
-  addInstances(unitBox, material.brass, walls.brass, dynamicTerrain, { cast: true });
-  addInstances(unitBox, material.builtFace, walls.foregroundBody, foregroundWalls, { cast: true });
-  addInstances(unitBox, material.builtCap, walls.foregroundCap, foregroundWalls, { cast: true });
-  addInstances(unitBox, material.brass, walls.foregroundBrass, foregroundWalls, { cast: true });
+  const addWallLayers = (layers: Record<WallLayer, THREE.Matrix4[]>, parent: THREE.Object3D): void => {
+    addInstances(unitBox, material.wallCore, layers.core, parent, { cast: true });
+    addInstances(wallStoneGeometry, material.builtBase, layers.base, parent, { cast: true });
+    addInstances(wallStoneGeometry, material.builtFace, layers.face, parent, { cast: true });
+    addInstances(wallStoneGeometry, material.builtCap, layers.cap, parent, { cast: true });
+    addInstances(wallStoneGeometry, material.corridorCap, layers.highlight, parent, { cast: true });
+    addInstances(unitBox, material.brass, layers.brass, parent, { cast: true });
+    addInstances(unitBox, material.contact, layers.contact, parent, { receive: false });
+  };
+  addWallLayers(walls, dynamicTerrain);
+  addWallLayers(walls.foreground, foregroundWalls);
 
   const tileMap = knownTileMap(state);
   const thresholdOpen = tileMap.get(tileKey(40, 34))?.geology === 'excavated';
   if (thresholdOpen) {
-    const doorway = mapToWorld(39.5, 34);
+    const doorway = toWorld(39.5, 34);
     addInstances(unitBox, material.brass, [matrixAt(doorway.x, 0.07, doorway.z, 0.13, 0.1, 0.82)], dynamicTerrain);
   }
 
@@ -353,8 +422,8 @@ function rebuildTerrain(state: AutomationState): void {
     markerTile,
     material.route,
     closedRoute.map((point) => {
-      const position = mapToWorld(point.x, point.y);
-      return matrixAt(position.x, 0.337, position.z);
+      const position = toWorld(point.x, point.y);
+      return matrixAt(position.x, 0.757, position.z);
     }),
     dynamicTerrain,
     { receive: false },
@@ -387,11 +456,17 @@ interface BillboardOptions {
   emissive?: number;
   renderOrder?: number;
   shadow?: boolean;
+  anchorY?: number;
+  shadowWidth?: number;
+  shadowDepth?: number;
   depthWrite?: boolean;
 }
 
 function createBillboard(path: string, options: BillboardOptions): THREE.Mesh {
   const geometry = new THREE.PlaneGeometry(options.width, options.height);
+  if (typeof options.anchorY === 'number') {
+    geometry.translate(0, options.height * (0.5 - options.anchorY), 0);
+  }
   const meshMaterial = new THREE.MeshStandardMaterial({
     color: 0xffffff,
     map: billboardTexture(path),
@@ -405,8 +480,12 @@ function createBillboard(path: string, options: BillboardOptions): THREE.Mesh {
     emissiveIntensity: 0.18,
   });
   const mesh = new THREE.Mesh(geometry, meshMaterial);
-  const position = mapToWorld(options.mapX, options.mapY);
-  mesh.position.set(position.x, options.lift ?? Math.min(0.72, options.height * 0.12), position.z + (options.depthOffset ?? 0));
+  const position = toWorld(options.mapX, options.mapY);
+  mesh.position.set(
+    position.x,
+    options.lift ?? (typeof options.anchorY === 'number' ? 0.055 : Math.min(0.72, options.height * 0.12)),
+    position.z + (options.depthOffset ?? 0),
+  );
   mesh.quaternion.copy(camera.quaternion);
   mesh.renderOrder = options.renderOrder ?? 10;
   mesh.userData.baseMapX = options.mapX;
@@ -417,10 +496,11 @@ function createBillboard(path: string, options: BillboardOptions): THREE.Mesh {
 
   if (options.shadow) {
     const shadow = new THREE.Mesh(
-      new THREE.CircleGeometry(Math.max(0.18, options.width * 0.28), 22),
-      new THREE.MeshBasicMaterial({ color: 0x020714, transparent: true, opacity: 0.42, depthWrite: false }),
+      new THREE.CircleGeometry(0.5, 22),
+      new THREE.MeshBasicMaterial({ color: 0x020714, transparent: true, opacity: 0.2, depthWrite: false }),
     );
-    shadow.position.set(position.x, 0.04, position.z + 0.12);
+    shadow.position.set(position.x, 0.04, position.z + 0.055);
+    shadow.scale.set(options.shadowWidth ?? options.width * 0.56, options.shadowDepth ?? options.width * 0.27, 1);
     shadow.rotation.x = -Math.PI / 2;
     world.add(shadow);
     mesh.userData.shadow = shadow;
@@ -428,13 +508,34 @@ function createBillboard(path: string, options: BillboardOptions): THREE.Mesh {
   return mesh;
 }
 
+function createGroundedBillboard(
+  path: string,
+  mapX: number,
+  mapY: number,
+  presentation: SpritePresentation,
+  renderOrder: number,
+  scale = 1,
+): THREE.Mesh {
+  return createBillboard(path, {
+    mapX,
+    mapY,
+    width: presentation.width * scale,
+    height: presentation.height * scale,
+    anchorY: presentation.anchorY,
+    shadowWidth: presentation.shadowWidth * scale,
+    shadowDepth: presentation.shadowDepth * scale,
+    renderOrder,
+    shadow: true,
+  });
+}
+
 function addHeartHeadquarters(): void {
   const cx = HEART_TILE.x;
   const cy = HEART_TILE.y;
-  const shadowPosition = mapToWorld(cx, cy + 1.55);
+  const shadowPosition = toWorld(cx, cy + 1.55);
   const shadow = new THREE.Mesh(
     new THREE.CircleGeometry(2.85, 32),
-    new THREE.MeshBasicMaterial({ color: 0x020511, transparent: true, opacity: 0.36, depthWrite: false }),
+    new THREE.MeshBasicMaterial({ color: 0x020511, transparent: true, opacity: 0.2, depthWrite: false }),
   );
   shadow.position.set(shadowPosition.x, 0.035, shadowPosition.z);
   shadow.scale.z = 0.32;
@@ -482,17 +583,34 @@ addHeartHeadquarters();
 addStaticDressing();
 
 const actorMeshes = new Map<string, THREE.Mesh>();
+const roomMeshes = new Map<number, THREE.Mesh>();
+const itemMeshes = new Map<number, THREE.Mesh>();
+const targetMeshes = new Map<string, THREE.Mesh>();
 
 function actorAsset(kind: string): string {
   if (kind === 'guard') return 'assets/generated/style-b-v2/characters/guard.png';
   if (kind === 'archer') return 'assets/generated/style-b-v2/characters/archer.png';
-  return 'assets/generated/style-b-v2/characters/worker.png';
+  if (kind === 'worker') return 'assets/generated/style-b-v2/characters/worker.png';
+  return `assets/generated/units-v1/${kind}.png`;
 }
 
-function syncActors(state: AutomationState): void {
+function actorPresentation(kind: string): SpritePresentation {
+  if (kind === 'worker') return VISUAL_TRUTH_SPRITES.worker;
+  if (kind === 'guard') return VISUAL_TRUTH_SPRITES.guard;
+  if (kind === 'archer') return VISUAL_TRUTH_SPRITES.archer;
+  if (kind === 'hexbinder') return VISUAL_TRUTH_SPRITES.hexbinder;
+  if (kind === 'inquisitor') return VISUAL_TRUTH_SPRITES.inquisitor;
+  if (kind === 'captain' || kind === 'warden') return VISUAL_TRUTH_SPRITES.enemyLarge;
+  return VISUAL_TRUTH_SPRITES.enemy;
+}
+
+function syncActors(state: CanonicalGameState): void {
   const actors = [
-    ...state.workers.map((worker) => ({ key: `worker:${worker.id}`, kind: 'worker', ...worker })),
-    ...state.units.map((unit) => ({ key: `unit:${unit.id}`, state: 'unit', ...unit })),
+    ...state.workers.map((worker) => ({ key: `worker:${worker.id}`, kind: 'worker', x: worker.x, y: worker.y, state: worker.state })),
+    ...state.units.map((unit) => ({ key: `unit:${unit.id}`, kind: unit.kind, x: unit.x, y: unit.y, state: 'unit' })),
+    ...state.enemies.filter((enemy) => enemy.active).map((enemy) => ({
+      key: `enemy:${enemy.id}`, kind: enemy.kind, x: enemy.x, y: enemy.y, state: 'enemy',
+    })),
   ];
   const active = new Set<string>();
 
@@ -500,19 +618,10 @@ function syncActors(state: AutomationState): void {
     active.add(actor.key);
     let mesh = actorMeshes.get(actor.key);
     if (!mesh) {
-      const size = actor.kind === 'worker' ? 58 / 32 : actor.kind === 'guard' ? 46 / 32 : 45 / 32;
-      mesh = createBillboard(actorAsset(actor.kind), {
-        mapX: actor.x,
-        mapY: actor.y,
-        width: size,
-        height: size,
-        lift: 0.23,
-        renderOrder: 25,
-        shadow: true,
-      });
+      mesh = createGroundedBillboard(actorAsset(actor.kind), actor.x, actor.y, actorPresentation(actor.kind), 25);
       actorMeshes.set(actor.key, mesh);
     }
-    const position = mapToWorld(actor.x, actor.y);
+    const position = toWorld(actor.x, actor.y);
     mesh.userData.targetX = position.x;
     mesh.userData.targetZ = position.z;
     mesh.userData.actorState = actor.state;
@@ -521,38 +630,131 @@ function syncActors(state: AutomationState): void {
   for (const [key, mesh] of actorMeshes) mesh.visible = active.has(key);
 }
 
-scene.add(new THREE.HemisphereLight(0x91b2ce, 0x07101c, 1.45));
-scene.add(new THREE.AmbientLight(0x26354b, 1.05));
+const roomPropAssets: Record<RoomKind, string> = {
+  storage: 'assets/generated/room-props-v3/storage.png',
+  bedroom: 'assets/generated/room-props-v3/bed.png',
+  kitchen: 'assets/generated/room-props-v3/cauldron.png',
+  smelter: 'assets/generated/room-props-v3/furnace.png',
+  workshop: 'assets/generated/room-props-v3/workbench.png',
+  prison: 'assets/generated/room-props-v3/prison-gate.png',
+};
 
-const keyLight = new THREE.DirectionalLight(0xffe0ae, 2.1);
-keyLight.position.set(-13, 22, 11);
+const itemAssets: Record<ItemKind, string> = {
+  ore: 'assets/generated/units-v1/item-ore.png',
+  biomass: 'assets/generated/units-v1/item-biomass.png',
+  essence: 'assets/generated/units-v1/item-essence.png',
+  metal: 'assets/generated/units-v1/item-metal.png',
+  ration: 'assets/generated/units-v1/item-ration.png',
+  armour: 'assets/generated/units-v1/item-armour.png',
+};
+
+function syncDressing(state: CanonicalGameState): void {
+  const activeRooms = new Set<number>();
+  for (const room of state.rooms.filter((candidate) => candidate.complete)) {
+    activeRooms.add(room.id);
+    if (!roomMeshes.has(room.id)) {
+      roomMeshes.set(room.id, createGroundedBillboard(
+        roomPropAssets[room.kind],
+        room.x + room.w / 2 - 0.5,
+        room.y + room.h / 2 - 0.5,
+        VISUAL_TRUTH_SPRITES.roomProp,
+        19,
+        room.kind === 'bedroom' ? 0.88 : 1,
+      ));
+    }
+  }
+  for (const [id, mesh] of roomMeshes) mesh.visible = activeRooms.has(id);
+
+  const activeItems = new Set<number>();
+  for (const itemState of state.items) {
+    activeItems.add(itemState.id);
+    let mesh = itemMeshes.get(itemState.id);
+    if (!mesh) {
+      mesh = createGroundedBillboard(
+        itemAssets[itemState.kind], itemState.x, itemState.y, VISUAL_TRUTH_SPRITES.resource, 22,
+        THREE.MathUtils.clamp(0.84 + itemState.amount * 0.045, 0.86, 1.08),
+      );
+      itemMeshes.set(itemState.id, mesh);
+    }
+    const position = toWorld(itemState.x, itemState.y);
+    mesh.position.x = position.x;
+    mesh.position.z = position.z;
+  }
+  for (const [id, mesh] of itemMeshes) mesh.visible = activeItems.has(id);
+
+  const activeTargets = new Set<string>();
+  for (const target of state.targets.filter((candidate) => candidate.discovered && ['iron', 'fungus'].includes(candidate.id))) {
+    activeTargets.add(target.id);
+    if (targetMeshes.has(target.id)) continue;
+    const iron = target.id === 'iron';
+    targetMeshes.set(target.id, createGroundedBillboard(
+      iron ? 'assets/generated/resources-v2/iron-vein.png' : 'assets/generated/resources-v2/fungus-cluster.png',
+      target.x,
+      target.y,
+      iron ? VISUAL_TRUTH_SPRITES.roomProp : VISUAL_TRUTH_SPRITES.fungusMedium,
+      16,
+      iron ? 1.2 : 1.45,
+    ));
+  }
+  for (const [id, mesh] of targetMeshes) mesh.visible = activeTargets.has(id);
+}
+
+scene.add(new THREE.HemisphereLight(0x91b2ce, 0x07101c, 0.72));
+scene.add(new THREE.AmbientLight(0x26354b, 0.22));
+
+const keyLight = new THREE.DirectionalLight(0xffe0ae, 3.25);
+keyLight.position.set(-10, 28, 12);
 keyLight.castShadow = true;
-keyLight.shadow.mapSize.set(1024, 1024);
-keyLight.shadow.camera.left = -23;
-keyLight.shadow.camera.right = 23;
-keyLight.shadow.camera.top = 15;
-keyLight.shadow.camera.bottom = -15;
+const shadowMapSize = window.innerWidth < 900 ? 512 : 1024;
+keyLight.shadow.mapSize.set(shadowMapSize, shadowMapSize);
+const shadowExtent = campaignEvaluationMode ? 34 : 23;
+keyLight.shadow.camera.left = -shadowExtent;
+keyLight.shadow.camera.right = shadowExtent;
+keyLight.shadow.camera.top = shadowExtent * 0.72;
+keyLight.shadow.camera.bottom = -shadowExtent * 0.72;
 keyLight.shadow.bias = -0.0004;
 scene.add(keyLight, keyLight.target);
 
-const heartWorld = mapToWorld(HEART_TILE.x, HEART_TILE.y);
-const heartLight = new THREE.PointLight(0xffaa45, 40, 13, 1.65);
+const heartWorld = toWorld(HEART_TILE.x, HEART_TILE.y);
+const heartLight = new THREE.PointLight(0xffaa45, 28, 12, 1.7);
 heartLight.position.set(heartWorld.x, 4.1, heartWorld.z);
 scene.add(heartLight);
 
-const grottoWorld = mapToWorld(FUNGUS_TILE.x, FUNGUS_TILE.y);
-const grottoLight = new THREE.PointLight(0x58e3bf, 46, 13, 1.62);
+const grottoWorld = toWorld(FUNGUS_TILE.x, FUNGUS_TILE.y);
+const grottoLight = new THREE.PointLight(0x58e3bf, 30, 12, 1.7);
 grottoLight.position.set(grottoWorld.x, 4.2, grottoWorld.z);
 scene.add(grottoLight);
 
 const ui = document.createElement('div');
-ui.className = 'integration-ui';
-ui.innerHTML = `
-  <div class="integration-badge"><i></i> Spatial Renderer V2 · echte Simulation</div>
+ui.className = `integration-ui${campaignEvaluationMode ? ' is-campaign-evaluation' : ''}`;
+ui.innerHTML = campaignEvaluationMode ? `
+  <div class="integration-badge"><i></i> Spatial Renderer V3 · kanonisches GameScene-State</div>
   <section class="integration-panel" aria-labelledby="integration-title">
-    <span class="integration-kicker">Nächster Integrationsschritt</span>
+    <span class="integration-kicker">Kampagnen-Renderprobe</span>
+    <h2 id="integration-title">Großer Kampagnenstand</h2>
+    <p>Eine schreibgeschützte Großszene im kanonischen Zustandsformat: sechs Räume, Kreuzungen, Ressourcen, Einheiten und Gegner.</p>
+    <div class="integration-status" role="status" aria-live="polite">
+      <span data-status-dot></span>
+      <strong data-status-title>Kanonischen Zustand laden …</strong>
+      <small data-status-detail>Der echte GameScene-Vertrag wird geprüft.</small>
+    </div>
+    <div class="integration-actions">
+      <button type="button" data-action="wall" aria-pressed="true">Südwand an</button>
+    </div>
+    <div class="integration-views" aria-label="Kameraansicht">
+      <button type="button" data-view="overview" aria-pressed="true">Gesamt</button>
+      <button type="button" data-view="heart">Herz</button>
+      <button type="button" data-view="west">Westflügel</button>
+      <button type="button" data-view="east">Ostflügel</button>
+    </div>
+    <footer><span data-draws>– Three-Draws</span><span>Renderfixture · keine zweite Simulation</span></footer>
+  </section>
+` : `
+  <div class="integration-badge"><i></i> Spatial Renderer V3 · echte Simulation</div>
+  <section class="integration-panel" aria-labelledby="integration-title">
+    <span class="integration-kicker">Live-Integration</span>
     <h2 id="integration-title">Realer Grottendurchbruch</h2>
-    <p>Der sichtbare Renderer liest Karte, Arbeiter, Jobs und Grabungsfortschritt aus dem echten laufenden Spiel.</p>
+    <p>Der Renderer liest Karte, Arbeiter, Jobs und Grabungsfortschritt direkt aus dem echten laufenden Spiel.</p>
     <div class="integration-status" role="status" aria-live="polite">
       <span data-status-dot></span>
       <strong data-status-title>Simulation verbinden …</strong>
@@ -567,8 +769,8 @@ ui.innerHTML = `
     <div class="integration-views" aria-label="Kameraansicht">
       <button type="button" data-view="overview" aria-pressed="true">Gesamt</button>
       <button type="button" data-view="heart">Herz</button>
-      <button type="button" data-view="grotto">Grotte</button>
-      <button type="button" data-view="occlusion">Verdeckung</button>
+      <button type="button" data-view="west">West</button>
+      <button type="button" data-view="east">Grotte</button>
     </div>
     <footer><span data-draws>– Three-Draws</span><span>HUD und Mission stammen aus Phaser</span></footer>
   </section>
@@ -588,11 +790,14 @@ function setStatus(title: string, detail: string, state: 'loading' | 'ready' | '
   if (statusDot) statusDot.dataset.state = state;
 }
 
+const heartPreset = toWorld(HEART_TILE.x, HEART_TILE.y);
+const westPreset = toWorld(campaignEvaluationMode ? 17 : 29, campaignEvaluationMode ? 31 : 34);
+const eastPreset = toWorld(campaignEvaluationMode ? 48 : FUNGUS_TILE.x, campaignEvaluationMode ? 27 : FUNGUS_TILE.y);
 const presets: Record<ViewPreset, { x: number; z: number; height: number }> = {
-  overview: { x: -2.4, z: -0.8, height: openingViewHeight() },
-  heart: { x: -7.7, z: -0.8, height: 13.4 },
-  grotto: { x: 10.8, z: 1.1, height: 11.8 },
-  occlusion: { x: -7.7, z: 2.3, height: 10.8 },
+  overview: { x: bedrockCenter.x, z: bedrockCenter.z, height: openingViewHeight() },
+  heart: { x: heartPreset.x, z: heartPreset.z, height: campaignEvaluationMode ? 15.5 : 13.4 },
+  west: { x: westPreset.x, z: westPreset.z, height: campaignEvaluationMode ? 18.5 : 13.2 },
+  east: { x: eastPreset.x, z: eastPreset.z, height: campaignEvaluationMode ? 18.5 : 11.8 },
 };
 
 function updateCamera(): void {
@@ -638,13 +843,14 @@ let simulationRunning = false;
 let simulationAccumulator = 0;
 let connectedFollowupTicks = 0;
 
-function syncState(state: AutomationState): void {
-  const signature = terrainSignature(state);
+function syncState(state: CanonicalGameState): void {
+  const signature = terrainSignature(state, activeProjection);
   if (signature !== latestTerrainSignature) {
     latestTerrainSignature = signature;
     rebuildTerrain(state);
   }
   syncActors(state);
+  syncDressing(state);
 
   const progress = tutorialRouteProgress(state);
   if (progressBar) progressBar.style.width = `${(progress.opened / progress.total) * 100}%`;
@@ -734,7 +940,11 @@ renderer.domElement.addEventListener('pointerup', (event) => {
 });
 renderer.domElement.addEventListener('wheel', (event) => {
   event.preventDefault();
-  viewHeight = THREE.MathUtils.clamp(viewHeight * Math.exp(event.deltaY * 0.001), 9.4, 24);
+  viewHeight = THREE.MathUtils.clamp(
+    viewHeight * Math.exp(event.deltaY * 0.001),
+    9.4,
+    campaignEvaluationMode ? 50 : 24,
+  );
   updateCamera();
 }, { passive: false });
 
@@ -763,7 +973,7 @@ function updateBillboards(delta: number): void {
       const shadow = mesh.userData.shadow as THREE.Mesh | undefined;
       if (shadow) {
         shadow.position.x = mesh.position.x;
-        shadow.position.z = mesh.position.z + 0.12;
+        shadow.position.z = mesh.position.z + 0.055;
       }
     }
     if (mesh.userData.actorState === 'dig') mesh.rotateZ(Math.sin(elapsed * 16) * 0.09);
@@ -816,13 +1026,28 @@ function animate(timestamp: number): void {
 async function initialize(): Promise<void> {
   try {
     bridge = await connectGameSimulation(root);
-    const state = bridge.state();
-    root.dataset.phaserFrameLoop = state.frameLoopRunning ? 'running' : 'sleeping';
-    syncState(state);
-    if (startButton) startButton.disabled = false;
-    setStatus('Echte Simulation verbunden', 'Starte den markierten Durchbruch zur Pilzgrotte.', 'ready');
+    const canonicalState = bridge.state();
+    const renderState = campaignEvaluationMode
+      ? createCampaignEvaluationState(canonicalState)
+      : canonicalState;
+    root.dataset.phaserFrameLoop = canonicalState.frameLoopRunning ? 'running' : 'sleeping';
+    root.dataset.stateContract = `AutomationState-v${canonicalState.version}`;
+    syncState(renderState);
+    if (campaignEvaluationMode) {
+      bridge.frame.classList.add('is-contract-only');
+      root.dataset.rooms = String(renderState.rooms.length);
+      root.dataset.actors = String(renderState.workers.length + renderState.units.length + renderState.enemies.length);
+      setStatus(
+        'Großszene renderbereit',
+        `${renderState.rooms.length} Räume · ${renderState.workers.length} Arbeiter · ${renderState.units.length} Truppen · ${renderState.enemies.length} Gegner`,
+        'ready',
+      );
+    } else {
+      if (startButton) startButton.disabled = false;
+      setStatus('Echte Simulation verbunden', 'Starte den markierten Durchbruch zur Pilzgrotte.', 'ready');
+    }
     root.dataset.ready = 'true';
-    document.documentElement.dataset.prototypeReady = '2';
+    document.documentElement.dataset.prototypeReady = '3';
     document.querySelector('.prototype-loading')?.remove();
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unbekannter Verbindungsfehler.';
@@ -838,6 +1063,7 @@ window.addEventListener('beforeunload', () => {
   renderer.dispose();
 }, { once: true });
 
-setPreset('overview');
+const requestedView = new URLSearchParams(window.location.search).get('view');
+setPreset(requestedView && requestedView in presets ? requestedView as ViewPreset : 'overview');
 requestAnimationFrame(animate);
 void initialize();

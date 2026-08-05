@@ -11,6 +11,12 @@ import {
 import { proofCellKey, type ProofCell } from './GeometryProofModel';
 import { DEFAULT_WORK_PRIORITIES, workerTaskOrder, type WorkPriorities } from '../../core/WorkerPriorities';
 
+/**
+ * @deprecated Presentation prototype only. The real GameScene and its
+ * CanonicalGameState projection own gameplay. Do not add or mirror gameplay
+ * features here; new geometry renderers consume CanonicalGameState instead.
+ */
+
 export const SANDBOX_BOUNDS = { minX: 0, maxX: 47, minZ: 0, maxZ: 31 } as const;
 export const SANDBOX_HEART = { x: 7, z: 25 } as const;
 export const SANDBOX_START = { x: 10, z: 27 } as const;

@@ -45,11 +45,36 @@ Prototyp-/Diagnoseseiten bleiben als getrennte Einstiege erhalten.
 
 Die technischen Hintergründe und der beschlossene Migrationspfad stehen in der
 [Renderer-Entscheidung](docs/GEOMETRY_RENDERER_DECISION.md).
+Der getrennte optische Abnahmestand ist im
+[Style-B Visual-Truth-Gate](docs/STYLE_B_VISUAL_TRUTH_GATE.md) dokumentiert.
+Die verbindliche Zustandsarchitektur, große Kampagnen-Renderprobe und die daraus
+abgeleitete Assetentscheidung stehen in der
+[kanonischen Geometry-Integration](docs/CANONICAL_GEOMETRY_INTEGRATION.md).
 
-#### Technischer Stand der 2.5D-Sandbox
+### Kanonische Kampagnenintegration
 
-Die Sandbox ist derzeit ein **spielbarer Architektur- und Gameplay-Proof**, aber
-noch kein Ersatz für den vollständigen Vertical Slice. Nachgewiesen ist:
+Das bisherige Hauptspiel (`GameScene`) ist der alleinige kanonische
+Spielzustand. Der neue Three.js-Renderer liest seine Karte, Räume, Waren,
+Arbeiter, Truppen, Gegner und Ziele über `AutomationState-v1`; fehlende
+Kampagnenfunktionen werden nicht mehr in einem Sandboxmodell nachgebaut.
+
+- `spatial-prototype.html` verbindet den Renderer live mit der echten
+  Hauptspielsimulation und lässt den Grottendurchbruch mit realen Jobs und
+  realer Wegsuche laufen.
+- `spatial-prototype.html?campaign-evaluation=1` zeigt eine große
+  schreibgeschützte Kampagnen-Renderprobe desselben Zustandsvertrags mit sechs
+  Raumtypen, Kreuzungen, Ressourcen, Einheiten und Gegnern.
+
+![Große kanonische Kampagnen-Renderprobe](docs/screenshots/campaign-evaluation-desktop.png)
+
+Die alte `geometry-sandbox.html` bleibt als historischer Präsentationsproof
+erhalten, ist für neue Spielregeln aber eingefroren.
+
+### Technischer Stand des eingefrorenen 2.5D-Proofs
+
+Die Sandbox ist ein **spielbarer Architektur- und Gameplay-Proof**, aber kein
+zweiter Produktpfad und kein Ersatz für den vollständigen Vertical Slice.
+Nachgewiesen ist:
 
 - echte Boden- und Wandgeometrie wird aus offenen Feldern erzeugt; Geraden,
   Innen-/Außenecken, T-Stücke und Kreuzungen benötigen keine überlappenden
@@ -154,22 +179,21 @@ auf Mockup-Niveau. Der verbleibende Abstand ist damit vor allem eine Frage von
 konsistentem Asset-Maßstab, Materialtiefe und Szenenkomposition – nicht erneut
 das alte Ecken-/Kantenproblem des Renderers.
 
-Die größten Hebel für Mockup-Nähe wären, in dieser Reihenfolge:
+Die große kanonische Kampagnenprobe zeigt inzwischen genauer, welche Hebel für
+Mockup-Nähe verbleiben:
 
-1. eine kleine, konsistente modulare Wand- und Felsfamilie für die neue Kamera
-   (Sockel, Wandkörper, Kappe, Pfeiler, Türschwelle und 3–5 Materialvarianten);
-2. organische Felsränder und Böden mit Übergangsblends, Decals, Geröll,
-   Pilzbewuchs und gezielter Variation statt großer sichtbarer Farbflächen;
-3. Dungeon-Herz und zentrale Raumausstattung als perspektivisch passende
-   2.5D-Sprites oder einfache 3D-Modelle in einheitlichem Maßstab;
-4. kontrollierte Beleuchtung mit warmen Raumlichtern, kühlem Fels, Kontakt-
-   und Tiefenschatten sowie besser abgestimmter Kamera und Wandhöhe;
-5. vollständige Arbeiter-, Grab-, Bau- und Produktionsanimationen mit Staub,
-   Splittern, Licht- und Audiofeedback.
+1. modulare Dressingsets und Bodendecals für alle sechs Raumtypen;
+2. regionale Rand-, Geröll- und Decalsets für Eisenkammer, Zwergenposten und
+   Schrein;
+3. die verbleibenden 64-Pixel-Truppen und Gegner auf die Detailstufe der neuen
+   96-Pixel-Figuren bringen;
+4. Grab-, Bau-, Produktions- und Kampfeffekte sowie wenige lokale
+   Atmosphäreninseln;
+5. finales HUD-Icon- und Typografieset.
 
-Damit ist der technische Weg weiterhin sinnvoll, die sichtbare Qualität muss
-aber durch eine gezielt für diesen Renderer produzierte Assetfamilie entstehen;
-die alten Top-down-Komplettbilder allein können diesen Schritt nicht leisten.
+Die vorhandenen hellgrauen Wandflächen sind dafür bereits geeignet. Eine neue
+Wandfamilie oder längere/stärkere Schatten sind derzeit ausdrücklich kein
+priorisierter Assetbedarf.
 
 ## Vision
 
@@ -336,6 +360,7 @@ Bei jedem Push auf `main` installiert der GitHub-Actions-Workflow die Abhängigk
 - [Imagegen-Log](docs/IMAGEGEN_LOG.md) – dokumentierte Generierungen und lokale Aufbereitung
 - [Visual Style B](docs/VISUAL_STYLE_B.md) – Style Bible, Produktionsregeln und Freigabekriterien
 - [Renderer-Entscheidung](docs/GEOMETRY_RENDERER_DECISION.md) – Wandproblematik, Testergebnis und 2.5D-Migrationspfad
+- [Laufender Hollow-Audit](docs/HOLLOW_COVENANT_AUDIT.md) – geprüfter Ist-Stand, umgesetzte Auditpunkte und offene Architekturentscheidungen
 
 ## Bewusste Grenzen des Vertical Slice
 
